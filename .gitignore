@@ -1,0 +1,25 @@
+# Python
+__pycache__/
+*.py[cod]
+venv/
+env/
+
+# Temp / working backups
+*.bak
+*.bak-*
+_bak_*/
+_wb_*
+backups/
+
+# Packaged backups
+*.zip
+
+# Runtime data (ephemeral session state)
+data/sessions/
+data/state.json
+
+# Editor / OS
+.vscode/
+.idea/
+Thumbs.db
+.DS_Store

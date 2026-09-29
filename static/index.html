@@ -1,0 +1,941 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ST-Lite 沙盘</title>
+<style>
+  :root{
+    --bg:#f6f6f4;
+    --surface:#ffffff;
+    --surface-2:#fbfbfa;
+    --ink:#1c1d1f;
+    --ink-2:#43464b;
+    --muted:#8b9098;
+    --line:#ecebe7;
+    --line-2:#f3f2ef;
+    --accent:#a9624a;
+    --accent-strong:#8f4f3a;
+    --accent-soft:#f7ece8;
+    --pos:#1f7a5c;
+    --pos-soft:#e7f4ee;
+    --warn:#9a6a16;
+    --warn-soft:#faf3e3;
+    --danger:#b23b3b;
+    --danger-soft:#fbecec;
+    --radius:14px;
+    --shadow:0 1px 2px rgba(20,20,20,.04), 0 8px 24px rgba(20,20,20,.05);
+    --topbar-h:58px;
+  }
+  *{ box-sizing:border-box; }
+  html,body{ height:100%; }
+  body{
+    margin:0;
+    font:15px/1.7 system-ui,-apple-system,"Segoe UI","Microsoft YaHei",sans-serif;
+    background:var(--bg); color:var(--ink);
+    -webkit-font-smoothing:antialiased;
+  }
+
+  /* ---------- 通用控件 ---------- */
+  select, input, textarea, button{
+    font:inherit; color:var(--ink);
+    border:1px solid var(--line); border-radius:10px;
+    background:var(--surface); padding:9px 12px;
+    transition:border-color .15s, box-shadow .15s, background .15s;
+  }
+  select:focus, input:focus, textarea:focus{
+    outline:none; border-color:var(--accent);
+    box-shadow:0 0 0 3px var(--accent-soft);
+  }
+  textarea{ resize:none; line-height:1.6; }
+  .field{ width:100%; }
+  button{ cursor:pointer; }
+  button:disabled{ opacity:.5; cursor:default; }
+
+  .btn{ border:1px solid var(--line); background:var(--surface); color:var(--ink-2);
+        border-radius:10px; padding:9px 16px; font-weight:500; }
+  .btn:hover:not(:disabled){ background:var(--surface-2); border-color:#dedcd6; }
+  .btn-primary{ background:var(--accent); border-color:var(--accent); color:#fff; }
+  .btn-primary:hover:not(:disabled){ background:var(--accent-strong); border-color:var(--accent-strong); }
+  .btn-danger{ background:#fff; border-color:#e0b4b0; color:#d6453e; }
+  .btn-danger:hover:not(:disabled){ background:#fdf5f4; border-color:#d6453e; }
+  .btn-sm{ padding:5px 12px; font-size:13px; }
+
+  .tag{ font-size:12px; padding:4px 11px; border-radius:999px;
+        background:var(--surface-2); color:var(--muted); border:1px solid var(--line);
+        letter-spacing:.02em; }
+  .tag.on{ background:var(--pos-soft); color:var(--pos); border-color:#bfe3d3; }
+  .chip{ font-size:12.5px; padding:4px 12px; border-radius:999px;
+         background:var(--accent-soft); color:var(--accent-strong); border:1px solid #ecd9d1; }
+  .spacer{ flex:1; }
+
+  /* ---------- 顶栏 ---------- */
+  header{
+    position:fixed; top:0; left:0; right:0; z-index:50;
+    display:flex; gap:14px; align-items:center; flex-wrap:wrap;
+    height:var(--topbar-h); padding:0 22px;
+    background:rgba(255,255,255,.86); -webkit-backdrop-filter:blur(8px); backdrop-filter:blur(8px);
+    border-bottom:1px solid var(--line);
+  }
+  .brand{ display:flex; align-items:baseline; gap:9px; }
+  .brand b{ font-size:16px; font-weight:650; letter-spacing:.01em; }
+  .brand span{ font-size:12.5px; color:var(--muted); letter-spacing:.06em; }
+
+  /* ---------- 布局 ---------- */
+  main{ max-width:1040px; margin:0 auto; padding:calc(var(--topbar-h) + 22px) 22px 160px; }
+  .grid{ display:grid; grid-template-columns:320px 1fr; gap:22px; align-items:start; }
+  .side{ position:sticky; top:calc(var(--topbar-h) + 16px); display:flex; flex-direction:column; gap:14px; }
+
+  .panel{ background:var(--surface); border:1px solid var(--line);
+          border-radius:var(--radius); padding:16px 18px; box-shadow:var(--shadow); }
+  .panel h3{ margin:0 0 10px; font-size:12.5px; font-weight:600; color:var(--muted);
+             letter-spacing:.08em; text-transform:none; }
+
+  .chips{ display:flex; gap:8px; flex-wrap:wrap; }
+  .scene-line{ font-size:14px; color:var(--ink-2); margin-top:8px; line-height:1.6; }
+  .rel-row,.sec-row{ font-size:13.5px; padding:7px 0; border-bottom:1px dashed var(--line-2); color:var(--ink-2); }
+  .rel-row:last-child,.sec-row:last-child{ border-bottom:none; }
+  .sec-state{ font-weight:600; }
+  .sec-state.latent{ color:var(--muted); }
+  .sec-state.exposed{ color:var(--warn); }
+  .sec-state.full{ color:var(--danger); }
+
+  /* ---------- 对话 ---------- */
+  .stage{ display:flex; flex-direction:column; min-height:60vh; }
+  .log{ display:flex; flex-direction:column; gap:16px; padding-top:4px; }
+  .msg{ max-width:80%; padding:13px 16px; border-radius:16px; line-height:1.7;
+        white-space:pre-wrap; word-break:break-word; box-shadow:0 1px 2px rgba(20,20,20,.04); }
+  .msg .who{ font-size:11.5px; color:var(--muted); margin-bottom:5px; letter-spacing:.04em; }
+  .user{ align-self:flex-end; background:var(--accent-soft); border:1px solid #ecd9d1; }
+  .char{ align-self:flex-start; background:var(--surface); border:1px solid var(--line); }
+  .sys{ align-self:center; max-width:90%; text-align:center; font-size:12.5px; color:var(--muted);
+        background:transparent; border:1px dashed var(--line); border-radius:999px;
+        padding:6px 16px; letter-spacing:.02em; box-shadow:none; }
+
+  #bar{ position:fixed; left:0; right:0; bottom:0; z-index:30;
+        display:flex; justify-content:center; gap:10px; align-items:flex-end;
+        padding:12px 22px; background:rgba(246,246,244,.86);
+        -webkit-backdrop-filter:blur(8px); backdrop-filter:blur(8px);
+        border-top:1px solid var(--line); }
+  #bar-inner{ width:100%; max-width:1040px; display:flex; gap:10px; align-items:flex-end; }
+  #input{ flex:1; height:46px; max-height:160px; }
+  #status{ font-size:12.5px; color:var(--muted); min-height:18px; padding:4px 2px 0; }
+
+  /* ---------- 开场（setup） ---------- */
+  .hero{ min-height:100vh; display:flex; align-items:center; justify-content:center; padding:calc(var(--topbar-h) + 24px) 24px 24px; }
+  .card{ width:100%; max-width:520px; background:var(--surface); border:1px solid var(--line);
+         border-radius:20px; padding:30px 32px; box-shadow:var(--shadow); }
+  .card .eyebrow{ font-size:12px; color:var(--accent); letter-spacing:.14em; font-weight:600; }
+  .card h2{ margin:8px 0 6px; font-size:23px; font-weight:650; letter-spacing:.01em; }
+  .card .lead{ margin:0 0 22px; font-size:14px; color:var(--muted); line-height:1.6; }
+  .form-label{ display:block; margin:16px 0 7px; font-size:13px; color:var(--ink-2); font-weight:500; }
+  .npcs{ display:flex; gap:10px 18px; flex-wrap:wrap; }
+  .npcs label{ display:flex; align-items:center; gap:7px; font-size:14px; color:var(--ink-2); cursor:pointer; }
+  .npcs input{ width:16px; height:16px; accent-color:var(--accent); }
+  .actions{ margin-top:24px; display:flex; justify-content:flex-end; }
+  .setup-status{ font-size:12.5px; color:var(--muted); margin-top:12px; }
+
+  /* ---------- 弹窗 ---------- */
+  .hide{ display:none; }
+  .modal{ position:fixed; inset:0; background:rgba(28,29,31,.42); display:flex;
+          align-items:center; justify-content:center; z-index:60; padding:20px; }
+  .modal.hide{ display:none; }
+  .modal-box{ background:var(--surface); border:1px solid var(--line); border-radius:18px;
+              padding:24px 26px; width:480px; max-width:94vw; max-height:92vh; overflow:auto;
+              box-shadow:0 20px 60px rgba(20,20,20,.22); }
+  .modal-box h3{ margin:0; font-size:18px; font-weight:650; }
+  .modal-box .sub{ font-size:13px; color:var(--muted); margin:6px 0 18px; line-height:1.6; }
+  .modal-box label{ display:block; margin:14px 0 6px; font-size:13px; color:var(--ink-2); font-weight:500; }
+  .modal-box .row{ display:flex; gap:10px; flex-wrap:wrap; align-items:center; }
+  .modal-box .row .field{ flex:1; min-width:90px; }
+  .modal-foot{ display:flex; gap:10px; justify-content:flex-end; margin-top:22px; }
+  .cfg-msg{ font-size:12.5px; color:var(--muted); min-height:18px; margin-top:12px; }
+  .sys-sec{ margin:22px 0 8px; font-size:13px; font-weight:600; color:var(--muted); letter-spacing:.08em; }
+  .sys-sec:first-of-type{ margin-top:6px; }
+
+  /* ---------- 响应式 ---------- */
+  @media (max-width:880px){
+    :root{ --topbar-h:104px; }
+    .grid{ grid-template-columns:1fr; }
+    .side{ position:static; }
+    main{ padding:calc(var(--topbar-h) + 16px) 14px 150px; }
+    header{ height:auto; padding:10px 14px; }
+  }
+  /* 初始化管理面板（角色库 / 世界书，参考酒馆 Character / Lorebook） */
+  .modal-box.wide{ width:min(900px, 94vw); }
+  .mgr{ display:grid; grid-template-columns:220px 1fr; gap:18px; margin-top:6px; }
+  .mgr-list{ max-height:62vh; overflow:auto; border-right:1px solid var(--line); padding-right:8px; }
+  .mgr-item{ padding:9px 11px; border-radius:9px; cursor:pointer; font-size:14px; color:var(--ink-2); }
+  .mgr-item:hover{ background:var(--accent-soft); }
+  .mgr-item.active{ background:var(--accent-soft); font-weight:600; color:var(--ink); }
+  .mgr-form{ max-height:62vh; overflow:auto; padding-right:6px; }
+  .entry{ border:1px solid var(--line); border-radius:11px; padding:13px; margin-bottom:11px; background:var(--surface); }
+  .entry .row{ display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin-bottom:8px; }
+  .field.sm{ max-width:130px; }
+  textarea.field{ min-height:58px; resize:vertical; line-height:1.5; }
+  .req{ color:#d6453e; font-weight:600; }
+  .opt-group{ margin:10px 0 4px; border:1px solid var(--line); border-radius:11px; padding:10px 12px; background:var(--surface); }
+  .opt-group > summary{ cursor:pointer; font-size:13.5px; font-weight:600; color:var(--ink-2); user-select:none; }
+  .opt-group > summary:hover{ color:var(--ink); }
+  .opt-group[open] summary{ margin-bottom:10px; }
+  /* 世界书条目拖拽排序 */
+  .e-grip{ cursor:grab; color:var(--muted); font-size:18px; line-height:1; padding:2px 7px;
+           user-select:none; border-radius:7px; align-self:flex-start; }
+  .e-grip:hover{ background:var(--surface-2); color:var(--ink-2); }
+  .e-grip:active{ cursor:grabbing; }
+  .entry.dragging{ opacity:.4; }
+  .entry.drop-before{ border-top:2px solid var(--accent); }
+  .entry.drop-after{ border-bottom:2px solid var(--accent); }
+  /* 条目展开/收起 */
+  .e-toggle{ font-size:12px; padding:2px 9px; line-height:1; min-width:30px; }
+  .e-summary{ flex:1 1 120px; min-width:60px; max-width:100%;
+              font-size:12.5px; color:var(--ink-2); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .e-detail[hidden]{ display:none; }
+  /* 秘密条目视觉区分 + 条件字段 */
+  .entry.secret{ border-color:#e0b4b0; background:#fdf5f4; }
+  .badge-secret{ font-size:11px; font-weight:600; color:#fff; background:#d6453e; border-radius:6px; padding:1px 7px; letter-spacing:.5px; }
+  .badge-order{ font-size:11px; color:var(--muted); margin-left:6px; }
+  .secret-fields{ margin-top:8px; padding-top:8px; border-top:1px dashed var(--line); }
+  .secret-fields[hidden]{ display:none; }
+  /* 命中预览 */
+  #w-test{ min-height:54px; }
+  .hit-row{ border:1px solid var(--line); border-radius:9px; padding:8px 10px; margin-bottom:7px; background:var(--surface); font-size:13px; line-height:1.5; }
+  .hit-row .tag{ font-size:11px; font-weight:600; border-radius:6px; padding:1px 6px; margin-right:6px; }
+  .hit-row .tag.lore{ color:#1f6f54; background:#e3f3ec; }
+  .hit-row .tag.sec{ color:#fff; background:#d6453e; }
+  .hit-empty{ font-size:12.5px; color:var(--muted); }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="brand"><b>ST-Lite</b><span>关系沙盘</span></div>
+  <span class="tag" id="round-tag">回合 –</span>
+  <span class="tag" id="scale-tag">尺度 –</span>
+  <span class="spacer"></span>
+  <button id="open-chars" class="btn btn-sm">角色库</button>
+  <button id="open-worlds" class="btn btn-sm">世界书</button>
+  <button id="open-system" class="btn btn-sm">系统设置</button>
+</header>
+
+<!-- 系统设置（统一收拢系统级选项：NSFW 开关 + 后端设置） -->
+<div id="sys-modal" class="modal hide">
+  <div class="modal-box wide">
+    <h3>系统设置</h3>
+    <div class="sub">系统级选项统一在此管理。NSFW 与成年确认均为系统级设置。</div>
+
+    <h4 class="sys-sec">内容</h4>
+    <label style="display:flex;gap:10px;align-items:center;font-size:14px;color:var(--ink-2);font-weight:500;cursor:pointer;">
+      <input type="checkbox" id="sys-adult" style="width:18px;height:18px;accent-color:var(--accent);"> 确认已成年（开启 NSFW 内容的前提）
+    </label>
+    <label style="display:flex;gap:10px;align-items:center;font-size:14px;color:var(--ink-2);font-weight:500;cursor:pointer;">
+      <input type="checkbox" id="sys-nsfw" style="width:18px;height:18px;accent-color:var(--accent);"> 开启 NSFW 内容
+    </label>
+    <p class="sub" style="margin:10px 0 0;line-height:1.6;">开启后，已确认成年的会话会按角色间的机会等级推进亲密内容；关闭则始终受限。该设置存于 config.json，不受「重置」影响。</p>
+
+    <h4 class="sys-sec">后端</h4>
+    <label>预设</label>
+    <select id="cfg-preset" class="field">
+      <option value="local">本地 Llama.cpp（默认）</option>
+      <option value="silicon">HY4 Preview（SiliconFlow）</option>
+      <option value="custom">自定义</option>
+    </select>
+    <label>Base URL</label>
+    <input id="cfg-base" class="field" placeholder="http://127.0.0.1:1234/v1">
+    <label>API Key（本地可留空）</label>
+    <input id="cfg-key" class="field" placeholder="sk-...">
+    <label>模型
+      <button id="cfg-test" class="btn btn-sm" style="float:right;">测试连接</button>
+    </label>
+    <select id="cfg-model" class="field"></select>
+    <label>采样参数</label>
+    <div class="row">
+      <span style="font-size:12.5px;color:var(--muted);">温度</span>
+      <input id="cfg-temp" class="field" type="number" step="0.05" style="max-width:110px">
+      <span style="font-size:12.5px;color:var(--muted);">top_p</span>
+      <input id="cfg-topp" class="field" type="number" step="0.05" style="max-width:110px">
+      <span style="font-size:12.5px;color:var(--muted);">max_tokens</span>
+      <input id="cfg-maxtok" class="field" type="number" step="64" style="max-width:120px">
+      <label style="margin:0;display:flex;align-items:center;gap:6px;font-size:13px;color:var(--ink-2);font-weight:400;">
+        <input id="cfg-think" type="checkbox"> 启用思考
+      </label>
+    </div>
+
+    <div class="cfg-msg" id="cfg-msg"></div>
+    <div class="modal-foot">
+      <button id="cfg-cancel" class="btn">取消</button>
+      <button id="sys-save" class="btn btn-primary">保存</button>
+    </div>
+  </div>
+</div>
+
+<!-- 角色库（参考酒馆 Character Management） -->
+<div id="char-modal" class="modal hide">
+  <div class="modal-box wide">
+    <h3>角色库</h3>
+    <div class="sub">新建或编辑角色卡，保存后下次开局即可选用。对应酒馆的 Character Management。</div>
+    <div class="mgr">
+      <div>
+        <button id="char-new" class="btn btn-sm">+ 新建角色</button>
+        <div class="mgr-list" id="char-list"></div>
+      </div>
+      <div class="mgr-form">
+        <div class="sub" style="margin-bottom:10px;">带 <span class="req">*</span> 为必填人设，不填推演引擎无法完整发挥；其余为可选，留空由系统自动生成或不参与沙盘推演。</div>
+        <label>角色名 <span class="req">*</span></label>
+        <input id="c-name" class="field">
+        <label>description（身份 / 外貌 / 处境） <span class="req">*</span></label>
+        <textarea id="c-desc" class="field"></textarea>
+        <label>core_desire（核心渴望，推演驱动力） <span class="req">*</span></label>
+        <textarea id="c-desire" class="field"></textarea>
+        <label>core_fear（核心恐惧，越线底线） <span class="req">*</span></label>
+        <textarea id="c-fear" class="field"></textarea>
+
+        <details class="opt-group">
+          <summary>更多字段（可选；留空由系统自动生成 / 沙盘不使用）</summary>
+          <label>world（所属世界，默认 home）</label>
+          <input id="c-world" class="field" placeholder="home">
+          <label>personality（其余性格，可选）</label>
+          <textarea id="c-pers" class="field"></textarea>
+          <label>system_prompt（一般无需改，保存时自动补全）</label>
+          <textarea id="c-sys" class="field"></textarea>
+          <label>scenario（开场处境；沙盘当前不注入推演）</label>
+          <textarea id="c-scen" class="field"></textarea>
+          <label>short_goal（短期目标：开局种子，进入推演后由系统自动演化）</label>
+          <textarea id="c-goal" class="field"></textarea>
+          <label>relations（初始关系 JSON 种子，如 {"林泽宇":"表甥"}；留空系统自动生成）</label>
+          <textarea id="c-rel" class="field"></textarea>
+          <label>mes_example（示例对话，单角色模式用，沙盘不使用）</label>
+          <textarea id="c-ex" class="field"></textarea>
+          <label>first_mes（开场白，沙盘不使用）</label>
+          <textarea id="c-first" class="field"></textarea>
+        </details>
+
+        <div class="modal-foot">
+          <button id="char-delete" class="btn">删除</button>
+          <button id="char-save" class="btn btn-primary">保存</button>
+        </div>
+        <div class="cfg-msg" id="char-msg"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- 世界书（参考酒馆 Lorebook） -->
+<div id="world-modal" class="modal hide">
+  <div class="modal-box wide">
+    <h3>世界书</h3>
+    <div class="sub">管理世界设定与秘密（酒馆的 Lorebook）。保存即整份覆盖写入 data/worlds/&lt;名&gt;.json。</div>
+    <div style="font-size:12px;color:var(--muted);margin:6px 0 4px;line-height:1.6;">
+      两类条目：<b style="color:var(--ink-2);">设定</b>（默认，触发词命中场景/对话才注入 prompt）；
+      <b style="color:#d6453e;">秘密</b>（勾选后<b>不</b>注入 prompt，仅在开局 seed 进该角色的秘密表，按曝光逻辑推进）。
+      顺序自上而下即注入优先级（顶部最高），拖 ⠿ 调整。
+    </div>
+    <div class="row" style="margin:8px 0;gap:10px;flex-wrap:wrap;">
+      <select id="w-name" class="field"></select>
+      <button id="w-new" class="btn btn-sm">+ 新建世界</button>
+      <button id="w-del" class="btn btn-sm btn-danger">删除世界</button>
+      <button id="w-add" class="btn btn-sm">+ 新增条目</button>
+      <button id="w-save" class="btn btn-primary" style="margin-left:auto;">保存整份</button>
+    </div>
+    <div id="w-entries" style="max-height:48vh;overflow:auto;"></div>
+    <div style="margin-top:14px;padding-top:12px;border-top:1px solid var(--line);">
+      <div class="row" style="gap:8px;align-items:flex-end;">
+        <div style="flex:1;">
+          <label style="font-size:12.5px;color:var(--ink-2);">命中预览（粘贴一段场景/对话文本，看哪些条目会触发）</label>
+          <textarea id="w-test" class="field" placeholder="例如：周牧野家的老式自建房，二楼隔音差；林梦雅手机里还留着那段视频"></textarea>
+        </div>
+        <button id="w-test-btn" class="btn btn-sm">测试命中</button>
+      </div>
+      <div id="w-hits" style="margin-top:8px;max-height:22vh;overflow:auto;"></div>
+    </div>
+    <div class="cfg-msg" id="world-msg"></div>
+  </div>
+</div>
+
+<!-- 开场：开启一个世界 -->
+<div id="setup">
+  <div class="hero">
+    <div class="card">
+      <div class="eyebrow">SANDBOX</div>
+      <h2>开启一个世界</h2>
+      <p class="lead">你是外部导演，不登场、不说话。选择同场的角色、设定开场场景，然后注入环境扰动，看这个迷你世界如何运转。</p>
+      <label class="form-label">同场角色（默认全选）</label>
+      <div class="npcs" id="npcs"></div>
+      <label class="form-label">开场场景（可选）</label>
+      <input id="scene" class="field" placeholder="例如：晚饭后，客厅">
+      <div class="actions">
+        <button id="start" class="btn btn-primary">开始</button>
+      </div>
+      <div class="setup-status" id="setup-status"></div>
+    </div>
+  </div>
+</div>
+
+<!-- 沙盘主界面 -->
+<div id="board" class="hide">
+  <main>
+    <div class="grid">
+      <!-- 左侧：世界状态 -->
+      <aside class="side">
+        <div class="panel">
+          <h3>在场角色 / 场景</h3>
+          <div class="chips" id="present"></div>
+          <div class="scene-line" id="scene-line"></div>
+        </div>
+        <div class="panel">
+          <h3>关系</h3>
+        <div id="relations"></div>
+      </div>
+      <div class="panel">
+        <h3>本轮行动</h3>
+        <div id="actions"></div>
+      </div>
+      <div class="panel">
+        <h3>当前意图</h3>
+          <div id="goals"></div>
+        </div>
+        <div class="panel">
+          <h3>行动状态</h3>
+          <div id="action-state"></div>
+        </div>
+        <div class="panel">
+          <h3>秘密</h3>
+          <div id="secrets"></div>
+        </div>
+      </aside>
+
+      <!-- 右侧：对话 -->
+      <section class="stage">
+        <div class="log" id="log"></div>
+        <div id="status"></div>
+      </section>
+    </div>
+  </main>
+  <div id="bar">
+    <div id="bar-inner">
+      <textarea id="input" placeholder="说点什么，回车发送。作为导演注入环境扰动，动作可用 *…* 描写，如 *让林梦雅去厨房*、*天色暗下来开始下雨*"></textarea>
+      <button id="send" class="btn btn-primary">注入扰动</button>
+    </div>
+  </div>
+</div>
+
+<script>
+const log = document.getElementById('log');
+const input = document.getElementById('input');
+const sendBtn = document.getElementById('send');
+const statusEl = document.getElementById('status');
+const scaleTag = document.getElementById('scale-tag');
+const roundTag = document.getElementById('round-tag');
+let SID = '';
+
+async function loadCharacters() {
+  const list = await fetch('/api/characters').then(r => r.json());
+  renderNpcs(list);
+}
+
+function renderNpcs(list) {
+  document.getElementById('npcs').innerHTML = (list || [])
+    .map(n => `<label><input type="checkbox" value="${n}" checked> ${n}</label>`).join('');
+}
+
+async function startSession() {
+  const cast = [...document.querySelectorAll('#npcs input:checked')].map(c => c.value);
+  const scene = document.getElementById('scene').value.trim();
+  const res = await fetch('/api/session/new', {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({cast, scene}),
+  });
+  const data = await res.json();
+  if (data.error) { document.getElementById('setup-status').textContent = data.error; return; }
+  SID = data.session;
+  document.getElementById('setup').classList.add('hide');
+  document.getElementById('board').classList.remove('hide');
+  renderSnapshot(data.snapshot);
+  statusEl.textContent = '世界已开启：' + SID;
+}
+
+function bubble(role, text) {
+  const div = document.createElement('div');
+  div.className = 'msg ' + (role === 'user' ? 'user' : 'char');
+  div.innerHTML = '<div class="who">' + (role === 'user' ? '你' : '在场角色') + '</div>';
+  const body = document.createElement('div');
+  body.textContent = text;
+  div.appendChild(body);
+  log.appendChild(div);
+  window.scrollTo(0, document.body.scrollHeight);
+  return body;
+}
+
+function bubbleSystem(text) {
+  const div = document.createElement('div');
+  div.className = 'msg sys';
+  div.textContent = text;
+  log.appendChild(div);
+  window.scrollTo(0, document.body.scrollHeight);
+}
+
+function renderSnapshot(snap) {
+  roundTag.textContent = '回合 ' + (snap.scene ? snap.scene.round : 0);
+  document.getElementById('present').innerHTML = (snap.present || [])
+    .map(n => `<span class="chip">${n}</span>`).join('');
+  const sc = snap.scene || {};
+  let line = '场景：' + (sc.place || '');
+  if (sc.time) line += '（' + sc.time + '）';
+  if (sc.weather) line += ' ｜ ' + sc.weather;
+  document.getElementById('scene-line').textContent = line;
+
+  document.getElementById('relations').innerHTML = Object.entries(snap.relations || {})
+    .map(([k, v]) => `<div class="rel-row">${k}：${v}</div>`).join('') || '<div class="rel-row">（初始）</div>';
+
+  document.getElementById('actions').innerHTML = Object.entries(snap.actions || {})
+    .map(([k, v]) => `<div class="rel-row">${k}：${v}</div>`).join('') || '<div class="rel-row">（本回合暂无行动）</div>';
+
+  document.getElementById('goals').innerHTML = Object.entries(snap.goals || {})
+    .map(([k, v]) => `<div class="rel-row">${k}：${v || '（待生成）'}</div>`).join('') || '<div class="rel-row">（无）</div>';
+
+  document.getElementById('action-state').innerHTML = Object.entries(snap.action_state || {})
+    .map(([n, v]) => `<div class="rel-row">${n}：${v}</div>`).join('') || '<div class="rel-row">（无）</div>';
+
+  document.getElementById('secrets').innerHTML = (snap.secrets || []).map(s => {
+    const kb = s.known_by || [];
+    const envKnows = kb.includes('环境推手');
+    const knowers = kb.filter(k => k !== '环境推手' && k !== s.owner);
+    const cls = s.state === '潜伏' ? 'latent' : (s.state === '全曝光' ? 'full' : 'exposed');
+    let tag = knowers.length ? '（已知者：' + knowers.join('、') + '）'
+            : (envKnows ? '（环境推手已知）' : '（未揭露）');
+    return `<div class="sec-row">${s.owner}：<span class="sec-state ${cls}">${s.state}</span> ${tag}</div>`;
+  }).join('') || '<div class="sec-row">（无）</div>';
+
+  const dec = snap._lastNsfw;
+  scaleTag.textContent = dec ? (dec.unlocked ? '尺度：开放' : '尺度：受限') : '尺度 –';
+  scaleTag.className = 'tag' + (dec && dec.unlocked ? ' on' : '');
+}
+
+async function send() {
+  const text = input.value.trim();
+  if (!text || sendBtn.disabled) return;
+  input.value = '';
+  sendBtn.disabled = true;
+  statusEl.textContent = '生成中…';
+  bubble('user', text);
+
+  const resp = await fetch('/api/act', {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({session: SID, input: text}),
+  });
+  const reader = resp.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '', node = null, acc = '';
+  while (true) {
+    const {done, value} = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, {stream: true});
+    const parts = buffer.split('\n\n');
+    buffer = parts.pop();
+    for (const part of parts) {
+      const line = part.trim();
+      if (!line.startsWith('data:')) continue;
+      const data = JSON.parse(line.slice(5).trim());
+      if (data.error) { statusEl.textContent = '错误：' + data.error; break; }
+      if (data.delta) {
+        if (!node) node = bubble('assistant', '');
+        acc += data.delta;
+        node.textContent = acc;
+        window.scrollTo(0, document.body.scrollHeight);
+      }
+      if (data.done) {
+        if (data.snapshot) {
+          data.snapshot._lastNsfw = data.nsfw;
+          renderSnapshot(data.snapshot);
+        }
+        if (data.scene_change) {
+          const sc = data.scene_change;
+          let line = '—— 场景切换：' + sc.place + (sc.time ? '（' + sc.time + '）' : '）');
+          if (sc.leave.length) line += ' ｜ ' + sc.leave.join('、') + ' 离开';
+          if (sc.arrive.length) line += ' ｜ ' + sc.arrive.join('、') + ' 到场';
+          bubbleSystem(line);
+          statusEl.textContent = '场景切换：' + sc.place + (sc.time ? '（' + sc.time + '）' : '');
+        }
+        if (data.opportunity && data.opportunity !== '无')
+          statusEl.textContent = '机会等级：' + data.opportunity + ' ｜ ' + (data.nsfw ? data.nsfw.reason : '');
+        else if (!data.scene_change)
+          statusEl.textContent = data.nsfw ? data.nsfw.reason : '完成';
+      }
+    }
+  }
+  sendBtn.disabled = false;
+}
+
+document.getElementById('start').onclick = startSession;
+sendBtn.onclick = send;
+input.addEventListener('keydown', e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } });
+
+// ---- 系统设置（NSFW 开关 + 后端设置，统一入口） ----
+const PRESETS = {
+  local:  { base_url: "http://127.0.0.1:1234/v1", api_key: "sk-local", model: "local" },
+  silicon: { base_url: "https://api.siliconflow.cn/v1", api_key: "REMOVED", model: "tencent/Hy4-preview" },
+  custom: { base_url: "", api_key: "", model: "" },
+};
+const sysModal = document.getElementById('sys-modal');
+const cfgMsg = document.getElementById('cfg-msg');
+
+function cfgFill(p) {
+  document.getElementById('cfg-base').value = p.base_url || '';
+  document.getElementById('cfg-key').value = p.api_key || '';
+  document.getElementById('cfg-model').value = p.model || '';
+}
+
+document.getElementById('open-system').onclick = async () => {
+  const c = await fetch('/api/config').then(r => r.json());
+  document.getElementById('sys-nsfw').checked = !!c.nsfw_enabled;
+  document.getElementById('sys-adult').checked = !!c.adult_confirmed;
+  document.getElementById('cfg-base').value = c.base_url || '';
+  document.getElementById('cfg-key').value = c.api_key || '';
+  document.getElementById('cfg-model').innerHTML = c.model
+    ? `<option>${c.model}</option>` : '<option value="">（未设置）</option>';
+  document.getElementById('cfg-temp').value = c.temperature ?? 0.8;
+  document.getElementById('cfg-topp').value = c.top_p ?? 0.95;
+  document.getElementById('cfg-maxtok').value = c.max_tokens ?? 512;
+  document.getElementById('cfg-think').checked = !!c.enable_thinking;
+  cfgMsg.textContent = '';
+  sysModal.classList.remove('hide');
+};
+document.getElementById('cfg-preset').onchange = e => cfgFill(PRESETS[e.target.value] || {});
+document.getElementById('cfg-cancel').onclick = () => sysModal.classList.add('hide');
+
+document.getElementById('cfg-test').onclick = async () => {
+  cfgMsg.style.color = 'var(--muted)';
+  cfgMsg.textContent = '连接中…';
+  const r = await fetch('/api/config/test', {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({
+      base_url: document.getElementById('cfg-base').value.trim(),
+      api_key: document.getElementById('cfg-key').value.trim(),
+    }),
+  }).then(r => r.json());
+  if (r.ok) {
+    const sel = document.getElementById('cfg-model');
+    sel.innerHTML = r.models.map(m => `<option>${m}</option>`).join('')
+                || '<option value="">（无可用模型）</option>';
+    cfgMsg.style.color = 'var(--pos)';
+    cfgMsg.textContent = '连接成功，找到 ' + r.models.length + ' 个模型';
+  } else {
+    cfgMsg.style.color = 'var(--danger)';
+    cfgMsg.textContent = '连接失败：' + r.error;
+  }
+};
+
+document.getElementById('sys-save').onclick = async () => {
+  const payload = {
+    nsfw_enabled: document.getElementById('sys-nsfw').checked,
+    adult_confirmed: document.getElementById('sys-adult').checked,
+    base_url: document.getElementById('cfg-base').value.trim(),
+    api_key: document.getElementById('cfg-key').value.trim(),
+    model: document.getElementById('cfg-model').value.trim(),
+    temperature: parseFloat(document.getElementById('cfg-temp').value),
+    top_p: parseFloat(document.getElementById('cfg-topp').value),
+    max_tokens: parseInt(document.getElementById('cfg-maxtok').value, 10),
+    enable_thinking: document.getElementById('cfg-think').checked,
+  };
+  const r = await fetch('/api/config', {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify(payload),
+  }).then(r => r.json());
+  cfgMsg.style.color = 'var(--pos)';
+  cfgMsg.textContent = '已保存（即时生效）：NSFW ' + (r.nsfw_enabled ? '开' : '关')
+                       + (r.model ? ' ｜ 模型 ' + r.model : '');
+  setTimeout(() => sysModal.classList.add('hide'), 700);
+};
+
+// ---- 初始化流程：角色库 / 世界书（参考酒馆 Character / Lorebook） ----
+document.querySelectorAll('.modal').forEach(m => m.addEventListener('click', e => {
+  if (e.target === m) m.classList.add('hide');
+}));
+const charModal = document.getElementById('char-modal');
+const worldModal = document.getElementById('world-modal');
+const charMsg = document.getElementById('char-msg');
+const worldMsg = document.getElementById('world-msg');
+
+document.getElementById('open-chars').onclick = () => { charMsg.textContent=''; refreshCharList(); charModal.classList.remove('hide'); };
+document.getElementById('open-worlds').onclick = () => { worldMsg.textContent=''; loadWorldNames(); worldModal.classList.remove('hide'); };
+
+function refreshCharList() {
+  fetch('/api/characters').then(r=>r.json()).then(list=>{
+    const box = document.getElementById('char-list');
+    box.innerHTML = (list||[]).map(n=>`<div class="mgr-item" data-n="${n}">${n}</div>`).join('');
+    box.querySelectorAll('.mgr-item').forEach(el=>el.onclick=()=>loadChar(el.dataset.n));
+  });
+}
+async function loadChar(name) {
+  const c = await fetch('/api/character/'+encodeURIComponent(name)).then(r=>r.json());
+  document.querySelectorAll('#char-list .mgr-item').forEach(el=>el.classList.toggle('active', el.dataset.n===name));
+  document.getElementById('c-name').value = c.name||name;
+  document.getElementById('c-world').value = c.world||'home';
+  document.getElementById('c-sys').value = c.system_prompt||'';
+  document.getElementById('c-desc').value = c.description||'';
+  document.getElementById('c-pers').value = c.personality||'';
+  document.getElementById('c-desire').value = c.core_desire||'';
+  document.getElementById('c-fear').value = c.core_fear||'';
+  document.getElementById('c-scen').value = c.scenario||'';
+  document.getElementById('c-ex').value = c.mes_example||'';
+  document.getElementById('c-first').value = c.first_mes||'';
+  document.getElementById('c-goal').value = c.short_goal||'';
+  document.getElementById('c-rel').value = JSON.stringify(c.relations||{}, null, 0);
+}
+document.getElementById('char-new').onclick = () => {
+  document.querySelectorAll('#char-list .mgr-item').forEach(el=>el.classList.remove('active'));
+  ['c-name','c-world','c-sys','c-desc','c-pers','c-desire','c-fear','c-scen','c-ex','c-first','c-goal','c-rel']
+    .forEach(id=>document.getElementById(id).value='');
+  document.getElementById('c-world').value='home';
+  charMsg.style.color='var(--muted)'; charMsg.textContent='新建模式：填好角色名后保存即创建。';
+};
+document.getElementById('char-save').onclick = async () => {
+  const name = document.getElementById('c-name').value.trim();
+  if (!name) { charMsg.style.color='var(--danger)'; charMsg.textContent='角色名不能为空'; return; }
+  // 必填人设校验：不填无法完整发挥推演引擎
+  const required = [['c-desc','description（身份/外貌/处境）'],['c-desire','核心渴望'],['c-fear','核心恐惧']];
+  for (const [id, label] of required) {
+    if (!document.getElementById(id).value.trim()) {
+      charMsg.style.color='var(--danger)'; charMsg.textContent=label+' 为必填项，请填写'; return;
+    }
+  }
+  let rel = {};
+  try { rel = JSON.parse(document.getElementById('c-rel').value || '{}'); }
+  catch(e) { charMsg.style.color='var(--danger)'; charMsg.textContent='relations 不是合法 JSON'; return; }
+  const payload = {
+    name, world: document.getElementById('c-world').value.trim()||'home',
+    system_prompt: document.getElementById('c-sys').value,
+    description: document.getElementById('c-desc').value,
+    personality: document.getElementById('c-pers').value,
+    core_desire: document.getElementById('c-desire').value,
+    core_fear: document.getElementById('c-fear').value,
+    scenario: document.getElementById('c-scen').value,
+    mes_example: document.getElementById('c-ex').value,
+    first_mes: document.getElementById('c-first').value,
+    short_goal: document.getElementById('c-goal').value,
+    relations: rel,
+  };
+  const r = await fetch('/api/character', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload)}).then(r=>r.json());
+  if (r.ok) { charMsg.style.color='var(--pos)'; charMsg.textContent='已保存：'+name; refreshCharList(); }
+  else { charMsg.style.color='var(--danger)'; charMsg.textContent='保存失败：'+r.error; }
+};
+document.getElementById('char-delete').onclick = async () => {
+  const name = document.getElementById('c-name').value.trim();
+  if (!name) return;
+  if (!confirm('确认删除角色「'+name+'」？此操作不可撤销。')) return;
+  const r = await fetch('/api/character/'+encodeURIComponent(name), {method:'DELETE'}).then(r=>r.json());
+  if (r.ok) { charMsg.style.color='var(--pos)'; charMsg.textContent='已删除：'+name; document.getElementById('char-new').onclick(); refreshCharList(); }
+};
+
+// 世界书
+function loadWorldNames() {
+  fetch('/api/worlds').then(r=>r.json()).then(list=>{
+    const sel = document.getElementById('w-name');
+    sel.innerHTML = (list||[]).map(n=>`<option>${n}</option>`).join('') || '<option value="">（无）</option>';
+    if (list && list.length) loadWorld(list[0]);
+    sel.onchange = () => loadWorld(sel.value);
+  });
+}
+async function loadWorld(name) {
+  const d = await fetch('/api/world/'+encodeURIComponent(name)).then(r=>r.json());
+  const entries = (d.entries||[]).slice().sort((a,b)=> (b.priority??0)-(a.priority??0));
+  renderWorldEntries(entries);
+}
+function escHtml(s){ return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+function escAttr(s){ return escHtml(s).replace(/"/g,'&quot;'); }
+function entryCard(e, i, expanded) {
+  const keys = (e.keys||[]).join('、');
+  const on = e.enabled!==false ? 'checked' : '';
+  const sec = e.secret ? 'checked' : '';
+  const raw = (e.content||'').replace(/\s+/g,' ').trim();
+  const summary = (raw ? raw.slice(0,46) : '') + (keys ? '　〔' + keys + '〕' : '');
+  return `<div class="entry${e.secret?' secret':''}" data-i="${i}">
+    <div class="row">
+      <span class="e-grip" draggable="true" title="拖拽排序">⠿</span>
+      <button type="button" class="e-toggle btn btn-sm" title="展开/收起">${expanded?'▾':'▸'}</button>
+      <span class="badge-order">顺序 ${i+1}</span>
+      <span class="badge-secret"${e.secret?'':' hidden'}>秘密</span>
+      <span class="e-summary">${summary ? escHtml(summary) : '<span style="color:var(--muted)">（空白条目，点击 ▸ 展开编辑）</span>'}</span>
+      <label style="margin:0;display:flex;gap:5px;align-items:center;font-size:13px;color:var(--ink-2);font-weight:400;"><input type="checkbox" class="e-enabled" ${on}> 启用</label>
+      <label style="margin:0;display:flex;gap:5px;align-items:center;font-size:13px;color:var(--ink-2);font-weight:400;"><input type="checkbox" class="e-secret" ${sec}> 秘密条目</label>
+      <button class="btn btn-sm e-del" style="margin-left:auto;">删除条目</button>
+    </div>
+    <div class="e-detail"${expanded?'':' hidden'}>
+      <label>触发词 keys（命中场景/对话才注入；逗号、顿号或空格分隔）</label>
+      <input class="field e-keys" value="${escAttr(keys)}">
+      <label>content（设定正文）</label>
+      <textarea class="field e-content">${escHtml(e.content||'')}</textarea>
+      <div class="secret-fields"${e.secret?'':' hidden'}>
+        <label>秘密归属角色 character（开局 seed 进该角色秘密表）</label>
+        <input class="field sm e-char" value="${escAttr(e.character||'')}" placeholder="如 林梦雅">
+        <label>bottom_line（暴露底线，可选）</label>
+        <textarea class="field e-bottom">${escHtml(e.bottom_line||'')}</textarea>
+      </div>
+    </div>
+  </div>`;
+}
+// ---- 世界书条目拖拽排序 ----
+let dragSrc = null;
+function updateOrderBadges() {
+  document.querySelectorAll('#w-entries .entry').forEach((el, idx) => {
+    const b = el.querySelector('.badge-order');
+    if (b) b.textContent = '顺序 ' + (idx + 1);
+  });
+}
+function applySecret(el) {
+  const sec = el.querySelector('.e-secret').checked;
+  el.classList.toggle('secret', sec);
+  el.querySelector('.secret-fields').hidden = !sec;
+  const badge = el.querySelector('.badge-secret');
+  if (badge) badge.hidden = !sec;
+  if (sec) {  // 勾选秘密时自动展开，方便填写归属角色
+    el.querySelector('.e-detail').hidden = false;
+    el.querySelector('.e-toggle').textContent = '▾';
+  }
+}
+function toggleEntry(el) {
+  const detail = el.querySelector('.e-detail');
+  const open = detail.hidden;          // 当前隐藏 -> 要展开
+  detail.hidden = !open;
+  el.querySelector('.e-toggle').textContent = open ? '▾' : '▸';
+}
+function getDragAfterElement(container, y) {
+  const els = [...container.querySelectorAll('.entry:not(.dragging)')];
+  let closest = { offset: -Infinity, element: null };
+  for (const child of els) {
+    const box = child.getBoundingClientRect();
+    const offset = y - box.top - box.height / 2;
+    if (offset < 0 && offset > closest.offset) closest = { offset, element: child };
+  }
+  return closest.element;
+}
+function clearDropMarks() {
+  document.querySelectorAll('#w-entries .entry').forEach(el =>
+    el.classList.remove('drop-before', 'drop-after'));
+}
+function bindGrip(grip) {
+  const card = grip.closest('.entry');
+  grip.addEventListener('dragstart', e => {
+    dragSrc = card;
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/plain', '');
+    e.dataTransfer.setDragImage(card, 20, 20);
+    requestAnimationFrame(() => card.classList.add('dragging'));
+  });
+  grip.addEventListener('dragend', () => {
+    card.classList.remove('dragging');
+    clearDropMarks();
+    dragSrc = null;
+    updateOrderBadges();
+  });
+}
+function makeEntryNode(e, i, expanded) {
+  const tmp = document.createElement('div');
+  tmp.innerHTML = entryCard(e, i, expanded);
+  const node = tmp.firstElementChild;
+  node.querySelector('.e-del').onclick = () => node.remove();
+  node.querySelector('.e-secret').onchange = () => applySecret(node);
+  node.querySelector('.e-toggle').onclick = () => toggleEntry(node);
+  bindGrip(node.querySelector('.e-grip'));
+  return node;
+}
+function renderWorldEntries(entries) {
+  const box = document.getElementById('w-entries');
+  box.innerHTML = '';
+  (entries || []).forEach((e, i) => box.appendChild(makeEntryNode(e, i, false)));  // 已存条目默认收起
+}
+(function bindWorldDnd(){
+  const box = document.getElementById('w-entries');
+  box.addEventListener('dragover', e => {
+    e.preventDefault();
+    if (!dragSrc) return;
+    clearDropMarks();
+    const after = getDragAfterElement(box, e.clientY);
+    if (after == null) {
+      box.appendChild(dragSrc);
+      dragSrc.classList.add('drop-after');
+    } else {
+      box.insertBefore(dragSrc, after);
+      after.classList.add('drop-before');
+    }
+  });
+  box.addEventListener('drop', e => { e.preventDefault(); });
+})();
+document.getElementById('w-new').onclick = () => {
+  const name = (prompt('新世界名（作文件名，建议英文/拼音）：')||'').trim();
+  if (!name) return;
+  const sel = document.getElementById('w-name');
+  if (![...sel.options].some(o=>o.value===name)) {
+    sel.insertAdjacentHTML('beforeend', `<option>${escHtml(name)}</option>`);
+  }
+  sel.value = name;
+  renderWorldEntries([]);
+  document.getElementById('w-hits').innerHTML = '';
+  worldMsg.style.color='var(--muted)'; worldMsg.textContent='新世界，添加条目后保存整份。';
+};
+document.getElementById('w-add').onclick = () => {
+  const box = document.getElementById('w-entries');
+  box.appendChild(makeEntryNode({}, box.children.length, true));  // 新增空白条目默认展开
+  box.scrollTop = box.scrollHeight;
+};
+document.getElementById('w-del').onclick = async () => {
+  const name = document.getElementById('w-name').value.trim();
+  if (!name) { worldMsg.style.color='var(--danger)'; worldMsg.textContent='请先选择要删除的世界'; return; }
+  if (!confirm('确认删除世界「'+name+'」？此操作不可撤销，整份设定与秘密将丢失。')) return;
+  let r = await fetch('/api/world/'+encodeURIComponent(name), {method:'DELETE'}).then(res=>res.json());
+  if (!r.ok && r.referenced) {  // 仍有角色绑定：二次确认后强制删除
+    const list = r.referenced.join('、');
+    if (!confirm('以下角色仍绑定此世界：\n'+list+'\n删除后这些角色开局将失去该世界设定。\n仍要强制删除「'+name+'」？')) return;
+    r = await fetch('/api/world/'+encodeURIComponent(name), {method:'DELETE',
+        headers:{'Content-Type':'application/json'}, body:JSON.stringify({confirm:true})}).then(res=>res.json());
+  }
+  if (!r.ok) { worldMsg.style.color='var(--danger)'; worldMsg.textContent='删除失败：'+(r.error||'未知错误'); return; }
+  worldMsg.style.color='var(--pos)'; worldMsg.textContent='已删除世界：'+name;
+  document.getElementById('w-hits').innerHTML = '';
+  await loadWorldNames();  // 刷新下拉并加载第一个剩余世界
+};
+function collectWorldEntries() {
+  return [...document.querySelectorAll('#w-entries .entry')].map((el, idx) => {
+    const secret = el.querySelector('.e-secret').checked;
+    const o = {
+      keys: el.querySelector('.e-keys').value.split(/[，,、\s]+/).map(s=>s.trim()).filter(Boolean),
+      content: el.querySelector('.e-content').value,
+      priority: 100 - idx * 5,
+      enabled: el.querySelector('.e-enabled').checked,
+      secret,
+    };
+    if (secret) {
+      o.character = el.querySelector('.e-char').value.trim();
+      o.bottom_line = el.querySelector('.e-bottom').value.trim();
+    }
+    return o;
+  });
+}
+document.getElementById('w-save').onclick = async () => {
+  const name = document.getElementById('w-name').value.trim();
+  if (!name) { worldMsg.style.color='var(--danger)'; worldMsg.textContent='请先选择或新建世界'; return; }
+  const entries = collectWorldEntries();
+  const r = await fetch('/api/world/'+encodeURIComponent(name), {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({entries})}).then(r=>r.json());
+  if (r.ok) { worldMsg.style.color='var(--pos)'; worldMsg.textContent='已保存世界：'+name+'（'+entries.length+' 条）'; loadWorld(name); }
+  else { worldMsg.style.color='var(--danger)'; worldMsg.textContent='保存失败：'+r.error; }
+};
+document.getElementById('w-test-btn').onclick = async () => {
+  const name = document.getElementById('w-name').value.trim();
+  if (!name) return;
+  const text = document.getElementById('w-test').value;
+  const entries = collectWorldEntries();
+  const r = await fetch('/api/world/'+encodeURIComponent(name)+'/test', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({entries, text})}).then(r=>r.json());
+  const box = document.getElementById('w-hits');
+  if (!r.hits || !r.hits.length) { box.innerHTML='<div class="hit-empty">无命中（当前文本未触发任何条目）</div>'; return; }
+  box.innerHTML = r.hits.map(h => {
+    const tag = h.secret ? '<span class="tag sec">秘密</span>' : '<span class="tag lore">设定</span>';
+    const who = h.character ? `（${escHtml(h.character)}）` : '';
+    return `<div class="hit-row">${tag}${escHtml((h.keys||[]).join('、'))}${who}<br>${escHtml(h.content)}</div>`;
+  }).join('') + `<div class="hit-empty">共 ${r.hits.length}/${r.total} 条命中（秘密条目命中也不注入 prompt，仅作提醒）</div>`;
+};
+
+loadCharacters();
+refreshState();
+</script>
+</body>
+</html>
