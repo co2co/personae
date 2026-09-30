@@ -292,3 +292,14 @@ my-st/
 - 真正的代码硬引用只有这一处文档文件名，故将其重命名为 ASCII：`世界书使用说明.md` → `engine/worldbook-guide.md`，并同步改 `app.py` 读取、`README.md` / `engine/README.md` 目录树与引用。前端只链 `/docs/worldbook` 路由，不受影响。
 - 效果：文档文件名变为 ASCII，任何解压工具都不会乱码，`/docs/worldbook` 对所有解压器鲁棒。数据文件的中文名在正常 Windows 解压（资源管理器 / 7-Zip）下保持原样，无误；仅用 legacy `unzip` 时显示名会乱码（不影响加载）。
 - 注：此补丁不改引擎运行行为，`VERSION` 仍为 `v0.4`；如需重新打 tag 可升 `v0.4.1`。
+
+## 2026-10-01 版本 v0.4.1（安装指南 + 分发补丁收口）
+
+### 新增用户安装指南
+- 新增 `engine/INSTALL.md`：面向**分发用户**的图文安装指南（系统要求 / 下载解压 / 依赖安装 / 启动 / 配置大模型 / 数据位置 / 常见问题 / 升级）。文件名用 ASCII，避免 legacy `unzip` 把中文名解成乱码（承接上一条教训）。
+- 解压工具提醒写入指南：推荐 Windows 资源管理器「全部解压缩」或 7-Zip，勿用 Git Bash 的 `unzip`。
+- 两份 README 目录树与引用同步加入 `INSTALL.md`；根 README 版本号更正为 v0.4.1。
+
+### 版本收口
+- `VERSION` 升 `v0.4.1`；重新打 tag `v0.4.1`，产出 `my-st-v0.4.1.zip`（`package.py` 按 `engine/VERSION` 自动命名）。
+- v0.4 的两处分发补丁（run.bat/install.bat 位置无关、worldbook-guide.md 改 ASCII）随本次一并收口进 v0.4.1；引擎运行行为未变，纯分发健壮性 + 文档完善。

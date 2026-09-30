@@ -20,6 +20,7 @@ my-st/                      ← 项目根
 │   ├── data/               创作内容（角色卡 / 世界书 / config）
 │   ├── static/index.html   单页前端
 │   ├── run.bat  install.bat  requirements.txt  VERSION
+│   ├── INSTALL.md          安装指南（见 engine/INSTALL.md）
 │   ├── DEVLOG.md           开发日志（架构决策 / 版本记录）
 │   ├── worldbook-guide.md  世界书用户手册（原“世界书使用说明”）
 │   └── README.md           引擎说明（见 engine/README.md）
@@ -64,4 +65,4 @@ python tests/run_playthrough.py     # 不依赖 pytest，直接跑一局走查�
 
 ## 版本
 
-当前版本见 `engine/VERSION`（v0.3）。各版本备份 zip 与提交记录见 `engine/DEVLOG.md`。
+当前版本见 `engine/VERSION`（v0.4.1）。各版本备份 zip 与提交记录见 `engine/DEVLOG.md`。

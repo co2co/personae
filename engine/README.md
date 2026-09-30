@@ -33,12 +33,15 @@ engine/
 ├── run.bat         启动（默认端口 5051；先 install.bat）
 ├── install.bat     建 venv + pip 装 requirements.txt
 ├── requirements.txt  Flask / requests
+├── INSTALL.md        安装指南（面向分发用户，先看这个）
 ├── VERSION         版本号
 ├── DEVLOG.md       开发日志（架构决策 + 版本记录，必读）
 └── worldbook-guide.md  世界书用户手册（含例子与走查）
 ```
 
 ## 运行
+
+**首次部署请先读 `INSTALL.md`（安装指南）。**
 
 ```bash
 cd engine
