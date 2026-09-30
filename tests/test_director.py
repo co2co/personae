@@ -61,3 +61,31 @@ def test_validate_present_empty_present_returns_as_is():
     r = "老周：清点物资。\n林晚：换药。"
     out, v = director.validate_present(r, [], KNOWN)
     assert v is False and out == r
+
+
+# ---- 机会等级辅助判定（确定性，不调 LLM）----
+
+def test_opp_from_secrets_full_when_holder_present():
+    """把柄胁迫 → 满机会：已暴露秘密且持有者在场。"""
+    snap = {"secrets": [{"owner": "高洋", "state": "暴露", "known_by": ["林晚", "阿杰"]}]}
+    assert director._opp_from_secrets(snap, ["林晚", "阿杰"]) == "满机会"
+    # 持有者不在场则无机会
+    assert director._opp_from_secrets(snap, ["苏曼"]) == "无"
+    # 仍潜伏则不触发
+    snap2 = {"secrets": [{"owner": "高洋", "state": "潜伏", "known_by": []}]}
+    assert director._opp_from_secrets(snap2, ["林晚"]) == "无"
+
+
+def test_opp_from_relations_strong():
+    snap = {"relations": {"林晚 → 阿杰": "偷情，肉体关系"}}
+    assert director._opp_from_relations(snap, ["林晚", "阿杰"]) == "满机会"
+    snap2 = {"relations": {"林晚 → 阿杰": "暗恋，心动"}}
+    assert director._opp_from_relations(snap2, ["林晚", "阿杰"]) == "半步"
+
+
+def test_opp_from_history_capped_at_half():
+    """近期身体接触推进只作升温（半步上限），不永久锁满机会。"""
+    hist = [{"role": "assistant", "content": "林晚吻了阿杰，贴近他胸口"}]
+    assert director._opp_from_history(hist) == "半步"
+    hist2 = [{"role": "assistant", "content": "老周清点物资"}]
+    assert director._opp_from_history(hist2) == "无"

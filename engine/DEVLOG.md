@@ -331,3 +331,13 @@ my-st/
 - 将"present 清空导致整段回复被剥空"的引擎修复（scene.apply 安全网 + validate_present 兜底）与走查测试收紧（每轮内容非空 + present 非空断言 + 确定性回归）随本次收口进 v0.4.2。
 - `VERSION` 升 `v0.4.2`；重新打 tag `v0.4.2`，产出 `my-st-v0.4.2.zip`（package.py 按 VERSION 自动命名，27 条目）。旧 `my-st-v0.4.1.zip` 删除，仅保留最新。
 - 引擎运行行为不变；纯健壮性补丁（防 LLM 误填 leave 清空在场名单、防 present 为空时剥光回复）。
+
+## 2026-10-01 测试套件补强：NSFW 支持度验证
+
+- 发现：主走查（末日求生弧）机会等级虽到「满机会」，但扰动指令从不把角色推进到私密情境，引擎即便强令越线也无从落笔；且 `test_playthrough` 从未断言 NSFW，导致 NSFW 支持度完全未被验证（与"空输出被放过"同类盲区）。
+- `tests/test_nsfw.py`（新增，确定性）：锁死 `nsfw.resolve_session` 门控——未确认成年强制受限、满机会=intimate 且提示词含「越线」、override off 压制、override on 不绕过年龄硬门禁。
+- `tests/test_director.py` 补 3 项确定性回归：`_opp_from_secrets`（把柄胁迫→满机会）、`_opp_from_relations`（强/中信号）、`_opp_from_history`（近期身体接触仅升温、半步上限）。
+- `tests/playthrough.py`：新增独立 `NSFW_ARC`（2 人私密脆弱情境，强驱动满机会）+ `NSFW_CAST`/`NSFW_SCENE`；每轮记录 `nsfw` 判定；markdown 增加 `NSFW=解锁/受限` 标记。
+- `tests/test_playthrough.py`：新增 `test_nsfw_arc_produces_intimate_content`（integration）— 断言至少一轮 `intimate=True` 且生成内容含身体亲密接触标记（BODY_MID/BODY_STRONG），并复用以非空的回归护栏。
+- 验证：确定性单测 28/28 通过（2 集成默认跳过）；`pytest -m integration -k nsfw` 真实 LLM 跑通，3 轮均 `NSFW=解锁（满机会）`，生成贴耳/压向/唇贴/搂紧/喘息等强亲密叙事（tests/runs/20261001_031540_NSFW验证.md）。
+- 纯测试改动，`tests/` 不进分发 zip，故不升版本、不重打 zip。
