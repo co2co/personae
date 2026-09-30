@@ -82,9 +82,65 @@ def index():
 
 @app.get("/docs/worldbook")
 def worldbook_doc():
-    """返回世界书使用说明书（Markdown 源文件，供「系统设置」内链在新窗口打开）。"""
-    return send_from_directory(ROOT, "世界书使用说明.md",
-                               mimetype="text/markdown; charset=utf-8")
+    """返回世界书使用说明书的渲染网页（marked.js 渲染 Markdown，带样式；
+    CDN 不可用时回退为纯文本）。"""
+    raw = (ROOT / "世界书使用说明.md").read_text(encoding="utf-8")
+    md_json = json.dumps(raw).replace("</", "<\\/")  # 安全嵌入脚本，避免 </script> 截断
+    html = _WORLD_BOOK_HTML.replace("__MD__", md_json)
+    return Response(html, mimetype="text/html; charset=utf-8")
+
+
+_WORLD_BOOK_HTML = """<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>世界书使用说明 · ST-Lite</title>
+<style>
+  :root { --bg:#0f1115; --panel:#171a21; --ink:#e8eaf0; --muted:#9aa3b2; --accent:#7aa2f7; --line:#262b36; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--ink);
+         font-family: -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif; line-height:1.7; }
+  .wrap { max-width: 880px; margin: 0 auto; padding: 28px 22px 80px; }
+  header { display:flex; align-items:center; justify-content:space-between;
+           padding-bottom:14px; margin-bottom:24px; border-bottom:1px solid var(--line); }
+  header a { color:var(--accent); text-decoration:none; font-size:14px; }
+  header a:hover { text-decoration:underline; }
+  h1 { font-size:26px; margin:.2em 0 .1em; }
+  h2 { font-size:21px; margin:1.8em 0 .6em; padding-top:.4em; border-top:1px solid var(--line); }
+  h3 { font-size:17px; margin:1.4em 0 .5em; color:var(--accent); }
+  p, li { color:#d6dae3; }
+  code { background:#222732; padding:2px 6px; border-radius:4px; font-size:.9em; }
+  pre { background:#11141a; border:1px solid var(--line); border-radius:8px; padding:14px 16px;
+        overflow:auto; }
+  pre code { background:none; padding:0; }
+  table { border-collapse:collapse; width:100%; margin:1em 0; font-size:14px; }
+  th, td { border:1px solid var(--line); padding:8px 10px; text-align:left; }
+  th { background:#1c212b; }
+  blockquote { border-left:3px solid var(--accent); margin:1em 0; padding:.2em 1em;
+               color:var(--muted); background:#151922; }
+  a { color:var(--accent); }
+  hr { border:none; border-top:1px solid var(--line); margin:2em 0; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header><strong>世界书使用说明</strong><a href="/">← 返回沙盘</a></header>
+  <article id="content">加载中…</article>
+</div>
+<script src="https://cdn.jsdelivr.net/npm/marked@12/marked.min.js"></script>
+<script>
+  var md = "__MD__";
+  try {
+    if (window.marked && marked.parse) {
+      document.getElementById('content').innerHTML = marked.parse(md);
+    } else { throw new Error('marked 未加载'); }
+  } catch (e) {
+    document.getElementById('content').textContent = md;
+  }
+</script>
+</body>
+</html>"""
 
 
 # ----------------------------------------------------------------------------
@@ -347,7 +403,6 @@ def act():
         try:
             for chunk in llm.stream(messages, **params):
                 reply_text.append(chunk)
-                yield "data: " + json.dumps({"delta": chunk}, ensure_ascii=False) + "\n\n"
         except Exception as exc:
             yield "data: " + json.dumps({"error": str(exc)}, ensure_ascii=False) + "\n\n"
             return
@@ -355,6 +410,13 @@ def act():
         full = "".join(reply_text)
         result = hooks.emit("message_received", reply=full, snap=snap)
         full = result["reply"]
+        # present 名单校验/后处理：剥离非在场角色（含已离场者、环境推手）的台词块
+        known = store.list_characters()
+        full, present_violation = director.validate_present(full, present, known)
+        # 按行流式回传校验后的文本
+        for ln in full.split("\n"):
+            yield "data: " + json.dumps({"delta": ln + "\n"}, ensure_ascii=False) + "\n\n"
+
         memory.append_chat(sid, {"role": "user", "content": "【导演指令】" + directive})
         memory.append_chat(sid, {"role": "assistant", "content": full})
 
@@ -368,6 +430,7 @@ def act():
         yield "data: " + json.dumps({
             "done": True,
             "reply": full,
+            "present_violation": present_violation,
             "opportunity": brief["opportunity"],
             "nsfw": decision,
             "scene_change": _scene_change_payload(scene_changed, scene_prop, snap)

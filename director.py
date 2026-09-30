@@ -4,6 +4,7 @@
 """
 
 import json
+import re
 
 import memory
 import llm
@@ -220,6 +221,35 @@ def _extract_json(text):
         return json.loads(text[s:e + 1])
     except json.JSONDecodeError:
         return None
+
+
+def validate_present(reply, present, known_names):
+    """后处理：剥离非在场角色的台词块，修掉模型偶发写出已离场角色的出戏问题。
+
+    reply 是"角色名："分段的多说话人叙事。出现在其中的、已知但不在场（含环境推手）的
+    角色台词块（含其续行）会被移除；无说话人的叙述行与在场角色台词保留。
+    返回 (清洗后文本, 是否发生违例)。
+    """
+    if not reply or not known_names:
+        return reply, False
+    # 长名优先，避免短名误匹配长名前缀（如"老周" vs "老周的朋友"）
+    names_sorted = sorted(set(known_names), key=len, reverse=True)
+    pat = re.compile(r"^(?:" + "|".join(re.escape(n) for n in names_sorted) + r")\s*[:：]")
+    out, dropping, violated = [], False, False
+    for ln in reply.split("\n"):
+        m = pat.match(ln)
+        if m:
+            sp = m.group(0).rstrip(" :：")
+            if sp not in present:          # 不在场（含环境推手、已离场角色）
+                dropping, violated = True, True
+                continue
+            dropping = False
+            out.append(ln)
+        else:
+            if dropping:                   # 被剥离角色的续行
+                continue
+            out.append(ln)
+    return "\n".join(out), violated
 
 
 def init_relations(cards_present):

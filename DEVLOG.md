@@ -177,3 +177,36 @@ simon 批准两项：① 说明书补「从零建一个世界书」分步走查�
 ### 打包与提交
 - `VERSION` 升 `v0.2`；git 提交全量改动并打 tag `v0.2`。
 - 打包备份：`my-st-v0.2.zip`，按 `.gitignore` 排除 `venv/`、`__pycache__/*`、`*.zip`、`backups/`、`data/sessions/`、`data/state.json`（仅源码 + 前端 + 配置 + 创作内容 data 角色/世界书/config）。
+
+## 2026-10-01 迭代三方向：recursive 世界书 / present 校验 / 文档渲染+导入兼容
+
+simon 拍板下一轮做 ① recursive 世界书 ② present 名单校验/后处理 ④ 文档渲染+角色卡导入兼容（跳过 ③ 自动化测试套件、⑤ 世界级秘密、⑥ 多模型切换）。
+
+### ① recursive 世界书（#name# 引用拉入依赖条目）
+- world.py：`scan` 新增 recursive 展开——条目 content 内 `#条目名#` 会把同名条目（需带 `name` 字段）自动拉入；BFS + visited（对象 id）防环，避免互相引用死循环。条目新增可选 `name` 字段；docstring 同步更新。
+- 前端 `static/index.html`：entryCard 新增「条目名 name」输入框，collectWorldEntries 收集 `name`（无则 null）。
+- 世界书使用说明.md：新增「§9 递归引用 name + #name#」，含例子与适用场景。
+- 验证：单测通过（递归拉入 / 互相引用防环 / 无 name 老条目向后兼容）。
+
+### ② present 名单校验/后处理（修 R7/R8 模型写出已离场角色）
+- director.py：新增 `validate_present(reply, present, known_names)`，把非在场角色（含已离场者、环境推手）的"角色名："台词块（含续行）剥离，返回 (清洗文本, 是否违例)。names 按长度降序匹配避免短名前缀误命中。
+- prompter.py：`build_session` 输出格式块新增「本轮在场角色：…」明确名单 + 硬禁令（只能写在场角色，严禁写未在场/环境推手）。
+- app.py：`/api/act` 的 events() 改为先缓冲全文 → validate_present 清洗 → 按行流式回传校验后文本 → 存储/reflect → done 载荷新增 `present_violation` 字段（可观测）。
+- 验证：单测通过（正常无违例 / 剥离非在场 / 续行整块移除 / 离场块前叙述行保留）；live act 集成确认 done 含 present_violation、reply 仅含在场角色。
+- 注意：清洗为"整块移除"，若模型在离场角色块后紧接无归属叙述行，该叙述行也可能被一并移除（罕见，因 prompt 已硬禁未在场角色）；属已知小局限。
+
+### ④ /docs/worldbook 渲染成网页 + 角色卡导入兼容性
+- app.py：`/docs/worldbook` 改为返回渲染后的 HTML 页面（marked.js CDN 渲染 Markdown，带暗色样式；CDN 不可用时回退纯文本）。Markdown 经 `json.dumps` + `</` 转义安全嵌入脚本。系统设置面板内链不变。
+- 角色卡导入兼容：前端 `loadChar` 拆出 `fillChar` 并 stash 原始卡 `_charOrig`；`char-save` payload 合并 `_charOrig` 中未识别字段（avatar/alternate_greetings/extensions/tags 等），避免从酒馆社区搬运时丢元数据；`char-new` 重置 `_charOrig`。新增「导入 JSON」按钮 + 隐藏 file input，读取本地 JSON 直接载入编辑器（未识别字段随保存保留）。
+- 验证：docs 路由返回 text/html 且含 marked.min.js / id=content（不再回裸 md）；角色卡 API 往返确认 avatar/extensions/alternate_greetings/tags 均被原样保留。
+
+## 2026-10-01 版本控制 v0.3（打包备份）
+
+### 相较 v0.2 的增量（本次打包覆盖）
+- recursive 世界书：`#条目名#` 引用拉入依赖条目（world.py / 前端 name 字段 / 说明书 §9）。
+- present 名单校验/后处理：director.validate_present 剥离非在场角色台词；prompter 列出在场名单+硬禁；app.act 缓冲→清洗→按行流式→done 含 present_violation（修 R7/R8 模型写已离场角色）。
+- /docs/worldbook 渲染成 marked.js HTML 页；角色卡导入兼容（char-save 保留未识别字段 + 「导入 JSON」按钮）。
+
+### 打包与提交
+- `VERSION` 升 `v0.3`；git 提交全量改动并打 tag `v0.3`。
+- 打包备份：`my-st-v0.3.zip`，按 `.gitignore` 排除 `venv/`、`__pycache__/*`、`*.zip`、`backups/`、`data/sessions/`、`data/state.json`（仅源码 + 前端 + 配置 + 创作内容 data 角色/世界书/config + 说明书）。

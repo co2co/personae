@@ -282,6 +282,8 @@
     <div class="mgr">
       <div>
         <button id="char-new" class="btn btn-sm">+ 新建角色</button>
+        <button id="char-import-btn" class="btn btn-sm">导入 JSON</button>
+        <input id="char-import" type="file" accept=".json,application/json" style="display:none">
         <div class="mgr-list" id="char-list"></div>
       </div>
       <div class="mgr-form">
@@ -673,10 +675,9 @@ function refreshCharList() {
     box.querySelectorAll('.mgr-item').forEach(el=>el.onclick=()=>loadChar(el.dataset.n));
   });
 }
-async function loadChar(name) {
-  const c = await fetch('/api/character/'+encodeURIComponent(name)).then(r=>r.json());
-  document.querySelectorAll('#char-list .mgr-item').forEach(el=>el.classList.toggle('active', el.dataset.n===name));
-  document.getElementById('c-name').value = c.name||name;
+function fillChar(c, name) {
+  document.querySelectorAll('#char-list .mgr-item').forEach(el=>el.classList.toggle('active', !!name && el.dataset.n===name));
+  document.getElementById('c-name').value = c.name||name||'';
   document.getElementById('c-world').value = c.world||'home';
   document.getElementById('c-desc').value = c.description||'';
   document.getElementById('c-pers').value = c.personality||'';
@@ -685,12 +686,36 @@ async function loadChar(name) {
   document.getElementById('c-goal').value = c.short_goal||'';
   document.getElementById('c-rel').value = JSON.stringify(c.relations||{}, null, 0);
 }
+let _charOrig = {};   // 当前编辑角色卡的完整原始对象，保存时用于保留未识别字段
+async function loadChar(name) {
+  const c = await fetch('/api/character/'+encodeURIComponent(name)).then(r=>r.json());
+  _charOrig = c;
+  fillChar(c, name);
+}
 document.getElementById('char-new').onclick = () => {
+  _charOrig = {};
   document.querySelectorAll('#char-list .mgr-item').forEach(el=>el.classList.remove('active'));
   ['c-name','c-world','c-desc','c-pers','c-desire','c-fear','c-goal','c-rel']
     .forEach(id=>document.getElementById(id).value='');
   document.getElementById('c-world').value='home';
   charMsg.style.color='var(--muted)'; charMsg.textContent='新建模式：填好角色名后保存即创建。';
+};
+document.getElementById('char-import-btn').onclick = () => document.getElementById('char-import').click();
+document.getElementById('char-import').onchange = (e) => {
+  const f = e.target.files[0];
+  if (!f) return;
+  const reader = new FileReader();
+  reader.onload = () => {
+    try {
+      const obj = JSON.parse(reader.result);
+      _charOrig = obj;
+      fillChar(obj, obj.name || f.name.replace(/\.json$/i, ''));
+      charMsg.style.color='var(--muted)';
+      charMsg.textContent='已从文件载入：'+(obj.name||f.name)+'。检查人设后点保存即可入库（未识别字段会一并保留）。';
+    } catch(err) { charMsg.style.color='var(--danger)'; charMsg.textContent='JSON 解析失败：'+err.message; }
+  };
+  reader.readAsText(f);
+  e.target.value = '';
 };
 document.getElementById('char-save').onclick = async () => {
   const name = document.getElementById('c-name').value.trim();
@@ -714,6 +739,11 @@ document.getElementById('char-save').onclick = async () => {
     short_goal: document.getElementById('c-goal').value,
     relations: rel,
   };
+  // 保留未识别字段（avatar / alternate_greetings / extensions 等），避免从酒馆社区导入时丢元数据
+  const KNOWN = new Set(['name','world','description','personality','core_desire','core_fear','short_goal','relations']);
+  for (const k of Object.keys(_charOrig)) {
+    if (!KNOWN.has(k)) payload[k] = _charOrig[k];
+  }
   const r = await fetch('/api/character', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload)}).then(r=>r.json());
   if (r.ok) { charMsg.style.color='var(--pos)'; charMsg.textContent='已保存：'+name; refreshCharList(); }
   else { charMsg.style.color='var(--danger)'; charMsg.textContent='保存失败：'+r.error; }
@@ -748,6 +778,7 @@ function entryCard(e, i, expanded) {
   const sec = e.secret ? 'checked' : '';
   const con = e.constant ? 'checked' : '';
   const pos = e.position || 'before';
+  const nm = e.name||'';
   const raw = (e.content||'').replace(/\s+/g,' ').trim();
   const summary = (raw ? raw.slice(0,46) : '') + (keys ? '　〔' + keys + '〕' : '');
   return `<div class="entry${e.secret?' secret':''}" data-i="${i}">
@@ -762,6 +793,8 @@ function entryCard(e, i, expanded) {
       <button class="btn btn-sm e-del" style="margin-left:auto;">删除条目</button>
     </div>
     <div class="e-detail"${expanded?'':' hidden'}>
+      <label>条目名 name（可选；用于 #name# 递归引用其他条目，见下方说明）</label>
+      <input class="field e-name" value="${escAttr(nm)}" placeholder="如 魔法学院">
       <label>触发词 keys（命中场景/对话才注入；逗号、顿号或空格分隔）</label>
       <input class="field e-keys" value="${escAttr(keys)}">
       <label>content（设定正文）</label>
@@ -910,6 +943,7 @@ document.getElementById('w-del').onclick = async () => {
 function collectWorldEntries() {
   return [...document.querySelectorAll('#w-entries .entry')].map((el, idx) => {
     const secret = el.querySelector('.e-secret').checked;
+    const nm = el.querySelector('.e-name').value.trim();
     const o = {
       keys: el.querySelector('.e-keys').value.split(/[，,、\s]+/).map(s=>s.trim()).filter(Boolean),
       content: el.querySelector('.e-content').value,
@@ -918,6 +952,7 @@ function collectWorldEntries() {
       constant: el.querySelector('.e-constant').checked,
       position: el.querySelector('.e-position').value,
       depth: (() => { const v = el.querySelector('.e-depth').value.trim(); return v === '' ? null : (parseInt(v, 10) || null); })(),
+      name: nm || null,
       secret,
     };
     if (secret) {
