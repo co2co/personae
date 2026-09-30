@@ -33,6 +33,15 @@ def test_adult_full_opportunity_must_cross_line():
     assert "越线" in d["prompt"]
 
 
+def test_adult_full_opportunity_explicit_language():
+    # B 方向强化：满机会提示词必须给出露骨的生理描写引导，不容回避
+    d = nsfw.resolve_session({}, True, "满机会")
+    p = d["prompt"]
+    assert any(k in p for k in ("插入", "抽送", "体液", "生殖器", "胸部"))
+    # 同时明确禁止糊弄式收尾
+    assert "门口" in p and "糊弄" in p
+
+
 def test_override_off_suppresses_full():
     d = nsfw.resolve_session({}, True, "满机会", override="off")
     assert d["unlocked"] is False

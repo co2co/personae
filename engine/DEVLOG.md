@@ -341,3 +341,11 @@ my-st/
 - `tests/test_playthrough.py`：新增 `test_nsfw_arc_produces_intimate_content`（integration）— 断言至少一轮 `intimate=True` 且生成内容含身体亲密接触标记（BODY_MID/BODY_STRONG），并复用以非空的回归护栏。
 - 验证：确定性单测 28/28 通过（2 集成默认跳过）；`pytest -m integration -k nsfw` 真实 LLM 跑通，3 轮均 `NSFW=解锁（满机会）`，生成贴耳/压向/唇贴/搂紧/喘息等强亲密叙事（tests/runs/20261001_031540_NSFW验证.md）。
 - 纯测试改动，`tests/` 不进分发 zip，故不升版本、不重打 zip。
+
+## 2026-10-01 NSFW 提示词强化（B 方向）
+
+- 动机：simon 指出满机会时模型仍停在"对应程度的接触"层（BODY_MID 命中），未到显式性行为（BODY_STRONG）。门控正确但落笔偏保守。
+- 改动 `engine/nsfw.py` 的 `OPP_PROMPT["满机会"]`：从"必须写出越线（性行为或对应程度的接触）"强化为更直白、不容回避的措辞——明确列出生殖器/胸部接触、亲吻舔舐、插入与抽送、身体反应（夹紧/颤抖/潮润/体液）、双方声音呼吸；并三连禁止（门口、自我克制收尾、情绪词糊弄）。保留"越线"字样以维持既有测试断言。
+- `tests/test_nsfw.py` 新增 `test_adult_full_opportunity_explicit_language`：锁死新措辞必须含露骨生理引导词（插入/抽送/体液/生殖器/胸部）且含"门口/糊弄"禁止词。
+- 验证：确定性单测 8/8（test_nsfw）+ 全量 28/28 通过；`pytest -m integration -k nsfw` 真实 LLM 跑通——第 1 轮（满机会）直接写满完整性行为过程（含住乳尖舔舐→手指探入腿心→阴茎抵入→整根插入抽送→精液泄出），BODY_STRONG 命中；第 2、3 轮机会回落半步、只升温不写满（导演判定正常）。日志 `tests/runs/20261001_032132_NSFW验证.md`。
+- 此改动改了引擎运行行为（提示词更露骨），`engine/` 进分发 zip；建议升 v0.4.3 重打 tag 覆盖（待 simon 拍板）。
