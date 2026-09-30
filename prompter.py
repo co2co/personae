@@ -4,7 +4,7 @@
     build_session()  多角色沙盘模式（环境推手作为外部导演，不登场）
 
 build_session 的分层：
-    1 世界设定       非秘密的世界书命中
+    1 世界设定       非秘密的世界书命中（before 段=系统层；after 段置历史之后）
     2 在场角色       description + personality + 当前意图 + (知情角色据此行动的)秘密提示
     3 导演指令       声明环境推手不登场、不代写其台词
     4 关系与状态     关系图 / 旧账 / 回合 / 场景
@@ -52,7 +52,7 @@ def parse_examples(raw):
 
 
 def build_session(cards_present, directive, world_hits, snap,
-                  nsfw_prompt, opp_level, history=None, budget=4096, reserve=900):
+                  nsfw_prompt, opp_level, history=None, after_hits=None, budget=4096, reserve=900):
     """多角色沙盘模式（环境推手作为外部导演，不登场）：返回 messages 列表。
 
     cards_present: {名字: 角色卡}（全部为 NPC，环境推手不在其中）
@@ -135,6 +135,10 @@ def build_session(cards_present, directive, world_hits, snap,
     messages = [{"role": "system", "content": fixed}]
     for m in (history or []):
         messages.append(m)
+    if after_hits:
+        # after 位置：插在对话历史之后、导演指令之前，作为独立 system 消息
+        messages.append({"role": "system", "content":
+                         "[世界设定·续]\n" + "\n".join("- " + e["content"] for e in after_hits)})
     if directive:
         messages.append({"role": "user", "content": "【导演指令】" + directive})
     return messages

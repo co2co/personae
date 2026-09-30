@@ -6,6 +6,7 @@
 """
 
 import json
+import shutil
 import uuid
 from pathlib import Path
 
@@ -122,11 +123,6 @@ def append_chat(sid, message):
         f.write(json.dumps(message, ensure_ascii=False) + "\n")
 
 
-def bump_affection(sid, npc, delta):
-    """兼容旧单角色模式的占位；新沙盘不使用好感度，保留以免外部调用报错。"""
-    return None
-
-
 def set_action_state(sid, name, state):
     """更新某角色本轮的行动状态（主动/防御/无行动），供侧栏观察世界运转。"""
     snap = load(sid)
@@ -134,3 +130,40 @@ def set_action_state(sid, name, state):
         snap["action_state"][name] = state
         save(sid, snap)
     return snap.get("action_state", {})
+
+
+def list_sessions():
+    """列举全部会话，返回精简摘要（不加载完整快照内容）。"""
+    out = []
+    if not SESS_DIR.exists():
+        return out
+    for folder in SESS_DIR.iterdir():
+        if not folder.is_dir():
+            continue
+        if not (folder / "snapshot.json").exists():
+            continue
+        sid = folder.name
+        snap = load(sid)
+        if not snap:
+            continue
+        sc = snap.get("scene", {})
+        out.append({
+            "session": sid,
+            "present": snap.get("present", []),
+            "scene": sc.get("place", ""),
+            "round": sc.get("round", 0),
+            "intimacy_phase": snap.get("intimacy_phase", "normal"),
+            "updated": int(folder.stat().st_mtime),
+        })
+    # 最近更新的排在最前
+    out.sort(key=lambda x: x["updated"], reverse=True)
+    return out
+
+
+def delete_session(sid):
+    """删除整局会话（snapshot.json + chat.jsonl + 目录）。不存在返回 False。"""
+    folder = SESS_DIR / sid
+    if not folder.exists() or not folder.is_dir():
+        return False
+    shutil.rmtree(folder)
+    return True

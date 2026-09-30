@@ -2,13 +2,17 @@
 
     python app.py   然后打开 http://127.0.0.1:5000
 
-两套接口并存：
-    单角色（旧）：/api/generate 等
-    多角色沙盘（新）：/api/session/new、/api/act、/api/snapshot
+两类接口：
+    创作管理（角色卡 / 世界书 / 聊天 / 配置）：/api/characters、/api/world、/api/config 等
+    多角色沙盘（核心）：/api/session/new、/api/act、/api/snapshot
+
+注：旧版单角色生成接口（/api/generate、/api/message、/api/state、/api/persona、
+/api/nsfw/confirm、/api/state/reset）已于 2026-09-30 移除，「玩家」机制一并下线，
+成年确认迁为系统设置 adult_confirmed。详见 DEVLOG.md。
 
 生成流程里 NSFW 的位置：
     读角色卡 -> nsfw.resolve* 决定尺度 -> prompter 把尺度说明插进固定段
-    -> 发请求 -> 回写好感度/快照 -> 必要时记旧账
+    -> 发请求 -> 回写快照（关系 / 目标 / 秘密揭露）-> 必要时记旧账
 """
 
 import json
@@ -76,8 +80,15 @@ def index():
     return send_from_directory(ROOT / "static", "index.html")
 
 
+@app.get("/docs/worldbook")
+def worldbook_doc():
+    """返回世界书使用说明书（Markdown 源文件，供「系统设置」内链在新窗口打开）。"""
+    return send_from_directory(ROOT, "世界书使用说明.md",
+                               mimetype="text/markdown; charset=utf-8")
+
+
 # ----------------------------------------------------------------------------
-# 单角色（旧接口，保留）
+# 创作管理：角色卡 / 世界书 / 聊天 / 配置
 # ----------------------------------------------------------------------------
 
 @app.get("/api/characters")
@@ -140,16 +151,20 @@ def save_world_route(name):
 
 @app.post("/api/world/<name>/test")
 def test_world(name):
-    """命中预览：用 world.scan 对给定文本返回会注入的条目（含秘密标记）。
+    """命中预览：用 world.scan 对给定历史返回会注入的条目（含秘密标记）。
 
-    服务两件事：① 编辑器里实时看触发词是否 fire；② 调引擎时核对世界书覆盖。
+    服务两件事：① 编辑器里实时看触发词 / 常量是否 fire；② 调引擎时核对世界书覆盖。
+    history 为文本列表（最近若干条聊天）；也兼容旧式单串 text。
     """
     body = request.get_json(force=True)
     entries = body.get("entries")
     if entries is None:
         entries = store.load_world(name)
-    text = body.get("text", "")
-    hits = world_mod.scan(entries, text, character=None)
+    history = body.get("history")
+    if history is None:
+        history = [body.get("text", "")]
+    directive = body.get("directive", "")
+    hits = world_mod.scan(entries, history, directive=directive, character=None)
     return jsonify({"hits": hits, "total": len(entries)})
 
 
@@ -257,6 +272,28 @@ def get_snapshot():
     return jsonify(snap or {})
 
 
+@app.get("/api/sessions")
+def list_sessions_route():
+    """列举全部会话（玩家侧"剧本管理"入口）：返回 id / 在场 / 场景 / 回合 / 状态。"""
+    return jsonify(memory.list_sessions())
+
+
+@app.delete("/api/session/<sid>")
+def delete_session_route(sid):
+    """删除一局会话（玩家放弃当前剧本）。不存在返回 404。"""
+    if memory.delete_session(sid):
+        return jsonify({"deleted": sid})
+    return jsonify({"error": "会话不存在"}), 404
+
+
+@app.get("/api/session/<sid>/chat")
+def session_chat_route(sid):
+    """返回某局会话的聊天历史（继续剧本时前端渲染旧对话）。不存在返回 404。"""
+    if not (memory.SESS_DIR / sid).exists():
+        return jsonify({"error": "会话不存在"}), 404
+    return jsonify(memory.load_chat(sid))
+
+
 @app.post("/api/act")
 def act():
     body = request.get_json(force=True)
@@ -278,11 +315,12 @@ def act():
     # 世界书：剔除潜伏秘密条目（秘密不进 prompt，只在角色块里按已知状态提示）
     world_name = cards_present[present[0]].get("world") if present else "home"
     entries = store.load_world(world_name)
-    scan_text = directive
-    for m in memory.load_chat(sid)[-RECENT_FOR_SCAN:]:
-        scan_text += "\n" + m.get("content", "")
-    hits_all = world_mod.scan(entries, scan_text, character=None)
+    history = [m.get("content", "") for m in memory.load_chat(sid)[-RECENT_FOR_SCAN:]]
+    hits_all = world_mod.scan(entries, history, directive=directive,
+                             default_depth=RECENT_FOR_SCAN, character=None)
     world_hits = [e for e in hits_all if not e.get("secret")]
+    before_hits = [e for e in world_hits if e.get("position", "before") == "before"]
+    after_hits = [e for e in world_hits if e.get("position", "before") == "after"]
 
     # NSFW：尺度由“成年确认 + 本轮机会等级”驱动（回归原版机制，不再用好感度阈值）
     adult = llm.setting("adult_confirmed")
@@ -291,8 +329,9 @@ def act():
 
     history = memory.load_chat(sid)
     messages = prompter.build_session(
-        cards_present, directive, world_hits, snap,
+        cards_present, directive, before_hits, snap,
         decision["prompt"], brief["opportunity"], history=history,
+        after_hits=after_hits,
         reserve=int(body.get("max_tokens", llm.setting("max_tokens"))) + 200,
     )
     messages = hooks.emit("prompt_ready", messages=messages, snap=snap)["messages"]

@@ -215,6 +215,7 @@
   <span class="spacer"></span>
   <button id="open-chars" class="btn btn-sm">角色库</button>
   <button id="open-worlds" class="btn btn-sm">世界书</button>
+  <button id="open-sessions" class="btn btn-sm">会话</button>
   <button id="open-system" class="btn btn-sm">系统设置</button>
 </header>
 
@@ -223,6 +224,10 @@
   <div class="modal-box wide">
     <h3>系统设置</h3>
     <div class="sub">系统级选项统一在此管理。NSFW 与成年确认均为系统级设置。</div>
+
+    <h4 class="sys-sec">帮助文档</h4>
+    <p class="sub" style="margin:0 0 8px;line-height:1.6;">新手建议先读世界书使用说明，了解触发词、常量、插入位置、扫描深度与秘密等机制及示例。</p>
+    <a href="/docs/worldbook" target="_blank" rel="noopener" class="btn btn-sm" style="text-decoration:none;">打开世界书使用说明（新窗口）</a>
 
     <h4 class="sys-sec">内容</h4>
     <label style="display:flex;gap:10px;align-items:center;font-size:14px;color:var(--ink-2);font-weight:500;cursor:pointer;">
@@ -280,7 +285,7 @@
         <div class="mgr-list" id="char-list"></div>
       </div>
       <div class="mgr-form">
-        <div class="sub" style="margin-bottom:10px;">带 <span class="req">*</span> 为必填人设，不填推演引擎无法完整发挥；其余为可选，留空由系统自动生成或不参与沙盘推演。</div>
+        <div class="sub" style="margin-bottom:10px;">带 <span class="req">*</span> 为必填人设，不填推演引擎无法完整发挥；其余为可选，留空由系统自动生成。</div>
         <label>角色名 <span class="req">*</span></label>
         <input id="c-name" class="field">
         <label>description（身份 / 外貌 / 处境） <span class="req">*</span></label>
@@ -291,23 +296,15 @@
         <textarea id="c-fear" class="field"></textarea>
 
         <details class="opt-group">
-          <summary>更多字段（可选；留空由系统自动生成 / 沙盘不使用）</summary>
-          <label>world（所属世界，默认 home）</label>
+          <summary>更多字段（可选；留空由系统自动生成）</summary>
+          <label>world（所属世界，默认 home；决定开局加载哪份世界书）</label>
           <input id="c-world" class="field" placeholder="home">
-          <label>personality（其余性格，可选）</label>
+          <label>personality（其余性格，可选；注入角色人设块）</label>
           <textarea id="c-pers" class="field"></textarea>
-          <label>system_prompt（一般无需改，保存时自动补全）</label>
-          <textarea id="c-sys" class="field"></textarea>
-          <label>scenario（开场处境；沙盘当前不注入推演）</label>
-          <textarea id="c-scen" class="field"></textarea>
-          <label>short_goal（短期目标：开局种子，进入推演后由系统自动演化）</label>
+          <label>short_goal（短期目标：开局意图种子，进入推演后由系统自动演化）</label>
           <textarea id="c-goal" class="field"></textarea>
           <label>relations（初始关系 JSON 种子，如 {"林泽宇":"表甥"}；留空系统自动生成）</label>
           <textarea id="c-rel" class="field"></textarea>
-          <label>mes_example（示例对话，单角色模式用，沙盘不使用）</label>
-          <textarea id="c-ex" class="field"></textarea>
-          <label>first_mes（开场白，沙盘不使用）</label>
-          <textarea id="c-first" class="field"></textarea>
         </details>
 
         <div class="modal-foot">
@@ -349,6 +346,16 @@
       <div id="w-hits" style="margin-top:8px;max-height:22vh;overflow:auto;"></div>
     </div>
     <div class="cfg-msg" id="world-msg"></div>
+  </div>
+</div>
+
+<!-- 会话管理（剧本管理入口：列出 / 继续 / 放弃） -->
+<div id="session-modal" class="modal hide">
+  <div class="modal-box wide">
+    <h3>会话管理</h3>
+    <div class="sub">列出所有进行中的剧本。可继续推进某一局，或放弃不需要的剧本（仅删除运行时状态，角色卡与世界书保留）。</div>
+    <div id="session-list" style="max-height:60vh;overflow:auto;margin-top:6px;"></div>
+    <div class="cfg-msg" id="session-msg"></div>
   </div>
 </div>
 
@@ -671,20 +678,16 @@ async function loadChar(name) {
   document.querySelectorAll('#char-list .mgr-item').forEach(el=>el.classList.toggle('active', el.dataset.n===name));
   document.getElementById('c-name').value = c.name||name;
   document.getElementById('c-world').value = c.world||'home';
-  document.getElementById('c-sys').value = c.system_prompt||'';
   document.getElementById('c-desc').value = c.description||'';
   document.getElementById('c-pers').value = c.personality||'';
   document.getElementById('c-desire').value = c.core_desire||'';
   document.getElementById('c-fear').value = c.core_fear||'';
-  document.getElementById('c-scen').value = c.scenario||'';
-  document.getElementById('c-ex').value = c.mes_example||'';
-  document.getElementById('c-first').value = c.first_mes||'';
   document.getElementById('c-goal').value = c.short_goal||'';
   document.getElementById('c-rel').value = JSON.stringify(c.relations||{}, null, 0);
 }
 document.getElementById('char-new').onclick = () => {
   document.querySelectorAll('#char-list .mgr-item').forEach(el=>el.classList.remove('active'));
-  ['c-name','c-world','c-sys','c-desc','c-pers','c-desire','c-fear','c-scen','c-ex','c-first','c-goal','c-rel']
+  ['c-name','c-world','c-desc','c-pers','c-desire','c-fear','c-goal','c-rel']
     .forEach(id=>document.getElementById(id).value='');
   document.getElementById('c-world').value='home';
   charMsg.style.color='var(--muted)'; charMsg.textContent='新建模式：填好角色名后保存即创建。';
@@ -704,14 +707,10 @@ document.getElementById('char-save').onclick = async () => {
   catch(e) { charMsg.style.color='var(--danger)'; charMsg.textContent='relations 不是合法 JSON'; return; }
   const payload = {
     name, world: document.getElementById('c-world').value.trim()||'home',
-    system_prompt: document.getElementById('c-sys').value,
     description: document.getElementById('c-desc').value,
     personality: document.getElementById('c-pers').value,
     core_desire: document.getElementById('c-desire').value,
     core_fear: document.getElementById('c-fear').value,
-    scenario: document.getElementById('c-scen').value,
-    mes_example: document.getElementById('c-ex').value,
-    first_mes: document.getElementById('c-first').value,
     short_goal: document.getElementById('c-goal').value,
     relations: rel,
   };
@@ -747,6 +746,8 @@ function entryCard(e, i, expanded) {
   const keys = (e.keys||[]).join('、');
   const on = e.enabled!==false ? 'checked' : '';
   const sec = e.secret ? 'checked' : '';
+  const con = e.constant ? 'checked' : '';
+  const pos = e.position || 'before';
   const raw = (e.content||'').replace(/\s+/g,' ').trim();
   const summary = (raw ? raw.slice(0,46) : '') + (keys ? '　〔' + keys + '〕' : '');
   return `<div class="entry${e.secret?' secret':''}" data-i="${i}">
@@ -765,6 +766,16 @@ function entryCard(e, i, expanded) {
       <input class="field e-keys" value="${escAttr(keys)}">
       <label>content（设定正文）</label>
       <textarea class="field e-content">${escHtml(e.content||'')}</textarea>
+      <div class="adv-fields"${e.secret?' hidden':''}>
+        <label class="inline"><input type="checkbox" class="e-constant" ${con}> 常量条目（不依赖关键词，每轮必注入）</label>
+        <label>插入位置 position（before=系统层/历史前；after=历史之后、指令前）</label>
+        <select class="field e-position">
+          <option value="before"${pos==='before'?' selected':''}>before</option>
+          <option value="after"${pos==='after'?' selected':''}>after</option>
+        </select>
+        <label>扫描深度 depth（留空=默认 4 条；常量条目忽略此项）</label>
+        <input class="field e-depth" type="number" min="1" step="1" value="${escAttr(e.depth??'')}" placeholder="默认 4">
+      </div>
       <div class="secret-fields"${e.secret?'':' hidden'}>
         <label>秘密归属角色 character（开局 seed 进该角色秘密表）</label>
         <input class="field sm e-char" value="${escAttr(e.character||'')}" placeholder="如 林梦雅">
@@ -786,6 +797,8 @@ function applySecret(el) {
   const sec = el.querySelector('.e-secret').checked;
   el.classList.toggle('secret', sec);
   el.querySelector('.secret-fields').hidden = !sec;
+  const adv = el.querySelector('.adv-fields');
+  if (adv) adv.hidden = sec;
   const badge = el.querySelector('.badge-secret');
   if (badge) badge.hidden = !sec;
   if (sec) {  // 勾选秘密时自动展开，方便填写归属角色
@@ -902,6 +915,9 @@ function collectWorldEntries() {
       content: el.querySelector('.e-content').value,
       priority: 100 - idx * 5,
       enabled: el.querySelector('.e-enabled').checked,
+      constant: el.querySelector('.e-constant').checked,
+      position: el.querySelector('.e-position').value,
+      depth: (() => { const v = el.querySelector('.e-depth').value.trim(); return v === '' ? null : (parseInt(v, 10) || null); })(),
       secret,
     };
     if (secret) {
@@ -924,7 +940,7 @@ document.getElementById('w-test-btn').onclick = async () => {
   if (!name) return;
   const text = document.getElementById('w-test').value;
   const entries = collectWorldEntries();
-  const r = await fetch('/api/world/'+encodeURIComponent(name)+'/test', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({entries, text})}).then(r=>r.json());
+  const r = await fetch('/api/world/'+encodeURIComponent(name)+'/test', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({entries, history:[text]})}).then(r=>r.json());
   const box = document.getElementById('w-hits');
   if (!r.hits || !r.hits.length) { box.innerHTML='<div class="hit-empty">无命中（当前文本未触发任何条目）</div>'; return; }
   box.innerHTML = r.hits.map(h => {
@@ -932,6 +948,88 @@ document.getElementById('w-test-btn').onclick = async () => {
     const who = h.character ? `（${escHtml(h.character)}）` : '';
     return `<div class="hit-row">${tag}${escHtml((h.keys||[]).join('、'))}${who}<br>${escHtml(h.content)}</div>`;
   }).join('') + `<div class="hit-empty">共 ${r.hits.length}/${r.total} 条命中（秘密条目命中也不注入 prompt，仅作提醒）</div>`;
+};
+
+// ---- 会话管理（剧本管理入口：列出 / 继续 / 放弃） ----
+const sessionModal = document.getElementById('session-modal');
+const sessionMsg = document.getElementById('session-msg');
+const sessionListEl = document.getElementById('session-list');
+
+async function loadSessions() {
+  const list = await fetch('/api/sessions').then(r => r.json());
+  renderSessions(list);
+}
+function renderSessions(list) {
+  if (!list || !list.length) {
+    sessionListEl.innerHTML = '<div class="hit-empty">暂无进行中的剧本。去「开启一个世界」新建一局。</div>';
+    return;
+  }
+  sessionListEl.innerHTML = list.map(s => {
+    const d = new Date((s.updated || 0) * 1000);
+    const t = isNaN(d) ? '' : d.toLocaleString('zh-CN', {hour12: false});
+    const chips = (s.present || []).map(n => `<span class="chip">${escHtml(n)}</span>`).join('');
+    return `<div class="entry session-item" data-sid="${escAttr(s.session)}">
+      <div class="row" style="justify-content:space-between;align-items:flex-start;gap:14px;">
+        <div style="flex:1;min-width:0;">
+          <div style="font-size:12.5px;color:var(--muted);">会话 ${escHtml(s.session)} ｜ 回合 R${s.round} ｜ 阶段 ${escHtml(s.intimacy_phase)} ｜ ${escHtml(t)}</div>
+          <div class="chips" style="margin-top:7px;">${chips}</div>
+          <div class="scene-line">场景：${escHtml(s.scene || '（未设置）')}</div>
+        </div>
+        <div class="row" style="gap:8px;flex-shrink:0;">
+          <button class="btn btn-sm btn-primary sess-resume" data-sid="${escAttr(s.session)}">继续</button>
+          <button class="btn btn-sm btn-danger sess-del" data-sid="${escAttr(s.session)}">放弃</button>
+        </div>
+      </div>
+    </div>`;
+  }).join('');
+  sessionListEl.querySelectorAll('.sess-resume').forEach(b => b.onclick = () => resumeSession(b.dataset.sid));
+  sessionListEl.querySelectorAll('.sess-del').forEach(b => b.onclick = () => delSession(b.dataset.sid));
+}
+async function resumeSession(sid) {
+  const [snap, chat] = await Promise.all([
+    fetch('/api/snapshot?session=' + encodeURIComponent(sid)).then(r => r.json()),
+    fetch('/api/session/' + encodeURIComponent(sid) + '/chat').then(r => r.json()),
+  ]);
+  if (!snap || !snap.present) {
+    sessionMsg.style.color = 'var(--danger)';
+    sessionMsg.textContent = '会话不存在或已损坏';
+    return;
+  }
+  SID = sid;
+  sessionModal.classList.add('hide');
+  document.getElementById('setup').classList.add('hide');
+  document.getElementById('board').classList.remove('hide');
+  renderSnapshot(snap);
+  // 渲染已有对话，恢复上下文
+  log.innerHTML = '';
+  (chat || []).forEach(m => {
+    if (m.role === 'user') bubble('user', (m.content || '').replace(/^【导演指令】/, ''));
+    else if (m.role === 'assistant') bubble('assistant', m.content || '');
+  });
+  statusEl.textContent = '已继续会话：' + sid;
+}
+async function delSession(sid) {
+  if (!confirm('确认放弃会话「' + sid + '」？仅删除运行时状态，角色卡与世界书保留。此操作不可撤销。')) return;
+  const r = await fetch('/api/session/' + encodeURIComponent(sid), {method: 'DELETE'}).then(res => res.json());
+  if (r.error) {
+    sessionMsg.style.color = 'var(--danger)';
+    sessionMsg.textContent = '删除失败：' + r.error;
+    return;
+  }
+  if (sid === SID) {
+    // 放弃的恰是当前局：退回开场
+    SID = '';
+    document.getElementById('board').classList.add('hide');
+    document.getElementById('setup').classList.remove('hide');
+  }
+  sessionMsg.style.color = 'var(--pos)';
+  sessionMsg.textContent = '已放弃会话：' + sid;
+  await loadSessions();
+}
+document.getElementById('open-sessions').onclick = () => {
+  sessionMsg.textContent = '';
+  loadSessions();
+  sessionModal.classList.remove('hide');
 };
 
 loadCharacters();

@@ -12,6 +12,20 @@ ENV_PUSHER = "环境推手"
 
 INFO_VERBS = ["翻", "偷看", "偷窥", "翻找", "翻查", "查看", "搜索", "监听",
              "跟踪", "打听", "问起", "查"]
+# 叙事揭露的确定性校验词：回复须出现其一，才认定"某人发现了秘密"。
+# 覆盖「观察者视觉/动作发现」与「持有者主动/无意泄露」两类路径。
+DISCOVERY_VERBS = [
+    # 视觉/感知发现
+    "看见", "看到", "看清", "发现", "察觉", "注意到", "认出", "认得", "撞见", "目睹", "瞥见",
+    "听见", "听出",
+    # 动作揭露（掀/解/拆/拉/露/显）
+    "掀开", "掀起", "解开", "拆开", "拉开", "扯开", "撕开", "翻出", "搜出", "露出", "暴露",
+    "显出", "显现", "浮现", "赫然", "在目", "分明", "展露", "滑落", "现出",
+    # 言语/认知获取
+    "得知", "听说", "问出", "套出", "逼问出", "查到", "找到", "识破", "看穿", "揭穿", "戳穿",
+    # 持有者主动/无意泄露
+    "说漏", "招了", "坦白", "承认", "泄露", "说破", "抖出来", "吐露",
+]
 ALONE = ["独自", "只有我们", "没人", "关门", "屋里就", "没别人", "独处", "就我们"]
 DEFENSE_DOWN = ["醉酒", "累了", "疲惫", "哭了", "崩溃", "靠近", "主动", "抱", "睡", "软弱"]
 OBSTACLE = ["有人来", "门铃", "电话响", "被打断", "邻居", "妈妈喊", "爸喊"]
@@ -37,6 +51,24 @@ def _record_exposure(s, by, via, round_no):
         s["known_by"].append(by)
     s.setdefault("exposures", []).append({"by": by, "via": via, "round": round_no})
     s["state"] = _secret_state(s["known_by"])
+
+
+def _reply_confirms_exposure(reply, secret, names):
+    """确定性校验：LLM 报出的 secret_exposures 只有在本轮回复确实写出
+    「秘密事实内容」+「明确的信息获取/发现动作」时才采信，否则视为误判丢弃。
+
+    拦截原 reflect 的激进误判：角色仅按自身 short_goal 行事（如分配守夜、
+    私下拉拢）并未真的"发现"秘密时，不应翻暴露状态。
+
+    names：在场角色名集合，用于剔除秘密 keys 中的人名（避免"高洋"等名字本身命中）。
+    """
+    r = reply or ""
+    # (1) 秘密内容信号：剔除人名后、长度>=2 的事实性触发词出现于回复
+    fact_keys = [k for k in secret.get("keys", []) if k not in names and len(k) >= 2]
+    if not any(k in r for k in fact_keys):
+        return False
+    # (2) 明确的信息获取/发现动作
+    return any(v in r for v in DISCOVERY_VERBS)
 
 
 # ---- A5 机会等级信号词与判定 ----
@@ -286,6 +318,8 @@ def reflect(sid, reply):
             continue
         for s in snap.get("secrets", []):
             if s.get("owner") == owner and by not in s["known_by"]:
-                _record_exposure(s, by, "叙事揭露", snap["scene"]["round"])
+                # 确定性校验：回复须同时出现「秘密内容」+「发现动作」，否则视为 LLM 误判丢弃。
+                if _reply_confirms_exposure(reply, s, set(present)):
+                    _record_exposure(s, by, "叙事揭露", snap["scene"]["round"])
     memory.save(sid, snap)
     return snap
