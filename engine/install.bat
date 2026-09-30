@@ -6,16 +6,16 @@ rem  my-st 依赖安装脚本
 rem  作用：创建虚拟环境并安装 requirements.txt 中的依赖
 rem  用法：双击本脚本，或命令行执行 install.bat
 rem  说明：仅在迁移 / 首次部署时运行一次；依赖变更后重跑即可
+rem        脚本位置无关，可解压到任意目录直接运行
 rem ============================================================
 
-set "SYSTEM_PYTHON=C:\Users\co2co\AppData\Local\Programs\Python\Python312\python.exe"
-set "ROOT=D:\codes\my-st"
-set "VENV=%ROOT%\venv"
+set "ROOT=%~dp0"
+set "VENV=%ROOT%venv"
 
 title my-st 依赖安装
 
-cd /d "%ROOT%\engine" || (
-    echo [错误] 无法进入引擎目录：%ROOT%\engine
+cd /d "%ROOT%" || (
+    echo [错误] 无法进入引擎目录：%ROOT%
     pause
     exit /b 1
 )
@@ -24,15 +24,27 @@ echo ========================================
 echo   my-st 依赖安装
 echo ========================================
 
-if not exist "%SYSTEM_PYTHON%" (
-    echo [错误] 未找到系统 Python：%SYSTEM_PYTHON%
-    echo        请修改脚本中的 SYSTEM_PYTHON 路径，或把 Python 3.12 加入 PATH。
+rem ---- 探测 Python：优先 py -3，其次 python ----
+set "PY="
+py -3 --version >nul 2>&1
+if not errorlevel 1 (
+    set "PY=py -3"
+) else (
+    python --version >nul 2>&1
+    if not errorlevel 1 (
+        set "PY=python"
+    )
+)
+if not defined PY (
+    echo [错误] 未找到 Python。请安装 Python 3.10+ 并加入 PATH，
+    echo        或从 python.org / Microsoft Store 安装。
     pause
     exit /b 1
 )
+echo [信息] 使用 Python：%PY%
 
 echo [操作] 创建虚拟环境：%VENV%
-"%SYSTEM_PYTHON%" -m venv "%VENV%"
+%PY% -m venv "%VENV%"
 if errorlevel 1 (
     echo [失败] 虚拟环境创建失败。
     pause

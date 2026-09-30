@@ -84,7 +84,7 @@ def index():
 def worldbook_doc():
     """返回世界书使用说明书的渲染网页（marked.js 渲染 Markdown，带样式；
     CDN 不可用时回退为纯文本）。"""
-    raw = (ROOT / "世界书使用说明.md").read_text(encoding="utf-8")
+    raw = (ROOT / "worldbook-guide.md").read_text(encoding="utf-8")
     md_json = json.dumps(raw).replace("</", "<\\/")  # 安全嵌入脚本，避免 </script> 截断
     html = _WORLD_BOOK_HTML.replace("__MD__", md_json)
     return Response(html, mimetype="text/html; charset=utf-8")

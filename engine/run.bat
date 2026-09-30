@@ -6,16 +6,17 @@ rem  my-st 启动脚本
 rem  作用：检测端口占用 -> 占用则先 kill -> 用 venv 启动 Flask
 rem  前置：需先运行 install.bat 安装依赖（创建 venv）
 rem  停止：在窗口按 Ctrl+C
+rem  说明：脚本位置无关，可解压到任意目录直接运行
 rem ============================================================
 
 set "PORT=5051"
-set "ROOT=D:\codes\my-st"
-set "VENV=%ROOT%\venv"
+set "ROOT=%~dp0"
+set "VENV=%ROOT%venv"
 
 title my-st 服务 (端口 %PORT%)
 
-cd /d "%ROOT%\engine" || (
-    echo [错误] 无法进入引擎目录：%ROOT%\engine
+cd /d "%ROOT%" || (
+    echo [错误] 无法进入引擎目录：%ROOT%
     pause
     exit /b 1
 )

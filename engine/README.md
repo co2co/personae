@@ -35,7 +35,7 @@ engine/
 ├── requirements.txt  Flask / requests
 ├── VERSION         版本号
 ├── DEVLOG.md       开发日志（架构决策 + 版本记录，必读）
-└── 世界书使用说明.md  世界书用户手册（含例子与走查）
+└── worldbook-guide.md  世界书用户手册（含例子与走查）
 ```
 
 ## 运行
@@ -64,4 +64,4 @@ python app.py          # 默认 http://127.0.0.1:5000
   关系把柄 / 指令 / 历史综合决定，驱动 `prompter` 的尺度提示。
 - **present 校验**：生成后剥离非在场角色（含已离场者、环境推手）的台词块，避免出戏。
 
-详细的版本演进、架构决策与待办见 `DEVLOG.md`；世界书用法见 `世界书使用说明.md`。
+详细的版本演进、架构决策与待办见 `DEVLOG.md`；世界书用法见 `worldbook-guide.md`。

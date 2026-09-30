@@ -280,3 +280,15 @@ my-st/
 ### 打包与提交
 - `VERSION` 升 `v0.4`；git 提交全量改动（含 A+B 结构、tests/、三份 README、package.py）并打 tag `v0.4`。
 - 打包备份：`my-st-v0.4.zip`，由 `package.py` 生成，仅含 `engine/`（源码 + 前端 + 配置 + data 创作内容），排除 venv/__pycache__/会话状态/tests。
+
+### v0.4 补丁：启动脚本改为位置无关（分发正确性修复）
+- 原 `engine/run.bat`、`engine/install.bat` 把 `ROOT` 硬编码为 `D:\codes\my-st`、Python 路径硬编码为开发机绝对路径——分发到任何别的目录都会 `cd` 失败或指向错误位置，等于"解压即用"不成立。
+- 修复：`run.bat` / `install.bat` 的 `ROOT` 改为 `%~dp0`（脚本自身所在目录），`VENV=%ROOT%venv`，`cd /d "%ROOT%"` 进入引擎目录；`install.bat` 的 Python 探测改为优先 `py -3`、其次 `python`（不再硬编码绝对路径）。
+- 经"解压到空目录 → 起服务"端到端验证（见测试走查）：纯引擎 zip 解压到任意路径后，`run.bat` 能正确自定位并启动 Flask（5051 端口），首页/角色 API/世界书文档均 200。
+
+### v0.4 补丁（续）：世界书说明书文件名改为 ASCII（分发健壮性）
+- 端到端验证暴露：zip 内非 ASCII 文件名在被 legacy `unzip`（Git Bash / 类 Unix）解压时会按本地代码页解码成乱码；而 `app.py` 用字面量 `"世界书使用说明.md"` 读取该文档 → `FileNotFoundError` → `/docs/worldbook` 返回 500。
+- 数据文件（`data/characters/*.json`、`data/worlds/*.json`）的**文件名即角色/世界名**（`store.list_characters` 用 `p.stem` 作名称、UI 也据此显示），不能改 ASCII，否则显示名变拼音；它们靠 `glob("*.json")` 加载，乱码仅影响显示名、不致命。
+- 真正的代码硬引用只有这一处文档文件名，故将其重命名为 ASCII：`世界书使用说明.md` → `engine/worldbook-guide.md`，并同步改 `app.py` 读取、`README.md` / `engine/README.md` 目录树与引用。前端只链 `/docs/worldbook` 路由，不受影响。
+- 效果：文档文件名变为 ASCII，任何解压工具都不会乱码，`/docs/worldbook` 对所有解压器鲁棒。数据文件的中文名在正常 Windows 解压（资源管理器 / 7-Zip）下保持原样，无误；仅用 legacy `unzip` 时显示名会乱码（不影响加载）。
+- 注：此补丁不改引擎运行行为，`VERSION` 仍为 `v0.4`；如需重新打 tag 可升 `v0.4.1`。

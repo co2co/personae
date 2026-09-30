@@ -21,7 +21,7 @@ my-st/                      ← 项目根
 │   ├── static/index.html   单页前端
 │   ├── run.bat  install.bat  requirements.txt  VERSION
 │   ├── DEVLOG.md           开发日志（架构决策 / 版本记录）
-│   ├── 世界书使用说明.md     世界书用户手册
+│   ├── worldbook-guide.md  世界书用户手册（原“世界书使用说明”）
 │   └── README.md           引擎说明（见 engine/README.md）
 ├── tests/                  ← B. 测试单元（开发用，不分发）
 │   ├── test_world_scan.py   world.scan 确定性单测
