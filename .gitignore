@@ -15,8 +15,14 @@ backups/
 *.zip
 
 # Runtime data (ephemeral session state)
-data/sessions/
-data/state.json
+engine/data/sessions/
+engine/data/state.json
+
+# Test run artifacts（走查生成的 markdown 日志，非源码）
+tests/runs/
+
+# pytest cache
+.pytest_cache/
 
 # Editor / OS
 .vscode/

@@ -210,3 +210,73 @@ simon 拍板下一轮做 ① recursive 世界书 ② present 名单校验/后处
 ### 打包与提交
 - `VERSION` 升 `v0.3`；git 提交全量改动并打 tag `v0.3`。
 - 打包备份：`my-st-v0.3.zip`，按 `.gitignore` 排除 `venv/`、`__pycache__/*`、`*.zip`、`backups/`、`data/sessions/`、`data/state.json`（仅源码 + 前端 + 配置 + 创作内容 data 角色/世界书/config + 说明书）。
+
+## 2026-10-01 自动化测试套件（tests/）
+
+simon 要求把临时驱动脚本固化为正式测试套件，并新增需求：走查过程以 markdown 存到项目专属测试文件夹，记录每次"你"发过去的环境扰动与引擎生成内容，直到剧本 ending。
+
+### 结构（tests/）
+- `pytest.ini`：`testpaths=tests`；`addopts=-m "not integration"`（默认只跑快测）；`integration`/`slow` 标记。
+- `conftest.py`：把项目根加入 sys.path，使 test 能直接 import 引擎模块。
+- `test_world_scan.py`：world.scan 确定性单测（constant 必中 / depth 远距命中 vs 默认丢失 / position 属性 / recursive 拉入+防环+禁用目标不拉 / 向后兼容 / 禁用跳过 / character 过滤）。不调 LLM。
+- `test_director.py`：validate_present 四场景（无违例 / 剥离非在场+环境推手 / 续行整块移除 / 离场块前叙述保留）+ _reply_confirms_exposure 双信号门槛（事实+动作齐备才采信，人名从事实词剔除）。不调 LLM。
+- `playthrough.py`：走查驱动库。复用引擎 HTTP API，按脚本化"环境扰动弧"（DEFAULT_ARC，末日剧本 8 步、末步 ending=True）建会话、逐轮 /api/act、解析 SSE 取 reply 与 done 载荷；`run_playthrough` 把每轮"环境扰动 + 引擎生成"写入 `tests/runs/<时间戳>_<剧本>.md`，直到 ending；默认跑完删会话（keep_session 可保留）。
+- `run_playthrough.py`：独立运行入口（python tests/run_playthrough.py [--keep]）。
+- `test_playthrough.py`：集成走查测试（标记 integration，服务不可达自动 skip）。
+- `README.md`：套件说明与运行方式。
+- `.gitignore`：新增 `tests/runs/`（生成的 markdown 日志非源码）。
+
+### 验证
+- 默认 `pytest`：15 passed, 1 deselected（integration 跳过）。
+- `pytest -m integration`：1 passed（2m30s，8 轮真实 LLM 走查）；产物 `tests/runs/20261001_012147_末日丧尸生存.md`（5192 字节，含"环境扰动（导演 / 你）"+"引擎生成"每轮 + "## 结局"，结构正确）。
+- venv 新增 dev 依赖 pytest 9.1.1（未在 requirements.txt 列，仅测试用）。
+
+## 2026-10-01 项目结构重构：引擎本体 + 测试单元 双目录（A+B）
+
+simon 提议：把引擎本体与测试单元分成两个并列目录，以 A+B 形式存于项目根；并在项目根、引擎、测试三处各放一份 README.md。
+
+### 新结构
+```
+my-st/
+├── engine/        A. 引擎本体（分发只需这一份）
+│   ├── app.py / director.py / world.py / prompter.py / memory.py / store.py
+│   ├── nsfw.py / llm.py / scene.py / hooks.py
+│   ├── data/（角色卡/世界书/config）  static/index.html
+│   ├── run.bat / install.bat / requirements.txt / VERSION
+│   ├── DEVLOG.md / 世界书使用说明.md / README.md
+├── tests/         B. 测试单元（开发用，不分发）
+│   ├── conftest.py（把 ../engine 加入 sys.path）/ pytest.ini / README.md
+│   ├── test_world_scan.py / test_director.py（确定性单测）
+│   ├── playthrough.py / test_playthrough.py / run_playthrough.py
+│   └── runs/（走查 markdown 日志，gitignore）
+├── README.md      总说明（A+B 结构 + 运行/测试 + 分发说明）
+└── *.zip / backups/（历史备份，gitignore）
+```
+
+### 改动要点
+- 全部引擎文件/目录（含 static/data/player-cast）`git mv` 进 `engine/`（保留 git 历史）。
+- `app.py` 用 `__file__`.parent 定位，移入子目录后 static/data 仍相对正确，无需改业务代码。
+- `tests/conftest.py`：sys.path 从项目根改为 `../engine`（测试 import world/director 仍可用）。
+- `run.bat` / `install.bat`：`cd` 目标由 `%ROOT%` 改为 `%ROOT%\engine`（venv 用绝对路径不受影响）。
+- `.gitignore`：运行时路径加 `engine/` 前缀（`engine/data/sessions/`、`engine/data/state.json`），新增 `.pytest_cache/`；`tests/runs/`、`*.zip`、`backups/`、`venv/`、`__pycache__/` 维持。
+- 三份 README：根 README（A+B 总览/快速开始/分发说明）、engine/README（引擎模块与机制）、tests/README（测试结构与运行）。
+
+### 验证
+- `engine/*.py` 全部 `py_compile` 通过；从 `engine/` 重启服务（task PhxoiZ）后 `/`、`/api/characters`、`/docs/worldbook` 均 200，5 角色正常加载。
+- 默认 `pytest`：15 passed / 1 deselected（integration 跳过），conftest 正确指向 engine。
+- git status：引擎文件均记为 R（重命名，历史保留）；`engine/data/state.json`、`tests/runs/`、`.pytest_cache/` 正确被忽略。
+
+## 2026-10-01 版本控制 v0.4（A+B 结构 + 纯引擎分发）
+
+### 结构变化
+- 项目重构为 `engine/`（A，引擎本体）+ `tests/`（B，测试单元）双目录；根/引擎/测试三处各一份 README.md。
+- 新增 `package.py`：固化"纯引擎分发"打包逻辑——只打 `engine/`，排除 `venv/`、`__pycache__/`、`engine/data/sessions/`、`engine/data/state.json`（不含 tests，不含运行时会话状态）。归档根为 `engine/`，与 README 运行说明一致。
+
+### 相较 v0.3 的增量
+- 项目结构 A+B 拆分与三份 README。
+- 自动化测试套件（tests/）：确定性单测（world.scan / director）+ 走查模块（playthrough.py 落盘 markdown）+ 集成测试。
+- 注：v0.4 的"增量"主要在前两轮（v0.3 已含 recursive 世界书 / present 校验 / 文档渲染 + 导入兼容）基础上的结构整理与测试固化。
+
+### 打包与提交
+- `VERSION` 升 `v0.4`；git 提交全量改动（含 A+B 结构、tests/、三份 README、package.py）并打 tag `v0.4`。
+- 打包备份：`my-st-v0.4.zip`，由 `package.py` 生成，仅含 `engine/`（源码 + 前端 + 配置 + data 创作内容），排除 venv/__pycache__/会话状态/tests。

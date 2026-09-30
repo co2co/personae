@@ -14,8 +14,8 @@ set "VENV=%ROOT%\venv"
 
 title my-st 服务 (端口 %PORT%)
 
-cd /d "%ROOT%" || (
-    echo [错误] 无法进入项目目录：%ROOT%
+cd /d "%ROOT%\engine" || (
+    echo [错误] 无法进入引擎目录：%ROOT%\engine
     pause
     exit /b 1
 )
