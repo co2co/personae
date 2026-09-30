@@ -135,6 +135,7 @@ def run_playthrough(base_url=BASE_DEFAULT, cast=None, scene=None, arc=None,
                 "notes": step.get("notes", ""),
                 "opportunity": (done or {}).get("opportunity"),
                 "present_violation": (done or {}).get("present_violation"),
+                "present": (done or {}).get("snapshot", {}).get("present", []),
             })
     finally:
         if not keep_session:

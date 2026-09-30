@@ -31,5 +31,12 @@ def test_playthrough_saves_markdown():
     assert out_path.exists(), "走查 markdown 应已生成"
     text = out_path.read_text(encoding="utf-8")
     assert "环境扰动" in text and "引擎生成" in text
+    # 实质性校验：每一轮都必须真的生成了内容，且在场名单不能为空
+    # （防止此前 scene.apply 把 present 清空、validate_present 把整段回复剥空的回归）
+    for i, r in enumerate(rounds, 1):
+        content = (r.get("reply") or "").strip()
+        assert content, f"第 {i} 轮引擎生成内容为空（回归：present 校验剥空？）"
+        assert r.get("present"), f"第 {i} 轮在场名单为空（回归：scene.apply 清空 present）"
+        assert not str(content).startswith("[调用失败"), f"第 {i} 轮调用引擎失败：{content}"
     assert len(rounds) == len(playthrough.DEFAULT_ARC)
     assert any(r.get("ending") for r in rounds), "至少一轮应标记为结局"

@@ -303,3 +303,25 @@ my-st/
 ### 版本收口
 - `VERSION` 升 `v0.4.1`；重新打 tag `v0.4.1`，产出 `my-st-v0.4.1.zip`（`package.py` 按 `engine/VERSION` 自动命名）。
 - v0.4 的两处分发补丁（run.bat/install.bat 位置无关、worldbook-guide.md 改 ASCII）随本次一并收口进 v0.4.1；引擎运行行为未变，纯分发健壮性 + 文档完善。
+
+## 2026-10-01 补丁：修复 present 清空导致整段回复被剥空（测试误判通过的根因）
+
+### 现象
+- 集成走查（tests/runs/20261001_012147_末日丧尸生存.md）第 6/7/结局轮「引擎生成」全空，且 `present_violation=True`。测试却判 PASS——因为它只查 markdown 结构与 ending，没查每轮内容是否非空。
+- 间歇性：重放时 LLM 偶尔正常（leave=[]），偶尔误填（leave=全员），故此前一度"看起来正常"。
+
+### 根因
+1. `scene.apply` 过度信任 LLM 的 `leave/arrive`：场景切换到"城东"时，LLM 偶发把"全员随世界转移"误填进 `leave`（把"离开旧地点"理解成每人离场），`leave` 覆盖全部在场者、`arrive` 为空 → `snap["present"]` 被清空。
+2. `validate_present` 在 `present=[]` 时会把"任何角色都不在场"→ 全部台词块被剥离 → 整段回复变空，且误报违例。
+3. 测试过松：只断言结构 + ending，放过了空回复。
+
+### 修复
+- `engine/scene.py`：新增安全网——`leave` 覆盖全部在场者且无 `arrive` 时，判定为"随世界一起移动"，忽略 `leave/arrive`；施加后名单若变空，回退为原名单。保证 `present` 永不为空。
+- `engine/director.py`：`validate_present` 在 `present` 为空时原样返回、不报违例、不剥光（兜底，杜绝空白输出）。
+- `tests/playthrough.py`：每轮记录 `present`；`tests/test_playthrough.py` 断言每轮「引擎生成」非空且 `present` 非空、且不出现 `[调用失败]`。
+- 新增 `tests/test_scene.py` 确定性回归（monkeypatch LLM，模拟"leave=全员"危险响应，断言 present 不被清空；显式单人离场仍生效）；`tests/test_director.py` 补空 present 兜底测试。
+
+### 验证
+- 确定性单测 18/18 通过（含新增 3 项）。
+- 重启引擎后跑 `pytest -m integration`（8 轮真实 LLM）：PASS，重生成的走查日志 8 轮均有内容（tests/runs/20261001_025830_末日丧尸生存.md）。
+- 注：此为引擎行为修复，运行行为更健壮（不再因 LLM 误填清空白输出），但用户可见的剧情逻辑未变。VERSION 仍为 v0.4.1；若需干净 re-tag 可升 v0.4.2。

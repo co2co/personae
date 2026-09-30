@@ -101,16 +101,25 @@ def apply(sid, directive, snap):
 
     # 落实場名单变化（安全网：去重、仅合法卡、离开者须当前在场、到达者须未在场）
     present = list(snap["present"])
+    orig_present = set(present)
     leave = [c for c in dict.fromkeys(prop.get("leave", []))
              if c in all_chars and c in present]
     arrive = [c for c in dict.fromkeys(prop.get("arrive", []))
               if c in all_chars and c not in present]
+    # 安全网增强：LLM 偶发把"全员随世界转移"误填进 leave（把"离开旧地点"理解成每人离场），
+    # 一旦清空在场名单，下游 validate_present 会把整段回复剥空、用户拿到一片空白。
+    # 规则：若 leave 覆盖全部在场者且无 arrive，判定为"随世界一起移动"，忽略 leave/arrive；
+    # 若施加后名单仍为空（任何原因），同样回退为全员随世界移动，绝不允许空在场名单。
+    if leave and set(leave) >= orig_present and not arrive:
+        leave, arrive = [], []
     for c in leave:
         present.remove(c)
     for c in arrive:
         present.append(c)
         # 到达者补齐短期目标，避免前端/后续归因缺失
         snap.setdefault("goals", {})[c] = store.load_card(c).get("short_goal", "")
+    if not present:
+        present = list(orig_present)
     snap["present"] = present
     return True, prop
 

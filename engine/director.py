@@ -230,7 +230,8 @@ def validate_present(reply, present, known_names):
     角色台词块（含其续行）会被移除；无说话人的叙述行与在场角色台词保留。
     返回 (清洗后文本, 是否发生违例)。
     """
-    if not reply or not known_names:
+    if not reply or not known_names or not present:
+        # 在场名单为空（异常态）时无法校验，原样返回，绝不把整段回复剥空
         return reply, False
     # 长名优先，避免短名误匹配长名前缀（如"老周" vs "老周的朋友"）
     names_sorted = sorted(set(known_names), key=len, reverse=True)

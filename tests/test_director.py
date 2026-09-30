@@ -54,3 +54,10 @@ def test_reply_confirms_exposure_excludes_names_from_facts():
     names = set(PRESENT + ["高洋"])  # 高洋是人名，应从事实词中剔除
     # "高洋"+"咬伤" 但无发现动作 -> 仍不采信
     assert director._reply_confirms_exposure("高洋小臂咬伤", secret, names) is False
+
+
+def test_validate_present_empty_present_returns_as_is():
+    # 回归：在场名单为空（异常态）时不得把整段回复剥空，应原样返回且不报违例
+    r = "老周：清点物资。\n林晚：换药。"
+    out, v = director.validate_present(r, [], KNOWN)
+    assert v is False and out == r
