@@ -325,3 +325,9 @@ my-st/
 - 确定性单测 18/18 通过（含新增 3 项）。
 - 重启引擎后跑 `pytest -m integration`（8 轮真实 LLM）：PASS，重生成的走查日志 8 轮均有内容（tests/runs/20261001_025830_末日丧尸生存.md）。
 - 注：此为引擎行为修复，运行行为更健壮（不再因 LLM 误填清空白输出），但用户可见的剧情逻辑未变。VERSION 仍为 v0.4.1；若需干净 re-tag 可升 v0.4.2。
+
+## 2026-10-01 版本 v0.4.2（present 清空回归收口）
+
+- 将"present 清空导致整段回复被剥空"的引擎修复（scene.apply 安全网 + validate_present 兜底）与走查测试收紧（每轮内容非空 + present 非空断言 + 确定性回归）随本次收口进 v0.4.2。
+- `VERSION` 升 `v0.4.2`；重新打 tag `v0.4.2`，产出 `my-st-v0.4.2.zip`（package.py 按 VERSION 自动命名，27 条目）。旧 `my-st-v0.4.1.zip` 删除，仅保留最新。
+- 引擎运行行为不变；纯健壮性补丁（防 LLM 误填 leave 清空在场名单、防 present 为空时剥光回复）。
