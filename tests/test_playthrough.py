@@ -63,7 +63,7 @@ def test_nsfw_arc_produces_intimate_content():
     assert "环境扰动" in text and "引擎生成" in text
 
     # 1) 至少一轮引擎判定为 intimate（满机会/半步 解锁）——证明 NSFW 门控在真实流程中生效
-    intimate_rounds = [r for r in rounds if (r.get("nsfw") or {}).get("intimate")]
+    intimate_rounds = [r for r in rounds if (r.get("nsfw") or {}).get("intimate_allowed")]
     assert intimate_rounds, "NSFW 弧中没有任何一轮被判定为 intimate（满机会/半步 解锁），门控未生效"
 
     # 2) 实际生成内容含身体亲密接触标记——证明 NSFW 不只是解锁，而是真的落到了叙事

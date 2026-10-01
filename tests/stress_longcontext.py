@@ -152,7 +152,7 @@ def run(base_url, rounds, timeout):
                 "latent": sum(1 for v in states.values() if v == "潜伏"),
                 "opportunity": done.get("opportunity"),
                 "nsfw_unlocked": (done.get("nsfw") or {}).get("unlocked"),
-                "nsfw_intimate": (done.get("nsfw") or {}).get("intimate"),
+                "nsfw_intimate": (done.get("nsfw") or {}).get("intimate_allowed"),
                 "present_violation": done.get("present_violation"),
                 "ending": bool(done.get("ending_candidate")),
             })

@@ -516,7 +516,7 @@ def act():
         # 行动状态（廉价启发）：本轮正文里出现的角色 = 主动，未出现 = 无行动
         for c in present:
             memory.set_action_state(sid, c, "主动" if c in full else "无行动")
-        director.after_reply(sid, full, brief["opportunity"], decision["intimate"])
+        director.after_reply(sid, full)
         # 状态机回写：把本轮推演产生的后果（关系/目标/秘密揭露）落回快照
         director.reflect(sid, full)
         snap_now = memory.load(sid)

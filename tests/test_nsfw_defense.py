@@ -31,7 +31,7 @@ def test_not_adult_blocks_even_with_override_on():
     """突破尝试：客户端伪造 override='on'，但未成年确认 -> 必须仍受限。"""
     d = nsfw.resolve_session({}, False, "满机会", override="on")
     assert d["unlocked"] is False
-    assert d["intimate"] is False
+    assert d["intimate_allowed"] is False
     assert d["prompt"] == nsfw.GUARD
 
 
@@ -54,7 +54,7 @@ def test_resolve_for_request_nsfw_off_ignores_body_on():
     d = nsfw.resolve_for_request({}, adult_confirmed=False, nsfw_enabled=False,
                                  body_nsfw="on", opp_level="满机会")
     assert d["unlocked"] is False
-    assert d["intimate"] is False
+    assert d["intimate_allowed"] is False
     assert d["prompt"] == nsfw.GUARD
     assert "受限" in d["reason"]
 
@@ -71,7 +71,7 @@ def test_adult_and_enabled_with_override_on_unlocks():
     d = nsfw.resolve_for_request({}, adult_confirmed=True, nsfw_enabled=True,
                                  body_nsfw="on", opp_level="满机会")
     assert d["unlocked"] is True
-    assert d["intimate"] is True
+    assert d["intimate_allowed"] is True
 
 
 def test_adult_confirmed_no_opportunity_romantic_only():
@@ -79,7 +79,7 @@ def test_adult_confirmed_no_opportunity_romantic_only():
     d = nsfw.resolve_for_request({}, adult_confirmed=True, nsfw_enabled=True,
                                  body_nsfw=None, opp_level="无")
     assert d["unlocked"] is True
-    assert d["intimate"] is False
+    assert d["intimate_allowed"] is False
 
 
 # ---------------------------------------------------------------------------
@@ -171,7 +171,7 @@ def test_endpoint_breakthrough_blocked_when_not_adult_and_nsfw_off(client_and_ca
         decision = done["nsfw"]
         # 核心断言 1：门控输出仍为受限
         assert decision["unlocked"] is False, f"突破成功！门控被绕过：{decision}"
-        assert decision["intimate"] is False
+        assert decision["intimate_allowed"] is False
         assert "受限" in decision["reason"]
 
         # 核心断言 2：即便机会等级被顶到满机会，注入模型的提示词仍是 GUARD

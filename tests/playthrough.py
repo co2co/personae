@@ -106,7 +106,7 @@ def build_markdown(meta, rounds):
             flags.append(f"机会等级={rd['opportunity']}")
         nsfw = rd.get("nsfw") or {}
         if nsfw:
-            flags.append(f"NSFW={'解锁' if nsfw.get('intimate') else '受限'}"
+            flags.append(f"NSFW={'解锁' if nsfw.get('intimate_allowed') else '受限'}"
                          f"（{nsfw.get('reason', '')}）")
         if rd.get("present_violation"):
             flags.append("⚠ present 违例（已剥离非在场角色）")

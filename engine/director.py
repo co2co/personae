@@ -205,7 +205,8 @@ def brief(sid, directive):
     present = snap.get("present", [])
     history = memory.load_chat(sid)
     last = history[-1] if history else None
-    if last and isinstance(last, dict) and any(k in last.get("content", "") for k in BODY_STRONG):
+    # 余韵判定基于「事实」（上一轮真的写到了越线），不基于机会等级的许可。
+    if last and isinstance(last, dict) and detect_intimacy(last.get("content", "")) == "越线":
         snap["intimacy_phase"] = "aftermath"
         snap["phase_rounds"] = 1
     elif snap.get("intimacy_phase") == "aftermath":
@@ -244,17 +245,40 @@ def brief(sid, directive):
     }, snap
 
 
-def after_reply(sid, reply, opp_level, intimate):
-    """生成后：满机会且确有亲密内容时，记一条旧账（后果留痕，不重置）。"""
-    if opp_level == "满机会" and intimate:
-        snap = memory.load(sid)
-        snap.setdefault("ledger", []).append({
-            "account": "本轮发生了亲密越线，关系被改写（把柄/伤疤/人情债）",
-            "holder": "导演",
-            "trigger_keys": ["提起", "旧账", "那晚", "那天", "还记得"],
-            "last_called": None,
-        })
-        memory.save(sid, snap)
+def detect_intimacy(text):
+    """检测正文中**实际**写出的亲密程度，返回 越线 / 接触 / 无。
+
+    与机会等级的区分（关键）：机会等级（试探/半步/满机会）是「许可」——允许写到
+    该尺度，写不写由剧情定；本函数返回的是「事实」——本轮到底写到了哪一步。
+    凡需要"已经发生了什么"的判断（后果留痕、余韵节奏），一律以此为准，
+    不能拿机会等级代替，否则"许可发了但剧情没走到"会被误记为既成事实。
+    """
+    t = text or ""
+    if any(k in t for k in BODY_STRONG):
+        return "越线"
+    if any(k in t for k in BODY_MID):
+        return "接触"
+    return "无"
+
+
+def after_reply(sid, reply):
+    """生成后：本轮**实际**写出越线级亲密内容时，记一条旧账（后果留痕，不重置）。
+
+    只记「越线」不记「接触」：旧账的文案是关系被改写（把柄/伤疤/人情债），对应
+    性行为级后果；BODY_MID 词表偏宽（含 衣服/腰/贴 等），据此记账会凭空堆出大量
+    轻账，后续命中触发词时整批激活、撑爆提示词。
+    许可发了而剧情没走到 -> 不留后果，这正是「许可 ≠ 事实」的落点。
+    """
+    if detect_intimacy(reply) != "越线":
+        return
+    snap = memory.load(sid)
+    snap.setdefault("ledger", []).append({
+        "account": "本轮发生了亲密越线，关系被改写（把柄/伤疤/人情债）",
+        "holder": "导演",
+        "trigger_keys": ["提起", "旧账", "那晚", "那天", "还记得"],
+        "last_called": None,
+    })
+    memory.save(sid, snap)
 
 
 def _extract_json(text):

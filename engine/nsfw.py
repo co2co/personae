@@ -3,6 +3,11 @@
 多角色沙盘模式用 resolve_session()：尺度由「成年确认 + 本轮机会等级」驱动。
 机会等级（试探/半步/满机会）由导演判定后通过 prompt 注入，强度随机会缩放。
 
+许可 vs 事实（重要）：机会等级只是「许可」——允许写到该尺度，写不写由剧情决定。
+本模块只发许可，返回 intimate_allowed；本轮**实际**写到了哪一步由
+director.detect_intimacy(reply) 判定。二者不可混用：拿许可当事实会把"允许但没发生"
+误记成既成后果。
+
 优先级：未确认成年 > 当次 override > 角色卡配置 > 默认 off
 """
 
@@ -39,23 +44,26 @@ def resolve_session(snap, adult_confirmed, opp_level="无", override=None):
     缩放，而非随好感度解锁。未确认成年则一律受限。
     """
     if not adult_confirmed:
-        return {"unlocked": False, "intimate": False, "prompt": GUARD,
+        return {"unlocked": False, "intimate_allowed": False, "prompt": GUARD,
                 "reason": "未确认成年，强制受限"}
     if override == "off":
-        return {"unlocked": False, "intimate": False, "prompt": GUARD, "reason": "当次强制受限"}
+        return {"unlocked": False, "intimate_allowed": False, "prompt": GUARD,
+                "reason": "当次强制受限"}
     if override == "on":
-        return {"unlocked": True, "intimate": True, "prompt": UNLOCKED, "reason": "当次强制解锁"}
+        return {"unlocked": True, "intimate_allowed": True, "prompt": UNLOCKED,
+                "reason": "当次强制解锁"}
 
     if not opp_level or opp_level == "无":
         # 无机会触发：允许暧昧张力，但不写具体越线过程
-        return {"unlocked": True, "intimate": False, "prompt": UNLOCKED,
+        return {"unlocked": True, "intimate_allowed": False, "prompt": UNLOCKED,
                 "reason": "成年已确认，本轮无亲密机会，保持浪漫张力"}
 
     note = OPP_PROMPT.get(opp_level, "")
-    intimate = opp_level in ("半步", "满机会")
     return {
         "unlocked": True,
-        "intimate": intimate,
+        # 许可，不是事实：仅表示"允许写到该尺度"，本轮是否真写了由剧情决定。
+        # 需要"实际发生了什么"请用 director.detect_intimacy(reply)。
+        "intimate_allowed": opp_level in ("半步", "满机会"),
         "prompt": UNLOCKED + "\n" + note,
         "reason": f"成年已确认，机会等级：{opp_level}",
     }
