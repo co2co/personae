@@ -2,6 +2,23 @@
 
 记录架构决策、待办与搁置项。非任务日志，按主题追加。
 
+## 2026-10-01 v0.5.0 结局判定（软指引）收口
+
+- 动机：引擎此前没有「终止」概念，会话可无限漂移、永不收束，用户也没有干净的「结束并复盘」出口。
+- 设计原则：软指引（引擎只「提议」、用户拍板，绝不强制中断叙事）；剧本无关（判定只依赖快照通用字段，导入任意剧本都能用，无需作者标注）。
+- 新增 `engine/ending.py`：
+  - `evaluate(snap, dismissed)`：命中终局条件返回 `ending_candidate{reasons,new_reasons,labels,severity,round}`，否则 None。
+    - Tier A 触发条件：`present` 空（全员离场）、所有秘密 `state != 潜伏`（秘密全曝光）、可选 `ending_flag`（剧本自定义标记）。
+    - 抑制逻辑：`dismissed` 含已全部已现理由时返回 None，避免「继续探索」后反复刷屏；仅当出现**新**条件才复弹。
+  - `mark_dismissed(snap, reasons)`：把当前命中条件写入 `ending_dismissed_reasons`。
+- `engine/prompter.py`：新增 `build_summary(snap, history)`，基于世界最终状态 + 完整对话组装结局复盘提示词（结局类型 / 角色命运与关系收束 / 秘密真相 / 悬念）。
+- `engine/app.py`：
+  - `/api/act` 的 `done` 事件注入 `ending_candidate`（并持久化 `ending_last_reasons` 供驳回时记录）。
+  - 新增 `POST /api/ending/dismiss`（记录驳回，抑制复弹）与 `POST /api/end`（调 `llm.complete` 生成总结并导出 `summary.md` 存档）。
+- 前端 `static/index.html`：顶栏「结束剧本」手动按钮；命中终局时非阻塞横幅（继续探索 / 终结剧本）；总结 modal 展示收束复盘（含「放弃该会话」）。
+- 测试 `tests/test_ending.py`（8 项，确定性 + Flask 端点 mock LLM）：evaluate 三类分支、dismissed 抑制、新条件复弹、/api/end 总结与存档、/api/ending/dismiss 生效。
+- 收口：MINOR v0.4.5 -> v0.5.0。快测 **53 passed / 4 deselected**（integration 跳过）无回归；tag `v0.5.0`；产物 `my-st-v0.5.0.zip`（仅含 engine/，泄漏校验 PASS）。新增代码与测试均进版本库但不进 zip（开发用，不分发）。
+
 ## 2026-10-01 镜头跟随（焦点）机制
 
 - 根因：引擎此前只有单一 `present` 名单、缺少「镜头」概念。玩家把扰动引向某个在场子集

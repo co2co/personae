@@ -185,3 +185,39 @@ def build_session(cards_present, directive, world_hits, snap,
     if directive:
         messages.append({"role": "user", "content": "【导演指令】" + directive})
     return messages
+
+
+def build_summary(snap, history):
+    """结局总结提示词：基于世界最终状态与完整对话，产出一份收束复盘。
+
+    由 /api/end 用 llm.complete 一次性生成（非流式）。history 为聊天记录列表。
+    仅依赖快照通用字段 + 对话，剧本无关。
+    """
+    present = list(snap.get("present") or [])
+    sc = snap.get("scene", {}) or {}
+    rel = "\n".join(k + ": " + v for k, v in (snap.get("relations") or {}).items()) or "（初始）"
+    sec = "\n".join(
+        "- " + s.get("owner", "") + "：「" + (s.get("content", "") or "")[:80]
+        + "」状态：" + s.get("state", "")
+        for s in (snap.get("secrets") or [])
+    ) or "（无）"
+    # 对话摘要（最近 24 轮，控制 token 预算）
+    convo = "\n".join(
+        (m.get("role", "") + "：" + (m.get("content", "") or ""))
+        for m in (history or [])[-24:]
+    ) or "（无对话）"
+
+    system = (
+        "你是关系沙盘的记录官。依据下方世界最终状态与完整对话，为该剧本写一份结局总结。\n"
+        "要求：① 先给出结局类型（全员离场 / 秘密全曝光 / 全员殒落 / 自定义结局 / 综合收束）；"
+        "② 逐位列出在场角色的最终命运与彼此关系收束；③ 复盘关键秘密的真相与曝光过程；"
+        "④ 若有未解悬念可点出。用简体中文、自然段落呈现，不要列表堆砌，600 字以内。"
+    )
+    ctx = (
+        "[世界最终状态]\n在场角色：" + "、".join(present)
+        + "\n场景：" + (sc.get("place", "") or "") + "（" + (sc.get("time") or "时间未明") + "）"
+        + " ｜ 回合 R" + str(sc.get("round", 0)) + "\n"
+        + "关系网：\n" + rel + "\n秘密：\n" + sec
+    )
+    user = ctx + "\n\n[完整对话]\n" + convo + "\n\n请基于以上写出本剧本的结局总结。"
+    return [{"role": "system", "content": system}, {"role": "user", "content": user}]

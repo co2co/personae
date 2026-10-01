@@ -33,6 +33,7 @@ import nsfw
 import prompter
 import store
 import world as world_mod
+import ending
 
 ROOT = Path(__file__).parent
 app = Flask(__name__, static_folder=None)
@@ -559,6 +560,16 @@ def act():
                     + " ｜ 本轮行动 " + str(len(snap_now.get("actions", {}))) + " 条"
                     + " ｜ 已暴露秘密 " + str(len(exposed)) + " 条")
 
+        # 结局判定（软指引，非强制）：命中终局条件则向客户端提议是否终结当前会话
+        candidate = ending.evaluate(snap_now, snap_now.get("ending_dismissed_reasons"))
+        snap_now["ending_last_reasons"] = (candidate or {}).get("reasons", [])
+        memory.save(sid, snap_now)
+        if candidate:
+            logger.info("ending", "命中终局条件：" + "、".join(candidate["labels"])
+                        + " ｜ 已向客户端提议是否终结")
+        else:
+            logger.debug("ending", "未命中终局条件，继续推演")
+
         yield "data: " + json.dumps({
             "done": True,
             "reply": full,
@@ -567,11 +578,64 @@ def act():
             "nsfw": decision,
             "scene_change": _scene_change_payload(scene_changed, scene_prop, snap)
                             if scene_changed else None,
+            "ending_candidate": candidate,
             "snapshot": snap_now,
         }, ensure_ascii=False) + "\n\n"
         logger.success("system", "本轮推演完成（R" + str(brief["round"]) + "）")
 
     return Response(stream_with_context(events()), mimetype="text/event-stream")
+
+
+@app.post("/api/ending/dismiss")
+def ending_dismiss():
+    """用户点"继续探索"：把当前命中的终局条件记入快照，后续除非出现新条件不再弹提示。"""
+    body = request.get_json(force=True)
+    sid = body.get("session")
+    snap = memory.load(sid) if sid else None
+    if not snap:
+        return jsonify({"error": "会话不存在"}), 404
+    ending.mark_dismissed(snap, snap.get("ending_last_reasons", []))
+    memory.save(sid, snap)
+    logger.info("ending", "用户选择继续探索，已抑制终局提示（新条件出现前不再弹出）")
+    return jsonify({"ok": True})
+
+
+@app.post("/api/end")
+def end_session():
+    """终结当前会话：基于世界最终状态与对话生成剧本总结（非流式），并导出 markdown 存档。
+
+    软指引的一部分：引擎不主动终结，仅在用户显式选择"终结剧本"（手动按钮或终局提示）时调用。
+    """
+    body = request.get_json(force=True)
+    sid = body.get("session")
+    snap = memory.load(sid) if sid else None
+    if not snap:
+        return jsonify({"error": "会话不存在"}), 404
+    history = memory.load_chat(sid)
+    try:
+        messages = prompter.build_summary(snap, history)
+        summary = llm.complete(messages, max_tokens=900, temperature=0.7, timeout=120)
+    except Exception as exc:
+        logger.error("ending", "总结生成失败：" + repr(exc))
+        return jsonify({"error": str(exc)}), 500
+
+    # 导出 markdown 存档（玩家侧可下载/留档；不影响会话删除）
+    exported = False
+    try:
+        out = memory.SESS_DIR / sid / "summary.md"
+        out.write_text("# 剧本总结\n\n" + summary.strip() + "\n", encoding="utf-8")
+        exported = True
+    except Exception as exc:
+        logger.warn("ending", "总结 markdown 导出失败（不影响返回）：" + repr(exc))
+
+    logger.success("ending", "会话 " + sid + " 已生成剧本总结（" + str(len(summary)) + " 字"
+                            + (" ｜ 已导出 summary.md" if exported else "") + "）")
+    return jsonify({
+        "summary": summary,
+        "exported": exported,
+        "present": snap.get("present", []),
+        "round": (snap.get("scene") or {}).get("round", 0),
+    })
 
 
 if __name__ == "__main__":

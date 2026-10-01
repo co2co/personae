@@ -13,6 +13,7 @@ tests/
 ├── test_director.py    director 确定性单测（不调 LLM）
 ├── test_nsfw_defense.py NSFW 门控「突破防守」测试（确定性 + Flask /api/act 端点，mock LLM）
 ├── test_focus_follow.py 镜头跟随（焦点）机制测试：compute_focus 焦点识别 + prompter 注入 + 端点层裁剪（确定性，mock LLM）
+├── test_ending.py       结局判定（软指引）测试：evaluate 三类分支 + dismissed 抑制 + /api/end 总结存档 + /api/ending/dismiss（确定性 + Flask 端点，mock LLM）
 ├── playthrough.py      走查驱动库：按"环境扰动弧"调引擎 API 逐轮推进，
 │                       把每轮「你发的环境扰动」+「引擎生成」写入 runs/
 ├── test_playthrough.py 集成走查测试（标记 integration，服务不可达自动 skip）

@@ -280,6 +280,18 @@
   .lw-ptext{ margin:0; padding:8px 10px; font:12.5px/1.6 ui-monospace,Menlo,Consolas,monospace;
     white-space:pre-wrap; word-break:break-word; color:var(--ink-2); max-height:240px; overflow:auto; }
   @media (max-width:880px){ .logwin{ width:100%; max-width:100%; } }
+
+  /* ---------- 结局软提示横幅（非阻塞） ---------- */
+  #ending-banner{ position:fixed; top:var(--topbar-h); left:0; right:0; z-index:40;
+    display:none; align-items:center; gap:14px; flex-wrap:wrap;
+    padding:11px 22px; background:var(--warn-soft); border-bottom:1px solid #f0dcb8; }
+  #ending-banner.show{ display:flex; }
+  #ending-banner .eb-ico{ font-size:13px; font-weight:600; color:var(--warn); letter-spacing:.02em; }
+  #ending-banner .eb-text{ flex:1; min-width:220px; font-size:13.5px; color:var(--ink-2); line-height:1.6; }
+  #ending-banner .eb-actions{ display:flex; gap:10px; flex-shrink:0; }
+  #end-summary{ white-space:pre-wrap; word-break:break-word; background:var(--surface-2);
+    border:1px solid var(--line); border-radius:10px; padding:14px 16px; max-height:60vh; overflow:auto;
+    font-size:13.5px; line-height:1.7; color:var(--ink-2); margin:0; }
 </style>
 </head>
 <body>
@@ -294,7 +306,18 @@
   <button id="open-sessions" class="btn btn-sm">会话</button>
   <button id="open-system" class="btn btn-sm">系统设置</button>
   <button id="open-log" class="btn btn-sm">运行时日志</button>
+  <button id="open-end" class="btn btn-sm">结束剧本</button>
 </header>
+
+<!-- 结局软提示横幅（非阻塞：命中终局条件时提议是否终结，由用户拍板） -->
+<div id="ending-banner">
+  <span class="eb-ico">剧本接近尾声</span>
+  <div class="eb-text" id="eb-text"></div>
+  <div class="eb-actions">
+    <button class="btn btn-sm" id="eb-continue">继续探索</button>
+    <button class="btn btn-sm btn-primary" id="eb-end">终结剧本</button>
+  </div>
+</div>
 
 <!-- 系统设置（统一收拢系统级选项：NSFW 开关 + 后端设置） -->
 <div id="sys-modal" class="modal hide">
@@ -435,6 +458,19 @@
     <div class="sub">列出所有进行中的剧本。可继续推进某一局，或放弃不需要的剧本（仅删除运行时状态，角色卡与世界书保留）。</div>
     <div id="session-list" style="max-height:60vh;overflow:auto;margin-top:6px;"></div>
     <div class="cfg-msg" id="session-msg"></div>
+  </div>
+</div>
+
+<!-- 剧本总结（终结会话后展示收束复盘；软指引的一部分，非强制） -->
+<div id="end-modal" class="modal hide">
+  <div class="modal-box">
+    <h3>剧本总结</h3>
+    <div class="sub" id="end-sub">该剧本已走到终局，以下是收束复盘。</div>
+    <pre id="end-summary"></pre>
+    <div class="modal-foot">
+      <button id="end-close" class="btn">关闭</button>
+      <button id="end-delete" class="btn btn-danger">放弃该会话</button>
+    </div>
   </div>
 </div>
 
@@ -664,6 +700,7 @@ async function send() {
           data.snapshot._lastNsfw = data.nsfw;
           renderSnapshot(data.snapshot);
         }
+        if (data.ending_candidate) showEndingCandidate(data.ending_candidate);
         if (data.scene_change) {
           const sc = data.scene_change;
           let line = '—— 场景切换：' + sc.place + (sc.time ? '（' + sc.time + '）' : '）');
@@ -1337,6 +1374,39 @@ lwFilter.onchange = applyFilter;
 document.addEventListener('keydown', e => { if (e.key === 'Escape' && lwOpen) closeLog(); });
 // 占位：消除旧版 index.html 末尾对未定义 refreshState 的引用（避免控制台报错）
 function refreshState(){}
+
+// ---- 结局软提示（软指引，非强制） ----
+const endBanner = document.getElementById('ending-banner');
+const ebText = document.getElementById('eb-text');
+function showEndingCandidate(c){
+  ebText.innerHTML = (c.labels || []).map(t => '· ' + t).join('<br>') + '<br>是否终结当前会话并生成剧本总结？';
+  endBanner.classList.add('show');
+}
+function hideEnding(){ endBanner.classList.remove('show'); }
+document.getElementById('eb-continue').onclick = async () => {
+  await fetch('/api/ending/dismiss', {method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({session: SID})}).catch(() => {});
+  hideEnding();
+};
+async function endSession(){
+  if (!SID) return;
+  hideEnding();
+  statusEl.textContent = '正在生成剧本总结…';
+  const r = await fetch('/api/end', {method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({session: SID})}).then(x => x.json());
+  if (r.error){ statusEl.textContent = '总结失败：' + r.error; return; }
+  document.getElementById('end-summary').textContent = r.summary || '（无内容）';
+  document.getElementById('end-modal').classList.remove('hide');
+  statusEl.textContent = '剧本已终结，总结已生成';
+}
+document.getElementById('eb-end').onclick = endSession;
+document.getElementById('open-end').onclick = endSession;
+document.getElementById('end-close').onclick = () => document.getElementById('end-modal').classList.add('hide');
+document.getElementById('end-delete').onclick = async () => {
+  if (!confirm('确认放弃该会话？仅删除运行时状态，角色卡与世界书保留。')) return;
+  await delSession(SID);
+  document.getElementById('end-modal').classList.add('hide');
+};
 
 loadCharacters();
 refreshState();
