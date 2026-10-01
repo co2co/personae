@@ -54,6 +54,32 @@ simon 的设定：把柄是**成对**的，且**应可失效**——「A 持有 
 - `tests/test_director.py` 新增 5 项（举证照抄 / 缺失与过短 / 无语义词表残留 / 成对作用域 /
   把柄转移与回落），全套 **66 passed / 4 deselected**。
 
+### 收口
+
+- `VERSION` 升 v0.6.0；提交 `1359e28` + 打 tag `v0.6.0`；产出 `my-st-v0.6.0.zip`
+  （23 条目 125.0 KB，package.py 按 VERSION 自动命名）。
+- 删除旧 `my-st-v0.5.7.zip`，仅保留最新；git tag 现 `v0.1`–`v0.6.0` 连续。
+- 三条打包红线校验通过：不带剧本（`data/characters`、`data/worlds`、`player-cast` 已排除）、
+  不带任何已保存 LLM 设置（config.json 洗白为出厂默认）、NSFW 始终未选中。
+
+### 下一步（阻塞中：待重启服务后复测）
+
+引擎以 `debug=False` 运行，v0.5.7 与 v0.6.0 的代码**尚未在运行中的服务里生效**。
+重启命令：
+
+```
+cd D:\codes\my-st\engine && set PORT=5051 && python app.py
+```
+
+重启后跑同规格 30 轮复测（`python tests/stress_longcontext.py`），并用
+`python tests/compare_stress.py` 与上一轮基线对照，重点看三个数：
+
+1. **满机会轮次**（应显著下降，成对化后不再是全员顶格）；
+2. **秘密状态翻转次数**（应有回落——`handle_releases` 生效后能从「暴露」回「潜伏」）；
+3. **误归档次数**（应为 0——举证校验拦掉无据上报）。
+
+同时验证 v0.5.7 的墓穴修复（「越线」判定里不应再出现墓穴/洞穴/巢穴）。
+
 ### 遗留
 
 - `_opp_from_relations` 实测为死路径：初始 relations 命中 0 个关系词，且 reflect 每轮写回都过
