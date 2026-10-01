@@ -1,6 +1,7 @@
 """director 的确定性单元测试（不调 LLM，快速）。
 
-覆盖：validate_present 四类场景 + _reply_confirms_exposure 双信号门槛。
+覆盖：validate_present 四类场景 + 举证式归档（_evidence_ok）+ 把柄消除
+（_release_handle）+ 机会等级成对作用域。
 """
 
 import director
@@ -38,22 +39,33 @@ def test_validate_present_narrative_before_block_kept():
     assert "苏曼" not in out
 
 
-def test_reply_confirms_exposure_requires_both_signals():
-    secret = {"keys": ["咬伤", "感染"], "content": "高洋被咬伤小臂"}
-    names = set(PRESENT)
-    # 只有秘密事实，无发现动作 -> 不采信
-    assert director._reply_confirms_exposure("高洋小臂有咬伤痕迹", secret, names) is False
-    # 只有发现动作，无秘密事实 -> 不采信
-    assert director._reply_confirms_exposure("林晚拆开绷带发现了什么", secret, names) is False
-    # 事实 + 动作齐备 -> 采信
-    assert director._reply_confirms_exposure("林晚拆开绷带，发现高洋小臂咬伤", secret, names) is True
+def test_evidence_ok_requires_verbatim_quote():
+    """举证必须是正文原文片段：逐字照抄才采信，改写/编造一律丢弃。"""
+    reply = "老周一把扯开他臂弯的绷带，看见那道发黑的抓痕。"
+    assert director._evidence_ok("看见那道发黑的抓痕", reply) is True
+    assert director._evidence_ok("老周一把扯开他臂弯的绷带", reply) is True
+    # 概括/改写（正文里没有这句）-> 丢弃
+    assert director._evidence_ok("老周发现了高洋被咬伤", reply) is False
+    # 凭空编造 -> 丢弃
+    assert director._evidence_ok("阿杰翻出了私藏的巧克力", reply) is False
 
 
-def test_reply_confirms_exposure_excludes_names_from_facts():
-    secret = {"keys": ["咬伤", "感染"], "content": "高洋被咬伤"}
-    names = set(PRESENT + ["高洋"])  # 高洋是人名，应从事实词中剔除
-    # "高洋"+"咬伤" 但无发现动作 -> 仍不采信
-    assert director._reply_confirms_exposure("高洋小臂咬伤", secret, names) is False
+def test_evidence_ok_rejects_missing_or_too_short():
+    """未举证或举证过短一律丢弃：宁可漏记，不可误记。"""
+    reply = "老周一把扯开他臂弯的绷带，看见那道发黑的抓痕。"
+    assert director._evidence_ok(None, reply) is False
+    assert director._evidence_ok("", reply) is False
+    assert director._evidence_ok("绷带", reply) is False
+
+
+def test_no_semantic_wordlists_remain():
+    """记录员模式契约：引擎不再持有语义词表，判定只靠举证。
+
+    旧实现用 INFO_VERBS + DISCOVERY_VERBS + secret.keys 做语义判定，末日题材高频词
+    （绷带/小臂/发烧/女儿）与「看见/察觉/露出」极易巧合共现，实测放行率 22%。
+    """
+    assert not hasattr(director, "DISCOVERY_VERBS")
+    assert not hasattr(director, "INFO_VERBS")
 
 
 def test_validate_present_empty_present_returns_as_is():
@@ -74,6 +86,36 @@ def test_opp_from_secrets_full_when_holder_present():
     # 仍潜伏则不触发
     snap2 = {"secrets": [{"owner": "高洋", "state": "潜伏", "known_by": []}]}
     assert director._opp_from_secrets(snap2, ["林晚"]) == "无"
+
+
+def test_opp_from_secrets_is_pair_scoped():
+    """把柄是成对的：只对「持有者 ↔ 归属者」同在镜头内时生效，不波及全场。"""
+    snap = {"secrets": [{"owner": "高洋", "state": "暴露", "known_by": ["阿杰"]}]}
+    present = ["阿杰", "高洋", "苏曼", "老周"]
+    # 镜头正对这一对 -> 满机会
+    assert director._opp_from_secrets(snap, present, ["阿杰", "高洋"]) == "满机会"
+    # 镜头在另一对身上，与阿杰的把柄无关 -> 不得顶格（这是本次修复的核心）
+    assert director._opp_from_secrets(snap, present, ["苏曼", "老周"]) == "无"
+    # 镜头只有持有者、归属者不在 -> 胁迫对象不在场，不构成当轮机会
+    assert director._opp_from_secrets(snap, present, ["阿杰"]) == "无"
+    # 无镜头（自然推演、全员皆可写）-> 退回全场判定
+    assert director._opp_from_secrets(snap, present, None) == "满机会"
+
+
+def test_release_handle_drops_and_transfers():
+    """把柄消除：移除持有者 / 转交第三方；无人知情时状态回落潜伏。"""
+    s = {"owner": "高洋", "state": "暴露", "known_by": ["阿杰", "林晚"]}
+    # 转交第三方：阿杰失去、老周接手
+    assert director._release_handle(s, "阿杰", "老周", 7) is True
+    assert "阿杰" not in s["known_by"] and "老周" in s["known_by"]
+    assert s["state"] == "暴露"
+    # 彻底失效：林晚也失去 -> 无人知情 -> 回落潜伏
+    assert director._release_handle(s, "林晚", "", 8) is True
+    assert director._release_handle(s, "老周", "", 8) is True
+    assert s["known_by"] == []
+    assert s["state"] == "潜伏"
+    # 不持有该把柄的人 -> 无变更
+    assert director._release_handle(s, "苏曼", "", 9) is False
 
 
 def test_opp_from_relations_strong():

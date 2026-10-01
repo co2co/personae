@@ -11,22 +11,14 @@ import llm
 
 ENV_PUSHER = "环境推手"
 
-INFO_VERBS = ["翻", "偷看", "偷窥", "翻找", "翻查", "查看", "搜索", "监听",
-             "跟踪", "打听", "问起", "查"]
-# 叙事揭露的确定性校验词：回复须出现其一，才认定"某人发现了秘密"。
-# 覆盖「观察者视觉/动作发现」与「持有者主动/无意泄露」两类路径。
-DISCOVERY_VERBS = [
-    # 视觉/感知发现
-    "看见", "看到", "看清", "发现", "察觉", "注意到", "认出", "认得", "撞见", "目睹", "瞥见",
-    "听见", "听出",
-    # 动作揭露（掀/解/拆/拉/露/显）
-    "掀开", "掀起", "解开", "拆开", "拉开", "扯开", "撕开", "翻出", "搜出", "露出", "暴露",
-    "显出", "显现", "浮现", "赫然", "在目", "分明", "展露", "滑落", "现出",
-    # 言语/认知获取
-    "得知", "听说", "问出", "套出", "逼问出", "查到", "找到", "识破", "看穿", "揭穿", "戳穿",
-    # 持有者主动/无意泄露
-    "说漏", "招了", "坦白", "承认", "泄露", "说破", "抖出来", "吐露",
-]
+# ---- 举证式归档（记录员模式）----
+# 引擎不做语义判定："正文里有没有发生一次发现"是语义问题，交给 LLM 判断；
+# 引擎只做结构校验，验证 LLM 上报的内容确实在正文里出现过（防幻觉）。
+# 早先用关键词词表做语义判定（INFO_VERBS + DISCOVERY_VERBS + secret.keys）时，
+# 末日题材的高频词（绷带/小臂/发烧/通风口/女儿）与"看见/察觉/露出"极易巧合共现，
+# 实测 150 次判定放行 33 次（22%），校验形同虚设。详见 DEVLOG v0.5.8。
+EVIDENCE_MIN_LEN = 8
+
 ALONE = ["独自", "只有我们", "没人", "关门", "屋里就", "没别人", "独处", "就我们"]
 DEFENSE_DOWN = ["醉酒", "累了", "疲惫", "哭了", "崩溃", "靠近", "主动", "抱", "睡", "软弱"]
 OBSTACLE = ["有人来", "门铃", "电话响", "被打断", "邻居", "妈妈喊", "爸喊"]
@@ -54,22 +46,40 @@ def _record_exposure(s, by, via, round_no):
     s["state"] = _secret_state(s["known_by"])
 
 
-def _reply_confirms_exposure(reply, secret, names):
-    """确定性校验：LLM 报出的 secret_exposures 只有在本轮回复确实写出
-    「秘密事实内容」+「明确的信息获取/发现动作」时才采信，否则视为误判丢弃。
+def _release_handle(s, frm, to, round_no):
+    """把柄失效/转手：从 known_by 移除 from、加入 to，并重算暴露状态。
 
-    拦截原 reflect 的激进误判：角色仅按自身 short_goal 行事（如分配守夜、
-    私下拉拢）并未真的"发现"秘密时，不应翻暴露状态。
-
-    names：在场角色名集合，用于剔除秘密 keys 中的人名（避免"高洋"等名字本身命中）。
+    to 为空表示彻底失去（药物被丢弃、证据被销毁、当众说开后不再构成胁迫）。
+    无人知情时 _secret_state 自动回落「潜伏」——这是此前缺失的**秘密状态回落路径**，
+    也是「机会等级永久锁死」三因素中的第一项。
+    返回 True 表示确有变更。
     """
-    r = reply or ""
-    # (1) 秘密内容信号：剔除人名后、长度>=2 的事实性触发词出现于回复
-    fact_keys = [k for k in secret.get("keys", []) if k not in names and len(k) >= 2]
-    if not any(k in r for k in fact_keys):
+    kb = s.get("known_by", [])
+    if frm not in kb:
         return False
-    # (2) 明确的信息获取/发现动作
-    return any(v in r for v in DISCOVERY_VERBS)
+    kb = [k for k in kb if k != frm]
+    if to and to != s.get("owner") and to not in kb:
+        kb.append(to)
+    s["known_by"] = kb
+    s["state"] = _secret_state(kb)
+    s.setdefault("releases", []).append(
+        {"from": frm, "to": to or None, "via": "把柄失效/转手", "round": round_no})
+    return True
+
+
+def _evidence_ok(evidence, reply):
+    """结构校验：LLM 的举证必须是本轮正文的原文片段。
+
+    这是记录员模式的全部判定——引擎不猜"这算不算发现"，只验证举证确实出自正文
+    （防幻觉编造）。语义判断由 reflect 的 LLM 承担，证据由它自己引用。
+
+    举证缺失或不匹配时丢弃该条目：宁可漏记（状态滞后），不可误记
+    （秘密提前暴露 -> 张力提前消耗、机会等级被顶格）。
+    """
+    e = (evidence or "").strip()
+    if len(e) < EVIDENCE_MIN_LEN:
+        return False
+    return e in (reply or "")
 
 
 # ---- A5 机会等级信号词与判定 ----
@@ -130,12 +140,26 @@ def _opp_from_relations(snap, present):
     return "无"
 
 
-def _opp_from_secrets(snap, present):
-    """在场角色持有他者已暴露秘密（把柄/胁迫）-> 满机会。"""
+def _opp_from_secrets(snap, present, scope=None):
+    """把柄胁迫 -> 满机会。**成对作用域**：只对「持有者 ↔ 归属者」这一对生效。
+
+    把柄是成对关系，不该波及全场：阿杰握着高洋的把柄，与苏曼对老周无关。
+    scope 为本轮镜头主角（focus.subjects）；仅当某一对的持有者与归属者
+    **同在镜头内**时才构成当轮胁迫。未给 scope（自然推演、全员皆可写）时
+    退回全场判定。
+    """
     for s in snap.get("secrets", []):
-        if s.get("state") != "潜伏":
-            holders = [k for k in s.get("known_by", []) if k != ENV_PUSHER and k in present]
-            if holders:
+        if s.get("state") == "潜伏":
+            continue
+        owner = s.get("owner")
+        holders = [k for k in s.get("known_by", [])
+                   if k != ENV_PUSHER and k != owner and k in present]
+        if not holders:
+            continue
+        if scope is None:
+            return "满机会"
+        for h in holders:
+            if h in scope and owner in scope:
                 return "满机会"
     return "无"
 
@@ -194,16 +218,11 @@ def brief(sid, directive):
     snap = memory.load(sid)
     text = directive or ""
 
-    # A1 秘密状态机：环境推手主动查（含关键词+信息获取动作）-> 记录环境推手已知。
-    # 环境推手是外部观察者，不登场、不说话，其知情不翻 in-world 暴露状态。
+    # A1（已移除）：原「指令含 keys + INFO_VERBS -> 记环境推手已知」是纯猜测——
+    # 导演写"翻找"不代表真发现了什么。且其知情本就不翻 in-world 暴露状态
+    # （_secret_state 剔除 ENV_PUSHER），删掉只在前端少一条展示，无实质损失。
+    # 秘密的一切状态变更改由生成后 reflect 按正文举证归档（记录员模式）。
     revealed = []
-    for s in snap["secrets"]:
-        if s["state"] == _FULL:
-            continue
-        if any(k in text for k in s["keys"]) and any(v in text for v in INFO_VERBS):
-            if ENV_PUSHER not in s["known_by"]:
-                _record_exposure(s, ENV_PUSHER, "环境推手主动查", snap["scene"]["round"])
-                revealed.append(s["owner"])
 
     # A2 后果账本：命中触发词且未调用的旧账激活
     active = []
@@ -232,7 +251,9 @@ def brief(sid, directive):
 
     opp = "无"
     opp = _opp_max(opp, _opp_from_relations(snap, present))
-    opp = _opp_max(opp, _opp_from_secrets(snap, present))
+    # 把柄成对：作用域取本轮镜头主角（app 已算好并写回 snap["focus"]）
+    opp = _opp_max(opp, _opp_from_secrets(
+        snap, present, (snap.get("focus") or {}).get("subjects")))
     opp = _opp_max(opp, _opp_from_history(history))
     # 扰动指令：独处→半步；独处+软弱且无干扰→满机会
     if any(c in text for c in ALONE):
@@ -388,30 +409,38 @@ def reflect(sid, reply):
 
     rel_text = "\n".join(f"{k}: {v}" for k, v in snap["relations"].items()) or "（无）"
     goal_text = "\n".join(f"{k}: {v}" for k, v in snap.get("goals", {}).items()) or "（无）"
-    latent_owners = sorted({s["owner"] for s in snap.get("secrets", [])
-                            if s.get("state") == "潜伏"})
-    secret_text = "、".join(latent_owners) if latent_owners else "（无潜伏秘密）"
+    # 秘密全景（含已被谁知情）：把柄可失去/转手，纪官必须知道当前持有情况
+    sec_lines = []
+    for s in snap.get("secrets", []):
+        kb = [k for k in s.get("known_by", []) if k != ENV_PUSHER]
+        sec_lines.append(f"{s.get('owner')}（{s.get('state')}｜握有把柄者："
+                         f"{'、'.join(kb) if kb else '无'}）")
+    secret_text = "\n".join(sec_lines) or "（无秘密）"
 
     prompt = [
         {"role": "system",
-         "content": "你是关系沙盘的纪官。根据本轮叙事，更新各角色的关系与短期目标，抽取本轮各角色的具体行为，并判断是否有潜伏秘密被叙事揭露。只输出一个 JSON 对象，不要任何解释或 Markdown 代码块。"},
+         "content": "你是关系沙盘的纪官。根据本轮叙事，更新各角色的关系与短期目标，抽取本轮各角色的具体行为，并归档秘密的知情变化。只输出一个 JSON 对象，不要任何解释或 Markdown 代码块。"},
         {"role": "user", "content": (
             f"在场角色：{', '.join(present)}\n"
             f"当前关系：\n{rel_text}\n"
             f"当前短期目标：\n{goal_text}\n"
-            f"潜伏秘密归属：{secret_text}\n"
+            f"秘密与把柄现状：\n{secret_text}\n"
             f"本轮叙事：\n{reply}\n\n"
             "请输出 JSON：\n"
             "{\n"
             '  "relations": { "源 → 目标": "关系定性（只写稳定的人物关系定位，如\'妈妈，独占欲\'，不要包含本轮具体动作描写）" },\n'
             '  "actions": { "角色名": "本轮该角色做的一句具体行为（不含关系定性，只写这回合发生了什么）" },\n'
             '  "goals": { "角色名": "新的短期目标" },\n'
-            '  "secret_exposures": [{"owner": "被揭露秘密的角色名", "by": "在本轮叙事中得知该秘密的角色名（环境推手主动揭示则写环境推手）"}]\n'
+            '  "secret_exposures": [{"owner": "秘密归属者", "by": "本轮得知该秘密的角色名", "evidence": "本轮叙事原文片段"}],\n'
+            '  "handle_releases": [{"owner": "秘密归属者", "from": "失去把柄的人", "to": "接过把柄的人（彻底失去则填空字符串）", "evidence": "本轮叙事原文片段"}]\n'
             "}\n"
             "规则：\n"
             "- relations 只写跨回合稳定的关系定性，严禁把本轮动作（如\'靠肩头\'\'护送\'\'命令其回房\'）写进关系描述；关系键保持\"源 → 目标\"格式；只更新确实变化的条目，不要删除未提及的关系。\n"
             "- actions 覆盖本轮所有在场角色的一句行为摘要，用于展示\'这回合谁做了什么\'；这是回合级信息，可每轮整体覆盖。\n"
-            "- secret_exposures 只填那些在本轮叙事中其秘密被他人（某在场角色）知晓的条目；by 写得知者角色名，owner 写秘密归属者；环境推手主动揭示时 by 写环境推手。"
+            "- secret_exposures 只填本轮叙事里**确实发生**了「某人得知了某秘密」的条目；仅凭角色起了疑心、或只是提到相关物品，都不算。\n"
+            "- handle_releases 只填本轮叙事里**确实发生**了「把柄消失或转手」的条目：例如药物/证据/信件被丢弃、被夺走、交给第三方、或当众说开后不再构成胁迫。to 为空字符串表示彻底消失。\n"
+            "- evidence **必须逐字照抄**本轮叙事中的一段连续原文（不要改写、不要概括），引擎会核验它是否真的出现在叙事里；照抄不到原文就不要填该条目。\n"
+            "- 宁可少填也不要误填：填错会让秘密提前暴露或让把柄凭空失效。"
         )},
     ]
     try:
@@ -433,15 +462,37 @@ def reflect(sid, reply):
         for k, v in data["goals"].items():
             if v:
                 snap["goals"][k] = v
+    # 秘密：举证式归档（记录员模式）——引擎不猜，只核验证据是否出自正文
     for exp in (data.get("secret_exposures") or []):
         owner = exp.get("owner")
         by = exp.get("by")
         if not owner or not by or by == owner:
             continue
+        if by != ENV_PUSHER and by not in present:
+            continue
+        if not _evidence_ok(exp.get("evidence"), reply):
+            continue
         for s in snap.get("secrets", []):
-            if s.get("owner") == owner and by not in s["known_by"]:
-                # 确定性校验：回复须同时出现「秘密内容」+「发现动作」，否则视为 LLM 误判丢弃。
-                if _reply_confirms_exposure(reply, s, set(present)):
-                    _record_exposure(s, by, "叙事揭露", snap["scene"]["round"])
+            if s.get("owner") == owner and by not in s.get("known_by", []):
+                _record_exposure(s, by, "叙事揭露", snap["scene"]["round"])
+                break
+
+    # 把柄消除：同样按举证归档。known_by 移除 from、加入 to，
+    # _secret_state 会自动让无人知情者回落「潜伏」（此前缺失的状态回落路径）。
+    for rel in (data.get("handle_releases") or []):
+        owner = rel.get("owner")
+        frm = rel.get("from")
+        if not owner or not frm:
+            continue
+        to = (rel.get("to") or "").strip()
+        if to == frm:
+            continue
+        if not _evidence_ok(rel.get("evidence"), reply):
+            continue
+        for s in snap.get("secrets", []):
+            if s.get("owner") == owner and _release_handle(
+                    s, frm, to, snap["scene"]["round"]):
+                break
+
     memory.save(sid, snap)
     return snap
