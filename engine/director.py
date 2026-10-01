@@ -82,6 +82,20 @@ BODY_STRONG = ["阴道", "鸡巴", "阴茎", "阳具", "穴", "插入", "进入"
 BODY_MID = ["压在身下", "按在身下", "按在", "压在", "吻", "脱掉", "脱了", "脱去",
             "衣服", "胸", "腰", "抱紧", "骑", "跨坐", "贴", "湿润", "呻吟", "腿间",
             "抚摸", "舔", "含住", "顶住"]
+
+# 同形中性词：含 BODY_STRONG 里的单字「穴」但毫无性含义，末日/野外题材高频出现。
+# 判定前必须先剔除，否则「墓穴 / 洞穴 / 穴位」会被误判为性行为越线，
+# 进而误记关系后果旧账、误触发事后余韵压制。
+NEUTRAL_HOMONYMS = ["墓穴", "巢穴", "洞穴", "穴居", "穴位", "点穴", "太阳穴",
+                    "涌泉穴", "虎穴", "匪穴", "蚁穴", "孔穴", "陵穴", "窟穴"]
+
+
+def strip_neutral(text):
+    """剔除同形中性词后再做尺度判定（见 NEUTRAL_HOMONYMS）。"""
+    t = text or ""
+    for w in NEUTRAL_HOMONYMS:
+        t = t.replace(w, "")
+    return t
 _OPP_ORDER = {"无": 0, "试探": 1, "半步": 2, "满机会": 3}
 
 # 性行为发生后进入"事后"阶段的回合数（余韵/对话/关系变化，不推进性行为）
@@ -130,7 +144,8 @@ def _opp_from_history(history):
     """近期叙事里的身体接触推进 -> 仅作升温连贯（半步上限），不再永久锁定满机会；满机会由关系/把柄/指令决定。"""
     if not history:
         return "无"
-    recent = "\n".join(m.get("content", "") for m in history[-3:] if isinstance(m, dict))
+    recent = strip_neutral("\n".join(m.get("content", "") for m in history[-3:]
+                                     if isinstance(m, dict)))
     if any(k in recent for k in BODY_STRONG):
         return "半步"
     if any(k in recent for k in BODY_MID):
@@ -225,9 +240,11 @@ def brief(sid, directive):
         if any(d in text for d in DEFENSE_DOWN) and not any(o in text for o in OBSTACLE):
             opp = _opp_max(opp, "满机会")
     # 扰动指令直接描述身体接触/亲密推进 -> 尊重导演意图
-    if any(k in text for k in BODY_STRONG):
+    # （先剔除同形中性词：导演写「躲进洞穴」不是亲密推进）
+    tn = strip_neutral(text)
+    if any(k in tn for k in BODY_STRONG):
         opp = _opp_max(opp, "满机会")
-    elif any(k in text for k in BODY_MID):
+    elif any(k in tn for k in BODY_MID):
         opp = _opp_max(opp, "半步")
     # 事后阶段：机会等级上限为半步，本轮不推进到性行为
     if snap.get("intimacy_phase") == "aftermath":
@@ -253,7 +270,7 @@ def detect_intimacy(text):
     凡需要"已经发生了什么"的判断（后果留痕、余韵节奏），一律以此为准，
     不能拿机会等级代替，否则"许可发了但剧情没走到"会被误记为既成事实。
     """
-    t = text or ""
+    t = strip_neutral(text)
     if any(k in t for k in BODY_STRONG):
         return "越线"
     if any(k in t for k in BODY_MID):

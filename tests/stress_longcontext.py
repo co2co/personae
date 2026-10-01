@@ -146,7 +146,13 @@ def run(base_url, rounds, timeout):
                 "reply": reply or "",
                 "present": snap.get("present", []),
                 "focus": brief(snap.get("focus"), 40) or None,
-                "scene": brief(snap.get("scene"), 60),
+                # scene 存完整 JSON（截断会破坏结构化分析），另附结构化字段
+                "scene": json.dumps(snap.get("scene"), ensure_ascii=False)
+                         if snap.get("scene") is not None else "",
+                "scene_place": (snap.get("scene") or {}).get("place", "")
+                               if isinstance(snap.get("scene"), dict) else "",
+                "scene_time": (snap.get("scene") or {}).get("time", "")
+                              if isinstance(snap.get("scene"), dict) else "",
                 "secrets": states,
                 "exposed": sum(1 for v in states.values() if v == "暴露"),
                 "latent": sum(1 for v in states.values() if v == "潜伏"),

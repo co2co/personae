@@ -89,3 +89,23 @@ def test_opp_from_history_capped_at_half():
     assert director._opp_from_history(hist) == "半步"
     hist2 = [{"role": "assistant", "content": "老周清点物资"}]
     assert director._opp_from_history(hist2) == "无"
+
+
+# ---- 同形中性词保护（「穴」在末日/野外题材高频且无性含义）----
+
+def test_neutral_homonyms_not_treated_as_intimacy():
+    """墓穴/洞穴/穴位 不得判为越线——否则会误记关系后果旧账、误触发余韵。"""
+    for t in ["这可能成为五个人共同的墓穴", "他们躲进山洞的洞穴里",
+              "老周按压太阳穴缓解头痛", "这是一处尸群巢穴"]:
+        assert director.detect_intimacy(t) == "无", t
+
+
+def test_real_intimacy_still_detected():
+    """真实越线用词仍须判为越线（不能被中性剔除误伤）。"""
+    assert director.detect_intimacy("他进入她，两人在仓库里做爱") == "越线"
+
+
+def test_opp_from_history_ignores_neutral_homonyms():
+    """历史里出现「墓穴」不应把机会等级抬到半步。"""
+    hist = [{"role": "assistant", "content": "这地方可能成为五个人共同的墓穴"}]
+    assert director._opp_from_history(hist) == "无"
