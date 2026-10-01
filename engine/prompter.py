@@ -52,7 +52,8 @@ def parse_examples(raw):
 
 
 def build_session(cards_present, directive, world_hits, snap,
-                  nsfw_prompt, opp_level, history=None, after_hits=None, budget=4096, reserve=900):
+                  nsfw_prompt, opp_level, history=None, after_hits=None, budget=4096, reserve=900,
+                  focus=None):
     """多角色沙盘模式（环境推手作为外部导演，不登场）：返回 messages 列表。
 
     cards_present: {名字: 角色卡}（全部为 NPC，环境推手不在其中）
@@ -134,15 +135,44 @@ def build_session(cards_present, directive, world_hits, snap,
     blocks.append(scale)
 
     present_names = "、".join(cards_present.keys())
+
+    # 镜头跟随：指令把故事引向某子集时，该子集为镜头主角，其余在场者视为镜头外、不展开
+    focus_block = ""
+    if focus and focus.get("subjects"):
+        subs = "、".join(focus["subjects"])
+        others = [n for n in cards_present if n not in focus["subjects"]]
+        others_s = "、".join(others) if others else "（无）"
+        place = focus.get("place") or snap["scene"].get("place", "")
+        present_clause = (
+            "本回合镜头主角（必须重点描写并推动其剧情）：" + subs
+            + ("（当前位于 " + place + "）" if place else "")
+            + "。其余在场角色 " + others_s + " 此刻在别处/原场景待命，不在本回合镜头内；"
+            + "除非指令明确把他们带进来，否则不要写他们的「角色名：」段落、也不要展开描写，"
+            + "最多用一句无说话人的旁白带过「在别处待命」。"
+            + "严禁写任何未在场的角色（含已离场者）与环境推手（导演）台词。"
+        )
+        focus_block = (
+            "\n【镜头跟随】导演指令将镜头引向 " + subs
+            + ("（" + place + "）" if place else "")
+            + "，他们必须作为本轮叙事主视角出场并推进剧情；"
+            + others_s + " 在镜头之外，本轮不展开。"
+        )
+    else:
+        present_clause = (
+            "本轮在场角色：" + present_names + "。"
+            + "只能写这些在场角色（含其台词与动作），严禁写任何未在场的角色（包括已离场者），"
+            + "也绝对不要写环境推手（导演）台词或让任何角色对环境推手说话。"
+        )
+
     blocks.append(
-        "[输出格式]\n用多说话人叙事写这一轮各在场角色的反应与互动，每段以“角色名：”开头写台词与动作"
-        "（动作可用括号）。本轮在场角色：" + present_names + "。"
-        "只能写这些在场角色（含其台词与动作），严禁写任何未在场的角色（包括已离场者），也绝对不要写环境推手（导演）台词或让任何角色对环境推手说话。"
+        "[输出格式]\n用多说话人叙事写这一轮，" + present_clause + "\n"
         "角色必须行动（五选一），由核心渴望驱动；秘密不会主动传播，角色只在执行了信息获取动作后才知其秘密。"
         "情节由导演指令驱动，推进关系碰撞、秘密发酵与后果留痕，让这个世界自己运转起来。"
         "导演指令点名的角色必须作为本轮叙事焦点之一出场并推动剧情；严禁把指令点名角色无声略过或写成已离场"
         "（除非指令明确令其离开）。若点名角色前往某地/做某事，必须呈现其对应段落，不得只写留下的其他人。"
     )
+    if focus_block:
+        blocks.append(focus_block)
 
     fixed = "\n\n".join(blocks)
     messages = [{"role": "system", "content": fixed}]

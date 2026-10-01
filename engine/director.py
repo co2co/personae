@@ -138,6 +138,39 @@ def _opp_from_history(history):
     return "无"
 
 
+# ---- 镜头跟随（焦点）----
+# 玩家把扰动引向某个在场子集时，叙事镜头应跟随该子集，其余在场角色视为"在别处待命、
+# 不在本回合镜头内"，避免模型死守初始位置、只写留下的戏剧性角色（如怀孕/秘密组）。
+# 这是此前"指令指向离开者但叙事不跟随"问题的根因：引擎只有单一 present 名单，
+# 缺少"镜头"概念，导致模型在指令点名子集后仍默认全员出场、并偏爱更戏剧的留存组。
+_FOLLOW_WORDS = ["两人", "俩人", "2人", "他们", "他俩", "这俩", "那俩", "二人",
+                "双方", "两个", "他们俩", "这二人", "那二人"]
+
+
+def compute_focus(directive, snap):
+    """计算本轮镜头焦点（被指令点名/引用的在场子集）。
+
+    返回 {"subjects": [...], "place": "...", "sticky": bool} 或 None。
+    - 指令点名一个真子集 -> 镜头跟随该子集（sticky=False）。
+    - 指令无点名但含指代代词（两人/他们/...）且上轮有焦点 -> 延续上轮焦点（sticky=True），
+      避免"2人逐渐深入"这类后续指令丢失焦点、镜头跳回初始位置。
+    - 指令点名全体或无人 -> None，表示自然推演、全员在场皆可写。
+    place 取快照当前场景地点（scene.apply 已更新为新地点）。
+    """
+    present = snap.get("present", [])
+    if not present or not directive:
+        return None
+    named = [n for n in present if n in directive]
+    if 0 < len(named) < len(present):
+        return {"subjects": named, "place": snap["scene"].get("place", ""), "sticky": False}
+    if snap.get("focus") and any(w in directive for w in _FOLLOW_WORDS):
+        prev = snap["focus"]
+        subs = prev.get("subjects", [])
+        if subs and all(s in present for s in subs):
+            return {"subjects": subs, "place": snap["scene"].get("place", ""), "sticky": True}
+    return None
+
+
 def brief(sid, directive):
     """返回 (directives, snap)。会就地更新快照里的秘密状态与回合数。
 
@@ -237,15 +270,17 @@ def _extract_json(text):
         return None
 
 
-def validate_present(reply, present, known_names):
+def validate_present(reply, present, known_names, allowed=None):
     """后处理：剥离非在场角色的台词块，修掉模型偶发写出已离场角色的出戏问题。
 
-    reply 是"角色名："分段的多说话人叙事。出现在其中的、已知但不在场（含环境推手）的
-    角色台词块（含其续行）会被移除；无说话人的叙述行与在场角色台词保留。
+    reply 是"角色名："分段的多说话人叙事。出现在其中的、已知但不在保留集合（默认为
+    在场名单 present，或显式传入的 allowed 焦点子集）内的角色台词块（含其续行）会被移除；
+    无说话人的叙述行与保留集合内角色台词保留。
     返回 (清洗后文本, 是否发生违例)。
     """
-    if not reply or not known_names or not present:
-        # 在场名单为空（异常态）时无法校验，原样返回，绝不把整段回复剥空
+    keep = set(allowed) if allowed else set(present)
+    if not reply or not known_names or not keep:
+        # 保留集合为空（异常态）时无法校验，原样返回，绝不把整段回复剥空
         return reply, False
     # 长名优先，避免短名误匹配长名前缀（如"老周" vs "老周的朋友"）
     names_sorted = sorted(set(known_names), key=len, reverse=True)
@@ -255,7 +290,7 @@ def validate_present(reply, present, known_names):
         m = pat.match(ln)
         if m:
             sp = m.group(0).rstrip(" :：")
-            if sp not in present:          # 不在场（含环境推手、已离场角色）
+            if sp not in keep:            # 不在保留集合（含环境推手、已离场角色、镜头外角色）
                 dropping, violated = True, True
                 continue
             dropping = False

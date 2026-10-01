@@ -59,3 +59,14 @@ def resolve_session(snap, adult_confirmed, opp_level="无", override=None):
         "prompt": UNLOCKED + "\n" + note,
         "reason": f"成年已确认，机会等级：{opp_level}",
     }
+
+
+def resolve_for_request(snap, adult_confirmed, nsfw_enabled, body_nsfw, opp_level):
+    """服务端入口：把「设置 + 本次请求」归一成 resolve_session 的 override。
+
+    关键防守点：override 完全由服务端设置决定，客户端请求体里的 nsfw 字段只有在
+    nsfw_enabled=True 时才会被采纳；否则强制 off。这样「未确认成年 / 未开启 NSFW」的
+    玩家即便在请求体里伪造 nsfw="on"，也无法突破门控。
+    """
+    override = "off" if not nsfw_enabled else body_nsfw
+    return resolve_session(snap, adult_confirmed, opp_level, override=override)

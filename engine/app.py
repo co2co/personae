@@ -427,6 +427,9 @@ def act():
     try:
         # 场景自动切换：生成前先决定，使新场景/天气进入提示词；同时更新在场名单
         scene_changed, scene_prop = scene.apply(sid, directive, snap)
+        # 镜头跟随：玩家把扰动引向某子集时，镜头跟随该子集，其余在场者视为镜头外
+        focus = director.compute_focus(directive, snap)
+        snap["focus"] = focus
         memory.save(sid, snap)
         present = snap["present"]                  # 全部为 NPC，环境推手不在场
         cards_present = {c: store.load_card(c) for c in present}
@@ -468,9 +471,11 @@ def act():
                     meta=wb_meta)
 
         # NSFW：尺度由“成年确认 + 本轮机会等级”驱动（回归原版机制，不再用好感度阈值）
+        # 服务端门控：override 由设置决定，客户端 body 里的 nsfw 仅在 nsfw_enabled 时生效；
+        # 未确认成年 / 未开启 NSFW 即便伪造 nsfw="on" 也无法突破（见 tests/test_nsfw_defense.py）
         adult = llm.setting("adult_confirmed")
-        decision = nsfw.resolve_session(snap, adult, brief["opportunity"],
-                                        override="off" if not llm.setting("nsfw_enabled") else body.get("nsfw"))
+        decision = nsfw.resolve_for_request(
+            snap, adult, llm.setting("nsfw_enabled"), body.get("nsfw"), brief["opportunity"])
         logger.info("nsfw", "尺度：" + ("开放" if decision["unlocked"] else "受限") + "（" + decision["reason"] + "）")
 
         history = memory.load_chat(sid)
@@ -479,6 +484,7 @@ def act():
             decision["prompt"], brief["opportunity"], history=history,
             after_hits=after_hits,
             reserve=int(body.get("max_tokens", llm.setting("max_tokens"))) + 200,
+            focus=focus,
         )
         messages = hooks.emit("prompt_ready", messages=messages, snap=snap)["messages"]
         tok = sum(prompter.count_tokens(m.get("content", "")) for m in messages)
@@ -524,9 +530,12 @@ def act():
         logger.info("model", "模型输出完成，共 " + str(len(full)) + " 字")
         result = hooks.emit("message_received", reply=full, snap=snap)
         full = result["reply"]
-        # present 名单校验/后处理：剥离非在场角色（含已离场者、环境推手）的台词块
+        # present 名单校验/后处理：剥离非在场角色（含已离场者、环境推手）的台词块；
+        # 若本轮有镜头焦点，则按焦点子集裁剪，使镜头真正跟随被引向的角色，其余在场者不展开
         known = store.list_characters()
-        full, present_violation = director.validate_present(full, present, known)
+        focus_subjects = focus["subjects"] if focus else None
+        full, present_violation = director.validate_present(
+            full, present, known, allowed=focus_subjects)
         if present_violation:
             logger.warn("model", "在场校验：剥离了非在场角色的台词块（已自动清洗）")
         else:

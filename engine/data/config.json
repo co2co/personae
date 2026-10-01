@@ -7,6 +7,6 @@
   "temperature": 0.85,
   "top_p": 0.95,
   "enable_thinking": false,
-  "nsfw_enabled": true,
-  "adult_confirmed": true
+  "nsfw_enabled": false,
+  "adult_confirmed": false
 }

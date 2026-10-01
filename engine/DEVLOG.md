@@ -2,6 +2,34 @@
 
 记录架构决策、待办与搁置项。非任务日志，按主题追加。
 
+## 2026-10-01 镜头跟随（焦点）机制
+
+- 根因：引擎此前只有单一 `present` 名单、缺少「镜头」概念。玩家把扰动引向某个在场子集
+  （如"老周带领高洋下去下水道"）时，模型仍默认全员出场、并偏爱更戏剧的留存组（怀孕/秘密组），
+  导致镜头死守初始位置、不跟随被引向的角色（用户实测：连续三轮指令都只写留下的人）。
+- 修复（纯提示词 + 后处理裁剪，不动 `present` 名单，安全可逆）：
+  - `director.compute_focus(directive, snap)`：从指令识别本轮镜头焦点。
+    - 指令点名一个真子集 -> 跟随该子集；
+    - 指令无点名但含指代代词（两人/他们/2人/...）且上轮有焦点 -> 延续（`sticky`，避免"2人逐渐深入"丢焦点）；
+    - 指令点名全体或无人 -> `None`（自然推演、全员皆可写）。
+  - `prompter.build_session`：焦点存在时注入「【镜头跟随】」块，把焦点子集设为本回合主视角，
+    其余在场角色标注"在别处待命、不在镜头内、不展开"；无焦点时保持原"本轮在场角色"全覆盖句式。
+  - `app.py`：`/api/act` 在 `scene.apply` 后计算焦点并存回 `snap["focus"]`；传给 `build_session`；
+    并把焦点子集作为 `validate_present(allowed=...)` 的裁剪白名单。
+  - `director.validate_present`：新增 `allowed` 参数（默认回退为 `present`），仅保留白名单内角色的
+    「角色名：」台词块，镜头外在场角色的台词块被剥离，实现"镜头真正跟随被引向的角色"。
+- 测试：`tests/test_focus_follow.py`（8 项，确定性、mock LLM）：覆盖 compute_focus 四类分支、
+  prompter 注入、端点层提示词含镜头跟随块且后处理裁剪掉镜头外角色。
+- 版本：纯错误修正、非破坏性，按版本规范属 PATCH（v0.4.4 -> v0.4.5）。
+
+## 2026-10-01 NSFW 门控「突破防守」测试与可测性重构
+
+- 新增 `tests/test_nsfw_defense.py`：模拟玩家「未确认成年 + 未开启 NSFW」条件下的突破尝试。
+  - 逻辑层（确定性）：`nsfw.resolve_session` / `resolve_for_request` 矩阵——即便客户端伪造 `override="on"` 或 `nsfw="on"`、即便导演扰动把机会等级顶到「满机会」，门控一律返回受限（`unlocked=False`、`intimate=False`、提示词为 `GUARD` 且不含任何越线级露骨指引）。
+  - 端点层（Flask 测试客户端，mock LLM）：真实驱动 `/api/act`，断言返回 `nsfw.unlocked=False`，且注入模型的 `[内容尺度]` 段为 `GUARD`；并验证机会等级确被扰动顶到「满机会」仍被拦截（突破场景成立）。
+- 可测性重构（行为不变）：将 `/api/act` 里内联的 `override="off" if not nsfw_enabled else body.get("nsfw")` 提取为 `nsfw.resolve_for_request(snap, adult_confirmed, nsfw_enabled, body_nsfw, opp_level)`，把「服务端决定 override、客户端 body 仅在其开启时生效」的防守点收敛为单一可单测函数。
+- 防守要点：门控由服务端设置决定，请求体内的 `nsfw` 字段仅在 `nsfw_enabled=True` 时采纳；`adult_confirmed=False` 在 `resolve_session` 中优先级最高（先于 override 判定）。当前 `data/config.json` 默认即 `adult_confirmed:false`、`nsfw_enabled:false`，即出厂即锁。
+
 ## 2026-09-30 秘密机制重构
 
 ### 已落地：秘密的归属 / 曝光路径 / 影响
@@ -355,6 +383,24 @@ my-st/
 - 升 `v0.4.3`：收口 B 方向的 NSFW 满机会提示词强化（更直白不容回避的露骨措辞 + 三连禁止糊弄式收尾）与同步锁死措辞的 `test_nsfw` 确定性测试。
 - `VERSION` 升 v0.4.3；提交 + 打 tag `v0.4.3`；产出 `my-st-v0.4.3.zip`（27 条目，88.4 KB）。
 - 删除旧 `my-st-v0.4.2.zip`，仅保留最新；README / DEVLOG 版本号同步。git tag 现 `v0.1`–`v0.4.3` 连续。
+
+## 2026-10-01 版本 v0.4.5（镜头跟随 / NSFW 门控收口）
+
+- 升 `v0.4.5`：收口两处纯错误修正（PATCH 档，非破坏性）：① 叙事镜头跟随机制；② NSFW 门控「突破防守」测试与可测性重构。并顺带收口二者的未提交改动。
+- 镜头跟随（叙事逻辑修复，PATCH 档）：
+  - 根因：引擎此前只有单一 `present` 名单、缺少「镜头」概念。玩家把扰动引向某个在场子集（如"老周带领高洋下去下水道"）时，模型仍默认全员出场、偏爱更戏剧的留存组，导致镜头死守初始位置、不跟随被引向的角色（用户实测：连续三轮指令只写留下的人）。
+  - `engine/director.py`：新增 `compute_focus(directive, snap)`，从指令识别本轮焦点（点名真子集 -> 跟随；含指代代词且上轮有焦点 -> sticky 延续；点名全体/无人 -> None）。
+  - `engine/prompter.py`：焦点存在时注入「【镜头跟随】」块，把焦点子集设为本回合主视角，其余在场角色标注"在别处待命、不展开"；无焦点保持原全覆盖句式（签名新增 `focus` 参数，向后兼容，默认 None）。
+  - `engine/app.py`：`/api/act` 在 `scene.apply` 后算焦点存回 `snap["focus"]`，传给 `build_session`；并把焦点子集作为 `validate_present(allowed=...)` 裁剪白名单。
+  - `engine/director.py`：`validate_present` 新增 `allowed` 参数（默认回退 `present`），剥离镜头外在场角色的台词块，镜头真正跟随被引向者。
+  - `tests/test_focus_follow.py`（新增，确定性、mock LLM，8 项）：覆盖 compute_focus 四类分支、prompter 注入、端点层提示词含镜头跟随块且后处理裁剪镜头外角色。
+- NSFW 门控「突破防守」（PATCH 档）：
+  - `engine/nsfw.py`：新增 `resolve_for_request(snap, adult_confirmed, nsfw_enabled, body_nsfw, opp_level)`，把 `/api/act` 内联的 override 计算收敛为单一可测函数（行为不变）。
+  - `engine/app.py`：`/api/act` 改调 `resolve_for_request`。
+  - `engine/data/config.json`：出厂默认改为 `adult_confirmed:false` + `nsfw_enabled:false`（默认锁死，未确认成年的玩家天然无法触发 NSFW）。
+  - `tests/test_nsfw_defense.py`（新增，确定性 + Flask 端点层，8 项）：模拟玩家「未确认成年 + 未开启 NSFW」下的突破尝试（伪造 `nsfw:"on"`、把机会等级顶到满机会、组合攻击真实 `/api/act`），断言一律受限、注入模型的 `[内容尺度]` 为 `GUARD` 且不含越线级露骨指引。
+- `VERSION` 升 v0.4.5；提交 + 打 tag `v0.4.5`；产出 `my-st-v0.4.5.zip`（package.py 按 VERSION 自动命名）。
+- 删除旧 `my-st-v0.4.4.zip`，仅保留最新；README / DEVLOG 版本号同步。git tag 现 `v0.1`–`v0.4.5` 连续。
 
 ## 2026-10-01 版本 v0.4.4（推演逻辑修复收口）
 
