@@ -338,6 +338,7 @@ def log_stream():
 
 @app.post("/api/session/new")
 def session_new():
+    logger.bus.clear()  # 新一轮推演：清空日志缓冲，避免上一轮内容被日志窗回放
     body = request.get_json(force=True)
     all_chars = store.list_characters()
     # 环境推手不作为角色入场；cast 为同场角色卡列表（默认全部）

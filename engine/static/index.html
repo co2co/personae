@@ -29,6 +29,8 @@
   }
   *{ box-sizing:border-box; }
   html,body{ height:100%; }
+  /* 沙盘三栏占满视口，禁止整页滚动（滚动发生在各栏内部） */
+  body:has(#board:not(.hide)){ overflow:hidden; }
   body{
     margin:0;
     font:15px/1.7 system-ui,-apple-system,"Segoe UI","Microsoft YaHei",sans-serif;
@@ -81,15 +83,33 @@
   .brand b{ font-size:16px; font-weight:650; letter-spacing:.01em; }
   .brand span{ font-size:12.5px; color:var(--muted); letter-spacing:.06em; }
 
-  /* ---------- 布局 ---------- */
-  main{ max-width:1040px; margin:0 auto; padding:calc(var(--topbar-h) + 22px) 22px 160px; }
-  .grid{ display:grid; grid-template-columns:320px 1fr; gap:22px; align-items:start; }
-  .side{ position:sticky; top:calc(var(--topbar-h) + 16px); display:flex; flex-direction:column; gap:14px; }
+  /* ---------- 布局：三栏（左固定 / 中叙事 / 右日志） ---------- */
+  #board{ position:fixed; top:var(--topbar-h); left:0; right:0; bottom:0; display:flex; overflow:hidden; }
+  #board.hide{ display:none; }
+  .rail{ display:flex; flex-direction:column; background:var(--surface); overflow:hidden; }
+  .rail-left{ width:320px; flex:0 0 320px; border-right:1px solid var(--line); transition:width .18s ease, flex-basis .18s ease; }
+  .rail-right{ width:380px; flex:0 0 380px; border-left:1px solid var(--line); position:relative; transition:width .18s ease, flex-basis .18s ease; }
+  .rail-right.collapsed{ width:0; flex-basis:0; border-left:none; }
+  .rail-head{ display:flex; align-items:center; justify-content:space-between; gap:8px;
+    padding:11px 14px; border-bottom:1px solid var(--line); background:var(--surface-2); flex-shrink:0; }
+  .rail-title{ font-weight:650; font-size:14px; letter-spacing:.02em; }
+  /* 左栏各子面板可独立收起，见下方 .panel 区块 */
+  .rail-body{ flex:1; overflow:auto; padding:14px; }
+  .side{ display:flex; flex-direction:column; gap:14px; }
+  #center{ flex:1; min-width:0; display:flex; flex-direction:column; background:var(--bg); }
+  #center .stage{ flex:1; overflow:auto; padding:18px 22px 10px; }
 
   .panel{ background:var(--surface); border:1px solid var(--line);
-          border-radius:var(--radius); padding:16px 18px; box-shadow:var(--shadow); }
-  .panel h3{ margin:0 0 10px; font-size:12.5px; font-weight:600; color:var(--muted);
-             letter-spacing:.08em; text-transform:none; }
+          border-radius:var(--radius); overflow:hidden; }
+  .panel-head{ display:flex; align-items:center; justify-content:space-between; gap:8px;
+               padding:11px 14px; cursor:pointer; user-select:none; }
+  .panel-head:hover{ background:var(--surface-2); }
+  .panel-head h3{ margin:0; font-size:12.5px; font-weight:600; color:var(--muted);
+                  letter-spacing:.08em; text-transform:none; }
+  .panel-toggle{ font-size:11px; color:var(--muted); transition:transform .15s ease; }
+  .panel.collapsed .panel-toggle{ transform:rotate(-90deg); }
+  .panel-body{ padding:0 14px 12px; }
+  .panel.collapsed .panel-body{ display:none; }
 
   .chips{ display:flex; gap:8px; flex-wrap:wrap; }
   .scene-line{ font-size:14px; color:var(--ink-2); margin-top:8px; line-height:1.6; }
@@ -101,7 +121,7 @@
   .sec-state.full{ color:var(--danger); }
 
   /* ---------- 对话 ---------- */
-  .stage{ display:flex; flex-direction:column; min-height:60vh; }
+  .stage{ display:flex; flex-direction:column; }
   .log{ display:flex; flex-direction:column; gap:16px; padding-top:4px; }
   .msg{ max-width:80%; padding:13px 16px; border-radius:16px; line-height:1.7;
         white-space:pre-wrap; word-break:break-word; box-shadow:0 1px 2px rgba(20,20,20,.04); }
@@ -112,12 +132,11 @@
         background:transparent; border:1px dashed var(--line); border-radius:999px;
         padding:6px 16px; letter-spacing:.02em; box-shadow:none; }
 
-  #bar{ position:fixed; left:0; right:0; bottom:0; z-index:30;
-        display:flex; justify-content:center; gap:10px; align-items:flex-end;
-        padding:12px 22px; background:rgba(246,246,244,.86);
+  #bar{ flex-shrink:0; display:flex; justify-content:center; gap:10px; align-items:flex-end;
+        padding:12px 22px; background:rgba(246,246,244,.9);
         -webkit-backdrop-filter:blur(8px); backdrop-filter:blur(8px);
         border-top:1px solid var(--line); }
-  #bar-inner{ width:100%; max-width:1040px; display:flex; gap:10px; align-items:flex-end; }
+  #bar-inner{ width:100%; display:flex; gap:10px; align-items:flex-end; }
   #input{ flex:1; height:46px; max-height:160px; }
   #status{ font-size:12.5px; color:var(--muted); min-height:18px; padding:4px 2px 0; }
 
@@ -153,13 +172,27 @@
   .sys-sec{ margin:22px 0 8px; font-size:13px; font-weight:600; color:var(--muted); letter-spacing:.08em; }
   .sys-sec:first-of-type{ margin-top:6px; }
 
-  /* ---------- 响应式 ---------- */
+  /* ---------- 响应式（三栏自适应） ---------- */
+  @media (max-width:1100px){
+    .rail-right{ width:330px; flex-basis:330px; }
+  }
   @media (max-width:880px){
     :root{ --topbar-h:104px; }
-    .grid{ grid-template-columns:1fr; }
-    .side{ position:static; }
-    main{ padding:calc(var(--topbar-h) + 16px) 14px 150px; }
     header{ height:auto; padding:10px 14px; }
+    .rail-right{ width:300px; flex-basis:300px; }
+  }
+  /* 窄屏：左右栏变可滑出 overlay 抽屉，中间占满（用 .collapsed 控制滑入/滑出） */
+  @media (max-width:720px){
+    .rail-left, .rail-right{
+      position:fixed; top:var(--topbar-h); bottom:0; z-index:46;
+      width:86vw; max-width:360px; height:auto;
+    }
+    .rail-left{ left:0; border-right:1px solid var(--line);
+      transform:translateX(-100%); transition:transform .2s ease; }
+    .rail-right{ right:0; border-left:1px solid var(--line);
+      transform:translateX(100%); transition:transform .2s ease; }
+    .rail-left.open{ transform:translateX(0); }
+    .rail-right:not(.collapsed){ transform:translateX(0); }
   }
   /* 初始化管理面板（角色库 / 世界书，参考酒馆 Character / Lorebook） */
   .modal-box.wide{ width:min(900px, 94vw); }
@@ -205,17 +238,7 @@
   .hit-row .tag.sec{ color:#fff; background:#d6453e; }
   .hit-empty{ font-size:12.5px; color:var(--muted); }
 
-  /* ---------- 运行时日志窗（右侧滑出，默认隐藏） ---------- */
-  .logwin{
-    position:fixed; top:var(--topbar-h); right:0; z-index:54;
-    width:410px; max-width:94vw; height:calc(100vh - var(--topbar-h));
-    background:var(--surface); border-left:1px solid var(--line);
-    box-shadow:-12px 0 40px rgba(20,20,20,.10);
-    display:flex; flex-direction:column;
-    transform:translateX(108%); visibility:hidden;
-    transition:transform .22s ease, visibility .22s;
-  }
-  .logwin.show{ transform:translateX(0); visibility:visible; }
+  /* ---------- 运行时日志（右栏常驻，可收起；容器由 #right-rail 提供） ---------- */
   .lw-head{ display:flex; align-items:center; justify-content:space-between; gap:10px;
     padding:11px 14px; border-bottom:1px solid var(--line); background:var(--surface-2); }
   .lw-title{ font-weight:650; font-size:14px; letter-spacing:.02em; }
@@ -279,7 +302,7 @@
     border-radius:999px; padding:1px 8px; }
   .lw-ptext{ margin:0; padding:8px 10px; font:12.5px/1.6 ui-monospace,Menlo,Consolas,monospace;
     white-space:pre-wrap; word-break:break-word; color:var(--ink-2); max-height:240px; overflow:auto; }
-  @media (max-width:880px){ .logwin{ width:100%; max-width:100%; } }
+  /* 窄屏抽屉样式见上方 @media (max-width:720px) */
 
   /* ---------- 结局软提示横幅（非阻塞） ---------- */
   #ending-banner{ position:fixed; top:var(--topbar-h); left:0; right:0; z-index:40;
@@ -303,6 +326,7 @@
   <span class="spacer"></span>
   <button id="open-chars" class="btn btn-sm">角色库</button>
   <button id="open-worlds" class="btn btn-sm">世界书</button>
+  <button id="open-left" class="btn btn-sm">世界状态</button>
   <button id="open-sessions" class="btn btn-sm">会话</button>
   <button id="open-system" class="btn btn-sm">系统设置</button>
   <button id="open-log" class="btn btn-sm">运行时日志</button>
@@ -493,83 +517,90 @@
   </div>
 </div>
 
-<!-- 沙盘主界面 -->
+<!-- 沙盘主界面：三栏（左固定 / 中叙事 / 右日志） -->
 <div id="board" class="hide">
-  <main>
-    <div class="grid">
-      <!-- 左侧：世界状态 -->
-      <aside class="side">
-        <div class="panel">
-          <h3>在场角色 / 场景</h3>
+  <!-- 左栏：世界状态（默认收起，点击展开；再点收回） -->
+  <aside id="left-rail" class="rail rail-left">
+    <div class="rail-head">
+      <span class="rail-title">世界状态</span>
+    </div>
+    <div class="rail-body side">
+      <div class="panel">
+        <div class="panel-head"><h3>在场角色 / 场景</h3><span class="panel-toggle">▾</span></div>
+        <div class="panel-body">
           <div class="chips" id="present"></div>
           <div class="scene-line" id="scene-line"></div>
         </div>
-        <div class="panel">
-          <h3>关系</h3>
-        <div id="relations"></div>
       </div>
-      <div class="panel">
-        <h3>本轮行动</h3>
-        <div id="actions"></div>
+      <div class="panel" data-collapse>
+        <div class="panel-head"><h3>关系</h3><span class="panel-toggle">▾</span></div>
+        <div class="panel-body"><div id="relations"></div></div>
       </div>
-      <div class="panel">
-        <h3>当前意图</h3>
-          <div id="goals"></div>
-        </div>
-        <div class="panel">
-          <h3>行动状态</h3>
-          <div id="action-state"></div>
-        </div>
-        <div class="panel">
-          <h3>秘密</h3>
-          <div id="secrets"></div>
-        </div>
-      </aside>
+      <div class="panel" data-collapse>
+        <div class="panel-head"><h3>本轮行动</h3><span class="panel-toggle">▾</span></div>
+        <div class="panel-body"><div id="actions"></div></div>
+      </div>
+      <div class="panel" data-collapse>
+        <div class="panel-head"><h3>当前意图</h3><span class="panel-toggle">▾</span></div>
+        <div class="panel-body"><div id="goals"></div></div>
+      </div>
+      <div class="panel" data-collapse>
+        <div class="panel-head"><h3>行动状态</h3><span class="panel-toggle">▾</span></div>
+        <div class="panel-body"><div id="action-state"></div></div>
+      </div>
+      <div class="panel" data-collapse>
+        <div class="panel-head"><h3>秘密</h3><span class="panel-toggle">▾</span></div>
+        <div class="panel-body"><div id="secrets"></div></div>
+      </div>
+    </div>
+  </aside>
 
-      <!-- 右侧：对话 -->
-      <section class="stage">
-        <div class="log" id="log"></div>
-        <div id="status"></div>
-      </section>
+  <!-- 中栏：叙事 -->
+  <section id="center">
+    <div class="stage" id="stage">
+      <div class="log" id="log"></div>
+      <div id="status"></div>
     </div>
-  </main>
-  <div id="bar">
-    <div id="bar-inner">
-      <textarea id="input" placeholder="说点什么，回车发送。作为导演注入环境扰动，动作可用 *…* 描写，如 *让林梦雅去厨房*、*天色暗下来开始下雨*"></textarea>
-      <button id="send" class="btn btn-primary">注入扰动</button>
+    <div id="bar">
+      <div id="bar-inner">
+        <textarea id="input" placeholder="作为导演注入环境扰动，如 *让林梦雅去厨房*、*天色暗下来开始下雨*"></textarea>
+        <button id="send" class="btn btn-primary">注入扰动</button>
+      </div>
     </div>
-  </div>
+  </section>
+
+  <!-- 右栏：运行时日志（常驻，可收起；拖左缘手柄调宽） -->
+  <aside id="right-rail" class="rail rail-right">
+    <div class="lw-resize" id="lw-resize" title="拖拽调整宽度"></div>
+    <div class="lw-head">
+      <div class="lw-title">运行时日志</div>
+      <div class="lw-tools">
+        <select id="lw-filter" class="lw-sel" title="按分类过滤">
+          <option value="">全部分类</option>
+          <option value="worldbook">世界书</option>
+          <option value="model">模型</option>
+          <option value="prompt">提示词</option>
+          <option value="director">导演</option>
+          <option value="nsfw">尺度</option>
+          <option value="scene">场景</option>
+          <option value="system">系统</option>
+          <option value="session">会话</option>
+          <option value="error">错误</option>
+          <option value="debug">调试</option>
+        </select>
+        <button id="lw-clear" class="lw-btn" title="清空本地日志">清空</button>
+        <button id="lw-close" class="lw-btn" title="收起">×</button>
+      </div>
+    </div>
+    <div class="lw-body" id="lw-body"></div>
+    <div class="lw-foot">
+      <span id="lw-status">未连接</span>
+      <span>实时监听系统内部流程</span>
+    </div>
+  </aside>
 </div>
 
-<!-- 运行时日志窗（默认隐藏，点击顶栏「运行时日志」从右侧滑出） -->
-<aside id="logwin" class="logwin" aria-hidden="true">
-  <div class="lw-resize" id="lw-resize" title="拖拽调整宽度"></div>
-  <div class="lw-head">
-    <div class="lw-title">运行时日志</div>
-    <div class="lw-tools">
-      <select id="lw-filter" class="lw-sel" title="按分类过滤">
-        <option value="">全部分类</option>
-        <option value="worldbook">世界书</option>
-        <option value="model">模型</option>
-        <option value="prompt">提示词</option>
-        <option value="director">导演</option>
-        <option value="nsfw">尺度</option>
-        <option value="scene">场景</option>
-        <option value="system">系统</option>
-        <option value="session">会话</option>
-        <option value="error">错误</option>
-        <option value="debug">调试</option>
-      </select>
-      <button id="lw-clear" class="lw-btn" title="清空本地日志">清空</button>
-      <button id="lw-close" class="lw-btn" title="收起">×</button>
-    </div>
-  </div>
-  <div class="lw-body" id="lw-body"></div>
-  <div class="lw-foot">
-    <span id="lw-status">未连接</span>
-    <span>打开时实时监听系统内部流程</span>
-  </div>
-</aside>
+<!-- 日志窗口已并入 #right-rail（可收起，见 JS openLog/closeLog） -->
 
 <script>
 const log = document.getElementById('log');
@@ -578,6 +609,9 @@ const sendBtn = document.getElementById('send');
 const statusEl = document.getElementById('status');
 const scaleTag = document.getElementById('scale-tag');
 const roundTag = document.getElementById('round-tag');
+const leftRail = document.getElementById('left-rail');
+const rightRail = document.getElementById('right-rail');
+const stageEl = document.getElementById('stage');
 let SID = '';
 
 async function loadCharacters() {
@@ -591,6 +625,7 @@ function renderNpcs(list) {
 }
 
 async function startSession() {
+  lwBody.innerHTML = '';  // 开新一轮前清空日志 DOM，去除上一轮推演残留
   const cast = [...document.querySelectorAll('#npcs input:checked')].map(c => c.value);
   const scene = document.getElementById('scene').value.trim();
   const res = await fetch('/api/session/new', {
@@ -604,6 +639,7 @@ async function startSession() {
   document.getElementById('board').classList.remove('hide');
   renderSnapshot(data.snapshot);
   statusEl.textContent = '世界已开启：' + SID;
+  if (!es) connectLog();  // 新世界就绪后再连接日志流（缓冲已清空，仅回放本轮）
 }
 
 function bubble(role, text) {
@@ -614,7 +650,7 @@ function bubble(role, text) {
   body.textContent = text;
   div.appendChild(body);
   log.appendChild(div);
-  window.scrollTo(0, document.body.scrollHeight);
+  stageEl.scrollTop = stageEl.scrollHeight;
   return body;
 }
 
@@ -623,7 +659,7 @@ function bubbleSystem(text) {
   div.className = 'msg sys';
   div.textContent = text;
   log.appendChild(div);
-  window.scrollTo(0, document.body.scrollHeight);
+  stageEl.scrollTop = stageEl.scrollHeight;
 }
 
 function renderSnapshot(snap) {
@@ -693,7 +729,7 @@ async function send() {
         if (!node) node = bubble('assistant', '');
         acc += data.delta;
         node.textContent = acc;
-        window.scrollTo(0, document.body.scrollHeight);
+        stageEl.scrollTop = stageEl.scrollHeight;
       }
       if (data.done) {
         if (data.snapshot) {
@@ -1212,7 +1248,7 @@ document.getElementById('open-sessions').onclick = () => {
 };
 
 // ---- 运行时日志窗（右侧滑出，SSE 实时监听系统内部流程） ----
-const logwin = document.getElementById('logwin');
+const logwin = document.getElementById('right-rail');
 const lwBody = document.getElementById('lw-body');
 const lwStatus = document.getElementById('lw-status');
 const lwFilter = document.getElementById('lw-filter');
@@ -1314,16 +1350,11 @@ function appendEntry(e){
 }
 
 function openLog(){
-  if (lwOpen) return;
-  lwOpen = true;
-  logwin.classList.add('show');
-  logwin.setAttribute('aria-hidden', 'false');
-  connectLog();
+  rightRail.classList.remove('collapsed');
+  if (!es) connectLog();
 }
 function closeLog(){
-  lwOpen = false;
-  logwin.classList.remove('show');
-  logwin.setAttribute('aria-hidden', 'true');
+  rightRail.classList.add('collapsed');
   if (es){ es.close(); es = null; }
   lwStatus.textContent = '已断开';
 }
@@ -1344,19 +1375,25 @@ lwBody.addEventListener('scroll', () => {
 
 // ---- 拖拽调整日志窗宽度（左缘手柄，宽度持久化到 localStorage） ----
 const lwResize = document.getElementById('lw-resize');
-let lwDrag = false;
-try { const savedW = localStorage.getItem('lw-width'); if (savedW) logwin.style.width = savedW; } catch (_) {}
+let lwDrag = false, lwStartX = 0, lwStartW = 380;
+try {
+  const savedW = localStorage.getItem('lw-width');
+  if (savedW) { rightRail.style.width = savedW; rightRail.style.flexBasis = savedW; lwStartW = parseFloat(savedW) || 380; }
+} catch (_) {}
 lwResize.addEventListener('mousedown', e => {
   lwDrag = true;
   lwResize.classList.add('dragging');
+  lwStartX = e.clientX;
+  lwStartW = rightRail.getBoundingClientRect().width;
   document.body.style.cursor = 'ew-resize';
   document.body.style.userSelect = 'none';
   e.preventDefault();
 });
 window.addEventListener('mousemove', e => {
   if (!lwDrag) return;
-  const w = Math.max(300, Math.min(window.innerWidth - 60, window.innerWidth - e.clientX));
-  logwin.style.width = w + 'px';
+  const w = Math.max(280, Math.min(640, lwStartW + (lwStartX - e.clientX)));
+  rightRail.style.width = w + 'px';
+  rightRail.style.flexBasis = w + 'px';
 });
 window.addEventListener('mouseup', () => {
   if (!lwDrag) return;
@@ -1364,14 +1401,16 @@ window.addEventListener('mouseup', () => {
   lwResize.classList.remove('dragging');
   document.body.style.cursor = '';
   document.body.style.userSelect = '';
-  try { localStorage.setItem('lw-width', logwin.style.width); } catch (_) {}
+  try { localStorage.setItem('lw-width', rightRail.style.width); } catch (_) {}
 });
-document.getElementById('open-log').onclick = openLog;
+document.getElementById('open-log').onclick = () => {
+  if (rightRail.classList.contains('collapsed')) openLog(); else closeLog();
+};
 document.getElementById('lw-close').onclick = closeLog;
 document.getElementById('lw-clear').onclick = () => { lwBody.innerHTML = ''; };
 lwFilter.onchange = applyFilter;
 // 快捷键：Esc 收起日志窗
-document.addEventListener('keydown', e => { if (e.key === 'Escape' && lwOpen) closeLog(); });
+document.addEventListener('keydown', e => { if (e.key === 'Escape' && !rightRail.classList.contains('collapsed')) closeLog(); });
 // 占位：消除旧版 index.html 末尾对未定义 refreshState 的引用（避免控制台报错）
 function refreshState(){}
 
@@ -1410,6 +1449,18 @@ document.getElementById('end-delete').onclick = async () => {
 
 loadCharacters();
 refreshState();
+
+// 左栏各子面板可独立收起/展开（长内容默认收起，决定权交给用户）；窄屏下左栏为抽屉，由顶栏「世界状态」按钮唤出
+document.querySelectorAll('#left-rail .panel').forEach(p => {
+  p.querySelector('.panel-head').addEventListener('click', () => p.classList.toggle('collapsed'));
+});
+document.querySelectorAll('#left-rail .panel[data-collapse]').forEach(p => p.classList.add('collapsed'));
+const openLeftBtn = document.getElementById('open-left');
+if (openLeftBtn) openLeftBtn.onclick = () => leftRail.classList.toggle('open');
+// 日志窗默认不自动连接：开始界面不应回放上一轮缓冲；进入世界后由 startSession 连接
+if (window.innerWidth < 720) {
+  rightRail.classList.add('collapsed');
+}
 </script>
 </body>
 </html>

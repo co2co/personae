@@ -2,6 +2,21 @@
 
 记录架构决策、待办与搁置项。非任务日志，按主题追加。
 
+## 2026-10-01 v0.5.1（前端三栏布局修正 + 日志残留修复）
+
+- 升 v0.5.1：收口前端三栏布局两处修正与日志窗残留上一轮推演内容的 Bug 修复（均为 PATCH 档、向后兼容、非破坏性）。
+- 前端三栏布局修正（engine/static/index.html）：
+  - 开始界面刷新后消失：根因 CSS 优先级——`#board{display:flex}`（ID 选择器）压过 `.hide{display:none}`，`.hide` 失效使 `#board` 永远 `position:fixed` 盖住 `#setup`。新增 `#board.hide{display:none;}`（特异性 1,1,0）修复。
+  - 左栏收起逻辑纠正：整栏「世界状态」不收起；收起的是栏内各子面板（关系/本轮行动/当前意图/行动状态/秘密），长内容默认收起、决定权交给用户。每个 `.panel` 独立 `panel-head` 点击展开/收起；5 个内容面板带 `data-collapse` 默认收起，仅「在场角色/场景」常驻展开。顶栏新增「世界状态」按钮（窄屏下左栏变抽屉由该按钮唤出）。删除整栏收起的残留 CSS/HTML/JS。
+- 日志窗残留上一轮推演内容（Bug 修复）：
+  - 根因：engine/logger.py 的 LogBus 是进程级环形缓冲，`/api/log/stream` 每次连接都回放全部缓冲且不分会话；前端刷新即自动 connectLog()，旧日志被整段回放。
+  - engine/logger.py：LogBus 新增 `clear()`（清空环形缓冲）。
+  - engine/app.py：`/api/session/new` 开头调用 `logger.bus.clear()`，开新一轮前清空缓冲。
+  - engine/static/index.html：startSession() 开头清空 `lwBody` DOM，会话就绪后再 `connectLog()`；去掉初始化时无条件的自动 `connectLog()`（开始界面不再回放旧日志）。
+  - 验证：脚本连开世界 A/B，连接 2（B 之后）回放仅含"世界B"、不含"世界A"，判定 PASS；JS/Python 语法均通过。
+- `VERSION` 升 v0.5.1；提交 + 打 tag `v0.5.1`；产出 `my-st-v0.5.1.zip`（package.py 按 VERSION 自动命名）。
+- 删除旧 `my-st-v0.5.0.zip`，仅保留最新；README / DEVLOG 版本号同步。git tag 现 `v0.1`–`v0.5.1` 连续。
+
 ## 2026-10-01 v0.5.0 结局判定（软指引）收口
 
 - 动机：引擎此前没有「终止」概念，会话可无限漂移、永不收束，用户也没有干净的「结束并复盘」出口。

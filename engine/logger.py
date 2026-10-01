@@ -74,6 +74,11 @@ class LogBus:
         with self._lock:
             return list(self._buf)
 
+    def clear(self):
+        """清空环形缓冲。新会话开启时调用，使日志窗口不再回放上一轮推演内容。"""
+        with self._lock:
+            self._buf.clear()
+
 
 bus = LogBus()
 
