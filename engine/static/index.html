@@ -187,6 +187,7 @@
   .badge-nsfw{ background:var(--danger-soft); color:var(--danger); }
   .badge-llm{ background:var(--accent-soft); color:var(--accent-strong); }
   .badge-doc{ background:var(--pos-soft); color:var(--pos); }
+  .badge-sampling{ background:var(--line); color:var(--muted); }
   .acc-chev{ margin-left:auto; color:var(--muted); font-size:12px; transition:transform .18s ease; }
   .acc:not([open]) .acc-chev{ transform:rotate(-90deg); }
   .acc-body{ padding:2px 16px 16px; border-top:1px solid var(--line-2); }
@@ -444,19 +445,34 @@
           <button id="cfg-test" class="btn btn-sm" style="float:right;">测试连接</button>
         </label>
         <select id="cfg-model" class="field"></select>
-        <label>采样参数</label>
+        <div class="cfg-msg" id="cfg-msg"></div>
+      </div>
+    </details>
+
+    <!-- 采样参数：与具体模型解耦，全局统一设置，本地/在线模型均生效 -->
+    <details class="acc">
+      <summary class="acc-head">
+        <span>采样参数</span>
+        <span class="acc-badge badge-sampling">SAMPLING</span>
+        <span class="acc-chev">▾</span>
+      </summary>
+      <div class="acc-body">
+        <p class="sub" style="margin:0 0 10px;line-height:1.6;">以下参数与具体模型无关，全局统一控制 LLM 采样行为；无论使用本地还是在线模型均生效。</p>
         <div class="row">
           <span style="font-size:12.5px;color:var(--muted);">温度</span>
           <input id="cfg-temp" class="field" type="number" step="0.05" style="max-width:110px">
           <span style="font-size:12.5px;color:var(--muted);">top_p</span>
           <input id="cfg-topp" class="field" type="number" step="0.05" style="max-width:110px">
+          <span style="font-size:12.5px;color:var(--muted);">top_k</span>
+          <input id="cfg-topk" class="field" type="number" step="1" style="max-width:90px">
+        </div>
+        <div class="row" style="margin-top:10px;">
           <span style="font-size:12.5px;color:var(--muted);">max_tokens</span>
           <input id="cfg-maxtok" class="field" type="number" step="64" style="max-width:120px">
           <label style="margin:0;display:flex;align-items:center;gap:6px;font-size:13px;color:var(--ink-2);font-weight:400;">
             <input id="cfg-think" type="checkbox"> 启用思考
           </label>
         </div>
-        <div class="cfg-msg" id="cfg-msg"></div>
       </div>
     </details>
 
@@ -855,6 +871,14 @@ function cfgFill(p) {
   document.getElementById('cfg-key').value = p.api_key || '';
   document.getElementById('cfg-model').value = p.model || '';
 }
+// 按真实配置反推当前所属预设：base_url + model 命中即认领，否则归为 custom
+function presetForConfig(c) {
+  for (const k of ['local', 'silicon']) {
+    const p = PRESETS[k];
+    if (p.base_url === c.base_url && p.model === c.model) return k;
+  }
+  return 'custom';
+}
 
 document.getElementById('open-system').onclick = async () => {
   const c = await fetch('/api/config').then(r => r.json());
@@ -864,10 +888,12 @@ document.getElementById('open-system').onclick = async () => {
   document.getElementById('cfg-key').value = c.api_key || '';
   document.getElementById('cfg-model').innerHTML = c.model
     ? `<option>${c.model}</option>` : '<option value="">（未设置）</option>';
-  document.getElementById('cfg-temp').value = c.temperature ?? 0.8;
+  document.getElementById('cfg-temp').value = c.temperature ?? 0.9;
   document.getElementById('cfg-topp').value = c.top_p ?? 0.95;
-  document.getElementById('cfg-maxtok').value = c.max_tokens ?? 512;
+  document.getElementById('cfg-topk').value = c.top_k ?? 40;
+  document.getElementById('cfg-maxtok').value = c.max_tokens ?? 4096;
   document.getElementById('cfg-think').checked = !!c.enable_thinking;
+  document.getElementById('cfg-preset').value = presetForConfig(c);
   cfgMsg.textContent = '';
   sysModal.classList.remove('hide');
 };
@@ -905,6 +931,7 @@ document.getElementById('sys-save').onclick = async () => {
     model: document.getElementById('cfg-model').value.trim(),
     temperature: parseFloat(document.getElementById('cfg-temp').value),
     top_p: parseFloat(document.getElementById('cfg-topp').value),
+    top_k: parseInt(document.getElementById('cfg-topk').value, 10),
     max_tokens: parseInt(document.getElementById('cfg-maxtok').value, 10),
     enable_thinking: document.getElementById('cfg-think').checked,
   };

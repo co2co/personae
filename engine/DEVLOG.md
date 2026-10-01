@@ -2,6 +2,31 @@
 
 记录架构决策、待办与搁置项。非任务日志，按主题追加。
 
+## 2026-10-01 v0.5.3（采样参数独立分组 + top_k + 世界书文档 CDN 修复）
+
+- 升 v0.5.3：系统设置增强（采样参数独立 + top_k）与一处文档渲染 bug 修复，均向后兼容、非破坏性 → PATCH（v0.5.2 → v0.5.3）。
+
+### 1. 系统设置：采样参数独立分组 + 新增 top_k
+- 前端（engine/static/index.html）：「采样参数」从「模型与生成（LLM）」拆为独立折叠组（徽章 SAMPLING），与具体模型解耦、全局统一；组内字段 温度 / top_p / top_k（默认 40）/ max_tokens（默认 4096）/ 启用思考；`open-system` 加载加 `cfg-topk` 且默认 0.9/4096/40，`sys-save` 回写 `top_k`。
+- 后端（engine/llm.py）：DEFAULTS 加 `top_k:40`、`temperature` 0.8→0.9、`max_tokens` 512→4096；`_WRITABLE` 与 `save_config` int 分支纳入 `top_k`；`stream`/`complete` 签名与 payload 透传 `top_k`。
+- 后端（engine/app.py）：`/api/act` params 加 `top_k: int(body.get("top_k", llm.setting("top_k")))`。
+- 出厂默认（engine/data/config.json）：新增 `top_k:40`，`max_tokens` 2048→4096，`temperature` 0.9；端点保持硅基流动 HY4、NSFW 关闭（出厂即锁）。
+
+### 2. Bug 修复：世界书帮助文档一直「加载中…」
+- 根因：文档页用渲染阻塞的外部 CDN（cdn.jsdelivr.net/marked）渲染，CDN 不可达时外部脚本挂起 → 内联脚本永不执行 → 卡在「加载中…」。
+- 修复：下载 marked v12.0.2（35KB）到 engine/static/marked.min.js；新增 `GET /static/<path>` 路由（原 `Flask(static_folder=None)` 不提供默认静态路由）；文档页改引用 `/static/marked.min.js`，并加固为「渲染失败立即回退纯文本、绝不卡加载」。
+- 分发包含 marked.min.js（package.py 递归打包 engine/），修复对拷贝同样生效。
+
+### 验证
+- py_compile llm.py/app.py 通过；test_client `GET /static/marked.min.js`→200（text/javascript, 35KB），`GET /docs/worldbook`→200 且引用本地 marked、`__MD__` 已替换、含纯文本回退。
+- index.html 标签平衡（details/summary 5/5）、21 ID 无缺失（含 cfg-topk）、CSS 231/231、JS node --check 通过；top_k 全链路贯通。
+- 健壮性：/api/act 的采样参数解析加 `_resolve` 兜底，请求体未给且配置缺失（如测试桩返回 None）时回退 `llm.DEFAULTS`，避免 `int(None)` 崩溃；快测 53 passed 无回归。
+- 本机 Chrome 不可用，未做真机视觉回归。
+
+### 收口范围与排除
+- 纳入：engine/VERSION / README.md / engine/DEVLOG.md / engine/app.py / engine/llm.py / engine/static/index.html / engine/static/marked.min.js（新增）/ engine/data/config.json（出厂默认，个人配置已备份至 backups/config.personal.*.bak 未提交）。
+- 红线排除：`.workbuddy/`、`nul`（保留名，Windows 拒绝清理，无害残留）；`pytest.ini` + `tests/README.md` + `tests/test_focus_follow.py`（此前标记"暂不提交"的可选测试，本次仍排除）。
+
 ## 2026-10-01 v0.5.2（移动端适配 + 启动绑定 0.0.0.0）
 
 - 升 v0.5.2：收口移动端响应式适配与启动脚本局域网绑定（均为 PATCH 档、向后兼容、非破坏性）。

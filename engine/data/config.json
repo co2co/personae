@@ -3,9 +3,10 @@
   "api_key": "REMOVED",
   "model": "tencent/Hy4-preview",
   "budget": 4096,
-  "max_tokens": 2048,
-  "temperature": 0.85,
+  "max_tokens": 4096,
+  "temperature": 0.9,
   "top_p": 0.95,
+  "top_k": 40,
   "enable_thinking": false,
   "nsfw_enabled": false,
   "adult_confirmed": false

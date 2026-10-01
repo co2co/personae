@@ -107,10 +107,17 @@ def index():
     return send_from_directory(ROOT / "static", "index.html")
 
 
+@app.get("/static/<path:filename>")
+def static_files(filename):
+    # 引擎关闭了默认 static 服务（static_folder=None），此处按需提供本地静态资源，
+    # 避免世界书文档依赖外部 CDN 而卡在「加载中…」。
+    return send_from_directory(ROOT / "static", filename)
+
+
 @app.get("/docs/worldbook")
 def worldbook_doc():
-    """返回世界书使用说明书的渲染网页（marked.js 渲染 Markdown，带样式；
-    CDN 不可用时回退为纯文本）。"""
+    """返回世界书使用说明书的渲染网页（本地 marked.js 渲染 Markdown，带样式；
+    marked 未加载时回退为纯文本，绝不卡在「加载中…」）。"""
     raw = (ROOT / "worldbook-guide.md").read_text(encoding="utf-8")
     md_json = json.dumps(raw).replace("</", "<\\/")  # 安全嵌入脚本，避免 </script> 截断
     html = _WORLD_BOOK_HTML.replace("__MD__", md_json)
@@ -155,16 +162,20 @@ _WORLD_BOOK_HTML = """<!DOCTYPE html>
   <header><strong>世界书使用说明</strong><a href="/">← 返回沙盘</a></header>
   <article id="content">加载中…</article>
 </div>
-<script src="https://cdn.jsdelivr.net/npm/marked@12/marked.min.js"></script>
+<script src="/static/marked.min.js"></script>
 <script>
-  var md = "__MD__";
-  try {
-    if (window.marked && marked.parse) {
-      document.getElementById('content').innerHTML = marked.parse(md);
-    } else { throw new Error('marked 未加载'); }
-  } catch (e) {
-    document.getElementById('content').textContent = md;
-  }
+  (function () {
+    var md = "__MD__";
+    var el = document.getElementById('content');
+    // 本地 marked 就绪则渲染；任何异常（含标记库未加载）均回退为纯文本，绝不卡在「加载中…」。
+    try {
+      if (window.marked && typeof marked.parse === 'function') {
+        el.innerHTML = marked.parse(md);
+        return;
+      }
+    } catch (e) { /* 落到下方纯文本回退 */ }
+    el.textContent = md;
+  })();
 </script>
 </body>
 </html>"""
@@ -506,10 +517,16 @@ def act():
         logger.error("error", "生成流程准备阶段异常：" + repr(exc))
         return jsonify({"error": str(exc)}), 500
 
+    def _resolve(name, raw):
+        # 请求体未给时回退配置；配置缺失（如测试桩返回 None）再回退代码默认值，避免 int(None) 崩溃
+        v = raw if raw is not None else llm.setting(name)
+        return v if v is not None else llm.DEFAULTS[name]
+
     params = {
-        "temperature": float(body.get("temperature", llm.setting("temperature"))),
-        "top_p": float(body.get("top_p", llm.setting("top_p"))),
-        "max_tokens": int(body.get("max_tokens", llm.setting("max_tokens"))),
+        "temperature": float(_resolve("temperature", body.get("temperature"))),
+        "top_p": float(_resolve("top_p", body.get("top_p"))),
+        "top_k": int(_resolve("top_k", body.get("top_k"))),
+        "max_tokens": int(_resolve("max_tokens", body.get("max_tokens"))),
     }
 
     def events():

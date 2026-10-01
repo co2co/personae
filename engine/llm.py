@@ -19,9 +19,10 @@ DEFAULTS = {
     "api_key": "sk-local",
     "model": "local",
     "budget": 4096,
-    "max_tokens": 512,
-    "temperature": 0.8,
+    "max_tokens": 4096,
+    "temperature": 0.9,
     "top_p": 0.95,
+    "top_k": 40,
     "enable_thinking": False,
     "nsfw_enabled": True,
     "adult_confirmed": False,
@@ -50,7 +51,7 @@ def config_view():
 
 
 # 用户可通过 UI 改动的字段；其余内部字段不暴露
-_WRITABLE = {"base_url", "api_key", "model", "budget", "max_tokens",
+_WRITABLE = {"base_url", "api_key", "model", "budget", "max_tokens", "top_k",
              "temperature", "top_p", "enable_thinking", "nsfw_enabled", "adult_confirmed"}
 
 
@@ -62,7 +63,7 @@ def save_config(partial):
             continue
         if k == "enable_thinking":
             v = bool(v)
-        elif k in ("budget", "max_tokens"):
+        elif k in ("budget", "max_tokens", "top_k"):
             v = int(v) if str(v).strip() else DEFAULTS[k]
         elif k in ("temperature", "top_p"):
             v = float(v) if str(v).strip() else DEFAULTS[k]
@@ -92,7 +93,7 @@ def list_models(base_url=None, api_key=None):
     return [m.get("id") for m in data.get("data", [])]
 
 
-def stream(messages, temperature=None, top_p=None, max_tokens=None, timeout=180,
+def stream(messages, temperature=None, top_p=None, max_tokens=None, top_k=None, timeout=180,
            base_url=None, api_key=None, model=None):
     """逐块产出文本。上游返回 SSE，这里只取 delta.content。
 
@@ -105,6 +106,7 @@ def stream(messages, temperature=None, top_p=None, max_tokens=None, timeout=180,
         "temperature": float(temperature if temperature is not None else setting("temperature")),
         "top_p": float(top_p if top_p is not None else setting("top_p")),
         "max_tokens": int(max_tokens if max_tokens is not None else setting("max_tokens")),
+        "top_k": int(top_k if top_k is not None else setting("top_k")),
         "stream": True,
     }
     # Qwen3 一类带思考的模型默认会把预算耗在 reasoning 上，content 全是空
@@ -140,7 +142,7 @@ def stream(messages, temperature=None, top_p=None, max_tokens=None, timeout=180,
                 yield text
 
 
-def complete(messages, temperature=None, top_p=None, max_tokens=None, timeout=60,
+def complete(messages, temperature=None, top_p=None, max_tokens=None, top_k=None, timeout=60,
              base_url=None, api_key=None, model=None):
     """一次性返回完整文本（非流式）。用于场景切换等只需结果、不需逐字流的轻量判定。"""
     url = (base_url or setting("base_url")).rstrip("/") + "/chat/completions"
@@ -150,6 +152,7 @@ def complete(messages, temperature=None, top_p=None, max_tokens=None, timeout=60
         "temperature": float(temperature if temperature is not None else setting("temperature")),
         "top_p": float(top_p if top_p is not None else setting("top_p")),
         "max_tokens": int(max_tokens if max_tokens is not None else setting("max_tokens")),
+        "top_k": int(top_k if top_k is not None else setting("top_k")),
         "stream": False,
     }
     if not setting("enable_thinking"):
