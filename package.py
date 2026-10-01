@@ -10,6 +10,7 @@
 """
 
 import argparse
+import json
 import os
 import zipfile
 from pathlib import Path
@@ -53,6 +54,21 @@ def build(out_name=None):
                 if _excluded(rel_engine):
                     continue
                 arcname = os.path.relpath(full, ROOT).replace(os.sep, "/")  # zip 用正斜杠
+                if rel_engine.replace(os.sep, "/") == "data/config.json":
+                    # 分发 zip 不得携带个人 config（本地模型路径/连接）；洗白为出厂默认再归档，工作树不动
+                    try:
+                        cfg = json.loads(Path(full).read_text(encoding="utf-8"))
+                        cfg["base_url"] = ""
+                        cfg["api_key"] = ""
+                        cfg["model"] = ""
+                        cfg["nsfw_enabled"] = False
+                        cfg["adult_confirmed"] = False
+                        cfg["providers"] = []
+                        z.writestr(arcname, json.dumps(cfg, ensure_ascii=False, indent=2))
+                    except Exception:
+                        z.write(full, arcname)
+                    n += 1
+                    continue
                 z.write(full, arcname)
                 n += 1
                 if any(x in arcname for x in ("venv/", "__pycache__/", "data/sessions", "tests/")):
