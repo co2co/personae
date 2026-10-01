@@ -20,7 +20,14 @@ ENGINE = ROOT / "engine"
 
 # 排除项（相对 engine/ 的路径）
 EXCLUDE_DIRS = {".git", "venv", "__pycache__"}
-EXCLUDE_SUBPATHS = {"data/sessions", "data/state.json"}
+# 不随分发包携带：会话状态/运行时状态、用户剧本内容（角色卡/世界书/玩家设定）
+EXCLUDE_SUBPATHS = {
+    "data/sessions",
+    "data/state.json",
+    "data/characters",   # 用户剧本：角色卡
+    "data/worlds",       # 用户剧本：世界书
+    "player-cast",       # 用户剧本：玩家设定
+}
 
 
 def _version():
