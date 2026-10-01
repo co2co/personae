@@ -17,6 +17,7 @@
 
 import json
 import os
+import queue
 import re
 from pathlib import Path
 
@@ -26,6 +27,7 @@ import director
 import scene
 import hooks
 import llm
+import logger
 import memory
 import nsfw
 import prompter
@@ -68,6 +70,30 @@ def _scene_change_payload(changed, prop, snap):
         "leave": prop.get("leave", []),
         "arrive": prop.get("arrive", []),
         "reason": prop.get("reason", ""),
+    }
+
+
+def _worldbook_meta(entries, before_hits, after_hits, secret_hits):
+    """整理世界书命中明细，供日志窗结构化展示（常量 / before / after / 排除秘密）。
+
+    让高级用户直观核对：每条设定是否被正确安放到了预期位置（常量每轮必注入、
+    before 进系统层、after 进历史之后、秘密条目被排除不进 prompt）。
+    """
+
+    def _summ(e):
+        return {
+            "name": e.get("name") or "",
+            "keys": e.get("keys") or [],
+            "summary": (e.get("content", "") or "").strip().replace("\n", " ")[:80],
+        }
+
+    constants = [e for e in entries if e.get("enabled", True) and e.get("constant")]
+    return {
+        "total": len(entries),
+        "constants": [_summ(e) for e in constants],
+        "before": [_summ(e) for e in before_hits],
+        "after": [_summ(e) for e in after_hits],
+        "secret_excluded": [_summ(e) for e in secret_hits],
     }
 
 
@@ -283,6 +309,29 @@ def test_config():
 
 
 # ----------------------------------------------------------------------------
+# 运行时日志（SSE）：前端「运行时日志」窗订阅，打开时连接、关闭时断开
+# ----------------------------------------------------------------------------
+
+@app.get("/api/log/stream")
+def log_stream():
+    """以 SSE 推送结构化日志。新连入时先回放最近一段缓冲，再实时推送。"""
+    def gen():
+        q, back = logger.bus.subscribe_with_backlog()
+        try:
+            for e in back:
+                yield "data: " + json.dumps(e, ensure_ascii=False) + "\n\n"
+            while True:
+                try:
+                    e = q.get(timeout=15)
+                    yield "data: " + json.dumps(e, ensure_ascii=False) + "\n\n"
+                except queue.Empty:
+                    yield ": ping\n\n"
+        finally:
+            logger.bus.unsubscribe(q)
+    return Response(stream_with_context(gen()), mimetype="text/event-stream")
+
+
+# ----------------------------------------------------------------------------
 # 多角色沙盘（新接口）
 # ----------------------------------------------------------------------------
 
@@ -295,12 +344,19 @@ def session_new():
     # 安全网：去重、剔除不存在的卡，避免在场名单错乱/重复
     cast = [c for c in dict.fromkeys(cast) if c in all_chars]
     if not cast:
+        logger.warn("session", "开局失败：未选择任何在场角色")
         return jsonify({"error": "至少需要选择一个在场角色"}), 400
     scene = body.get("scene", "")
     # 世界名取首个在场角色的世界（与 /api/act 加载 lore 的逻辑保持一致），
     # 否则秘密种子会永远从默认 "home" 生成，与 lore 世界错位
     world_name = store.load_card(cast[0]).get("world", "home") if cast else "home"
-    sid = memory.new(cast, scene_place=scene, world_name=world_name)
+    try:
+        sid = memory.new(cast, scene_place=scene, world_name=world_name)
+    except Exception as exc:
+        logger.error("session", "创建会话失败：" + repr(exc))
+        return jsonify({"error": str(exc)}), 500
+    logger.info("session", "开启新会话：" + sid + " ｜ 在场 " + "、".join(cast)
+                + " ｜ 世界 " + world_name + (" ｜ 开场 " + scene if scene else ""))
     # 角色卡未提供初始关系时，由系统根据同场角色自动生成关系网写入快照
     snap = memory.load(sid)
     if not snap.get("relations"):
@@ -309,6 +365,7 @@ def session_new():
         if gen:
             snap["relations"] = gen
             memory.save(sid, snap)
+            logger.info("director", "自动生成初始关系网：" + str(len(gen)) + " 条")
         else:
             # 回退：同场角色两两互为“互相认识”，保证引擎有最小关系网可用
             fallback = {}
@@ -318,6 +375,8 @@ def session_new():
                         fallback[f"{a} → {b}"] = "同处一个场景，互相认识"
             snap["relations"] = fallback
             memory.save(sid, snap)
+            logger.info("director", "关系自动生成失败，回退为全互相认识")
+    logger.success("session", "会话就绪：" + sid)
     return jsonify({"session": sid, "snapshot": memory.load(sid)})
 
 
@@ -354,43 +413,90 @@ def session_chat_route(sid):
 def act():
     body = request.get_json(force=True)
     sid = body.get("session")
-    directive = body.get("input", "")          # 环境推手注入的扰动指令
-    snap = memory.load(sid)
+    directive = (body.get("input") or "").strip()   # 环境推手注入的扰动指令
+    try:
+        snap = memory.load(sid)
+    except Exception as exc:
+        logger.error("error", "读取会话失败：" + repr(exc))
+        return jsonify({"error": str(exc)}), 500
     if not snap:
+        logger.warn("session", "指令发往不存在的会话：" + str(sid))
         return jsonify({"error": "会话不存在"}), 404
 
-    # 场景自动切换：生成前先决定，使新场景/天气进入提示词；同时更新在场名单
-    scene_changed, scene_prop = scene.apply(sid, directive, snap)
-    memory.save(sid, snap)
-    present = snap["present"]                  # 全部为 NPC，环境推手不在场
-    cards_present = {c: store.load_card(c) for c in present}
+    logger.info("session", "收到导演扰动：" + (directive or "（无，自然推演）"))
+    try:
+        # 场景自动切换：生成前先决定，使新场景/天气进入提示词；同时更新在场名单
+        scene_changed, scene_prop = scene.apply(sid, directive, snap)
+        memory.save(sid, snap)
+        present = snap["present"]                  # 全部为 NPC，环境推手不在场
+        cards_present = {c: store.load_card(c) for c in present}
 
-    # 导演简报（含秘密状态更新、回合数、机会等级）
-    brief, snap = director.brief(sid, directive)
+        # 导演简报（含秘密状态更新、回合数、机会等级）
+        brief, snap = director.brief(sid, directive)
+        logger.info("director", "导演简报：回合 R" + str(brief["round"]) + " ｜ 机会等级 " + brief["opportunity"]
+                    + (" ｜ 新揭露秘密：" + "、".join(brief["revealed_secrets"]) if brief["revealed_secrets"] else "")
+                    + (" ｜ 激活旧账 " + str(len(brief["active_consequences"])) + " 条" if brief["active_consequences"] else ""))
 
-    # 世界书：剔除潜伏秘密条目（秘密不进 prompt，只在角色块里按已知状态提示）
-    world_name = cards_present[present[0]].get("world") if present else "home"
-    entries = store.load_world(world_name)
-    history = [m.get("content", "") for m in memory.load_chat(sid)[-RECENT_FOR_SCAN:]]
-    hits_all = world_mod.scan(entries, history, directive=directive,
-                             default_depth=RECENT_FOR_SCAN, character=None)
-    world_hits = [e for e in hits_all if not e.get("secret")]
-    before_hits = [e for e in world_hits if e.get("position", "before") == "before"]
-    after_hits = [e for e in world_hits if e.get("position", "before") == "after"]
+        # 场景切换日志
+        if scene_changed and scene_prop:
+            logger.info("scene", "场景切换 → " + (scene_prop.get("place", "") or "")
+                        + ("（" + (scene_prop.get("time", "") or "时间未明") + "）" if scene_prop.get("place") or scene_prop.get("time") else "")
+                        + (" ｜ 天气 " + scene_prop["weather"] if scene_prop.get("weather") else "")
+                        + (" ｜ " + "、".join(scene_prop.get("leave", [])) + " 离开" if scene_prop.get("leave") else "")
+                        + (" ｜ " + "、".join(scene_prop.get("arrive", [])) + " 到场" if scene_prop.get("arrive") else ""))
+        else:
+            logger.debug("scene", "场景无变化，沿用当前场景")
 
-    # NSFW：尺度由“成年确认 + 本轮机会等级”驱动（回归原版机制，不再用好感度阈值）
-    adult = llm.setting("adult_confirmed")
-    decision = nsfw.resolve_session(snap, adult, brief["opportunity"],
-                                    override="off" if not llm.setting("nsfw_enabled") else body.get("nsfw"))
+        # 世界书：剔除潜伏秘密条目（秘密不进 prompt，只在角色块里按已知状态提示）
+        world_name = cards_present[present[0]].get("world") if present else "home"
+        entries = store.load_world(world_name)
+        history = [m.get("content", "") for m in memory.load_chat(sid)[-RECENT_FOR_SCAN:]]
+        hits_all = world_mod.scan(entries, history, directive=directive,
+                                 default_depth=RECENT_FOR_SCAN, character=None)
+        world_hits = [e for e in hits_all if not e.get("secret")]
+        before_hits = [e for e in world_hits if e.get("position", "before") == "before"]
+        after_hits = [e for e in world_hits if e.get("position", "before") == "after"]
+        secret_hits = [e for e in hits_all if e.get("secret")]
 
-    history = memory.load_chat(sid)
-    messages = prompter.build_session(
-        cards_present, directive, before_hits, snap,
-        decision["prompt"], brief["opportunity"], history=history,
-        after_hits=after_hits,
-        reserve=int(body.get("max_tokens", llm.setting("max_tokens"))) + 200,
-    )
-    messages = hooks.emit("prompt_ready", messages=messages, snap=snap)["messages"]
+        wb_meta = _worldbook_meta(entries, before_hits, after_hits, secret_hits)
+        logger.info("worldbook",
+                    "世界书「" + world_name + "」扫描 " + str(wb_meta["total"]) + " 条："
+                    "常量 " + str(len(wb_meta["constants"]))
+                    + " ｜ before 命中 " + str(len(wb_meta["before"]))
+                    + " ｜ after 命中 " + str(len(wb_meta["after"]))
+                    + " ｜ 排除秘密 " + str(len(wb_meta["secret_excluded"])) + "（不注入 prompt）",
+                    meta=wb_meta)
+
+        # NSFW：尺度由“成年确认 + 本轮机会等级”驱动（回归原版机制，不再用好感度阈值）
+        adult = llm.setting("adult_confirmed")
+        decision = nsfw.resolve_session(snap, adult, brief["opportunity"],
+                                        override="off" if not llm.setting("nsfw_enabled") else body.get("nsfw"))
+        logger.info("nsfw", "尺度：" + ("开放" if decision["unlocked"] else "受限") + "（" + decision["reason"] + "）")
+
+        history = memory.load_chat(sid)
+        messages = prompter.build_session(
+            cards_present, directive, before_hits, snap,
+            decision["prompt"], brief["opportunity"], history=history,
+            after_hits=after_hits,
+            reserve=int(body.get("max_tokens", llm.setting("max_tokens"))) + 200,
+        )
+        messages = hooks.emit("prompt_ready", messages=messages, snap=snap)["messages"]
+        tok = sum(prompter.count_tokens(m.get("content", "")) for m in messages)
+        # 计算世界书落点标注：before 命中全部进首条 system 段；after 命中进独立的「[世界设定·续]」段。
+        # 高级用户可据此逐段核对世界书到底插进了哪一段。
+        prompt_ann = {}
+        if before_hits and messages:
+            prompt_ann[0] = "世界书·before"
+        for i, m in enumerate(messages):
+            if (m.get("content") or "").startswith("[世界设定·续]"):
+                prompt_ann[i] = "世界书·after"
+        logger.info("prompt", "组装提示词：" + str(len(messages)) + " 段 ｜ 约 " + str(tok) + " token"
+                    + "（系统层 " + str(1 + len(before_hits)) + " ｜ after " + str(len(after_hits))
+                    + " ｜ 历史 " + str(len(history)) + "）",
+                    meta={"full": {"messages": messages, "annotations": prompt_ann}})
+    except Exception as exc:
+        logger.error("error", "生成流程准备阶段异常：" + repr(exc))
+        return jsonify({"error": str(exc)}), 500
 
     params = {
         "temperature": float(body.get("temperature", llm.setting("temperature"))),
@@ -400,19 +506,31 @@ def act():
 
     def events():
         reply_text = []
+        model = llm.setting("model")
+        logger.info("model", "远程模型开始生成（" + str(model) + "）…")
+        first = True
         try:
             for chunk in llm.stream(messages, **params):
+                if first:
+                    first = False
+                    logger.success("model", "首 token 已到达，模型正在输出…")
                 reply_text.append(chunk)
         except Exception as exc:
+            logger.error("model", "模型流异常：" + repr(exc))
             yield "data: " + json.dumps({"error": str(exc)}, ensure_ascii=False) + "\n\n"
             return
 
         full = "".join(reply_text)
+        logger.info("model", "模型输出完成，共 " + str(len(full)) + " 字")
         result = hooks.emit("message_received", reply=full, snap=snap)
         full = result["reply"]
         # present 名单校验/后处理：剥离非在场角色（含已离场者、环境推手）的台词块
         known = store.list_characters()
         full, present_violation = director.validate_present(full, present, known)
+        if present_violation:
+            logger.warn("model", "在场校验：剥离了非在场角色的台词块（已自动清洗）")
+        else:
+            logger.info("model", "在场校验通过：仅含在场角色台词")
         # 按行流式回传校验后的文本
         for ln in full.split("\n"):
             yield "data: " + json.dumps({"delta": ln + "\n"}, ensure_ascii=False) + "\n\n"
@@ -426,6 +544,11 @@ def act():
         director.after_reply(sid, full, brief["opportunity"], decision["intimate"])
         # 状态机回写：把本轮推演产生的后果（关系/目标/秘密揭露）落回快照
         director.reflect(sid, full)
+        snap_now = memory.load(sid)
+        exposed = [s for s in snap_now.get("secrets", []) if s.get("state") != "潜伏"]
+        logger.info("director", "状态回写完成：关系 " + str(len(snap_now.get("relations", {}))) + " 条"
+                    + " ｜ 本轮行动 " + str(len(snap_now.get("actions", {}))) + " 条"
+                    + " ｜ 已暴露秘密 " + str(len(exposed)) + " 条")
 
         yield "data: " + json.dumps({
             "done": True,
@@ -435,8 +558,9 @@ def act():
             "nsfw": decision,
             "scene_change": _scene_change_payload(scene_changed, scene_prop, snap)
                             if scene_changed else None,
-            "snapshot": memory.load(sid),
+            "snapshot": snap_now,
         }, ensure_ascii=False) + "\n\n"
+        logger.success("system", "本轮推演完成（R" + str(brief["round"]) + "）")
 
     return Response(stream_with_context(events()), mimetype="text/event-stream")
 

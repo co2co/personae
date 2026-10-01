@@ -20,14 +20,22 @@ tests/
 
 ## 运行
 
-> 前置：项目根的 `engine/venv` 已建好（双击 `engine/install.bat`）。
+> 前置：测试虚拟环境 `tests/venv` 已建好（双击 `tests/install.bat`）。
+> 测试 venv 与引擎 venv（`engine/venv`）**完全独立**，改测试依赖不会污染引擎运行环境，反之亦然。
+
+方式一：双击脚本（推荐，自动用 `tests/venv`）
+
+- `tests/run_tests.bat` —— 快测（确定性单测，不调 LLM，秒级）
+- `tests/run_tests.bat -m integration` —— 完整走查（需引擎在运行 + 真实 LLM）
+- `tests/run_playthrough.bat` —— 不依赖 pytest，直接跑一局走查并落盘
+- `tests/run_playthrough.bat --keep` —— 跑完保留会话（可在 UI 继续）
+
+方式二：命令行（在 `tests/` 下用 `tests/venv` 的 python）
 
 ```bash
-# 在项目根执行
-pytest                              # 快测：确定性单测，不调 LLM，秒级
-pytest -m integration              # 完整走查：需引擎在运行 + 真实 LLM（耗时）
-python tests/run_playthrough.py     # 不依赖 pytest，直接跑一局走查并落盘
-python tests/run_playthrough.py --keep   # 跑完保留会话（可在 UI 继续）
+tests/venv/Scripts/python.exe -m pytest                  # 快测
+tests/venv/Scripts/python.exe -m pytest -m integration   # 完整走查
+tests/venv/Scripts/python.exe run_playthrough.py --keep  # 走查落盘
 ```
 
 ## 说明

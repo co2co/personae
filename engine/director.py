@@ -92,6 +92,20 @@ def _opp_max(a, b):
     return b if _OPP_ORDER.get(b, 0) > _OPP_ORDER.get(a, 0) else a
 
 
+# 关系文本中的强/中亲密度词：被 reflect 写回的关系若夹带这些动作词（如“偷情了一晚”），
+# 会被 _opp_from_relations 永久误判为满机会/半步，造成机会等级锁死——一旦亲密，永远满机会，
+# 之后任何把焦点移开的扰动指令都会被模型无视。写回时剥离这些词，保留关系定位语义。
+_REL_TAINT = REL_STRONG + REL_MID
+
+
+def _sanitize_relation(text):
+    """reflect 写回关系时，剥离 REL_STRONG/REL_MID 动作词，避免机会等级被叙事污染后锁死。"""
+    t = text or ""
+    for w in _REL_TAINT:
+        t = t.replace(w, "")
+    return t.strip(" 、，。,.;；:：")
+
+
 def _opp_from_relations(snap, present):
     """关系亲密度信号 -> 机会等级。"""
     rel_text = " ".join(snap.get("relations", {}).values())
@@ -335,7 +349,8 @@ def reflect(sid, reply):
     if isinstance(data.get("relations"), dict):
         for k, v in data["relations"].items():
             if v:
-                snap["relations"][k] = v
+                # 剥离强/中亲密度动作词，防止关系被叙事污染后永久锁死满机会
+                snap["relations"][k] = _sanitize_relation(v)
     if isinstance(data.get("actions"), dict):
         snap["actions"] = {k: v for k, v in data["actions"].items() if v}
     if isinstance(data.get("goals"), dict):

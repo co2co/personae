@@ -1,0 +1,5 @@
+# 测试单元依赖（独立于引擎 venv，避免互相干扰）
+# 引擎本体只依赖 Flask + requests；测试额外需要 pytest。
+pytest>=8
+requests>=2.25
+Flask>=3.0

@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 # 纯引擎分发端到端验证：解压到空目录 -> 起服务 -> 探活
 set -u
-ZIP="D:/codes/my-st/my-st-v0.4.zip"
+ZIP="D:/codes/my-st/my-st-v0.4.3.zip"
 DIST="D:/codes/_dist_test"
 RUNID="run-$(date +%s)"
 TARGET="$DIST/$RUNID"
 PORT=5051
-SRC_VENV="D:/codes/my-st/venv"
+SRC_VENV="D:/codes/my-st/engine/venv"
 RESULT="$DIST/verify.result"
 
 mkdir -p "$DIST"

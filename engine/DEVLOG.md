@@ -355,3 +355,15 @@ my-st/
 - 升 `v0.4.3`：收口 B 方向的 NSFW 满机会提示词强化（更直白不容回避的露骨措辞 + 三连禁止糊弄式收尾）与同步锁死措辞的 `test_nsfw` 确定性测试。
 - `VERSION` 升 v0.4.3；提交 + 打 tag `v0.4.3`；产出 `my-st-v0.4.3.zip`（27 条目，88.4 KB）。
 - 删除旧 `my-st-v0.4.2.zip`，仅保留最新；README / DEVLOG 版本号同步。git tag 现 `v0.1`–`v0.4.3` 连续。
+
+## 2026-10-01 版本 v0.4.4（推演逻辑修复收口）
+
+- 升 `v0.4.4`：收口推演逻辑三处修复（指令焦点 + 满机会锁死 + 在场保护），并顺带收口 v0.4.3 以来未提交的全部改动（运行时日志窗、engine/tests venv 分离）。
+- 推演逻辑修复（引擎行为修复，PATCH 档）：
+  - `engine/director.py`：新增 `_sanitize_relation()`，`reflect()` 写回关系时剥离强/中信号词（偷情/肉体/做爱等），`满机会` 不再被叙事污染永久锁死，改由「已确立关系 / 把柄胁迫 / 本轮指令」驱动。
+  - `engine/prompter.py`：环境扰动升级为硬性焦点约束——提取指令点名角色注入 `[导演指令]` 与 `[输出格式]` 块，点名角色必须出场并作为叙事焦点，不得无声略过或写成已离场（除非指令明确令其离开）。
+  - `engine/scene.py`：新增 `LEAVE_KEYS`，仅当指令显式含离场词才允许把角色移出在场名单；纯地点移动视作全员随世界转移，禁止静默丢人。
+- `tests/test_directive_focus.py`（新增，integration）：双向验证——方向1 指令指向离开的人（present 仍含其名、开篇描写离开者、满机会不劫持叙事）；方向2 指令停留在满机会的人（NSFW 越线级叙事正常落地）。
+- v0.4.3 以来未提交改动一并收口：运行时日志窗（`engine/logger.py` + `app.py` SSE 埋点 + `static/index.html` 右侧滑出面板，含拖拽调宽与完整提示词原文展示）；engine/tests venv 分离（`engine/venv`、`tests/venv`、各自 install/run 脚本、`tests/requirements.txt`、`verify_dist.sh` 源 venv 指向修正）。
+- `VERSION` 升 v0.4.4；提交 + 打 tag `v0.4.4`；产出 `my-st-v0.4.4.zip`（package.py 按 VERSION 自动命名）。
+- 删除旧 `my-st-v0.4.3.zip`，仅保留最新；README / DEVLOG 版本号同步。git tag 现 `v0.1`–`v0.4.4` 连续。

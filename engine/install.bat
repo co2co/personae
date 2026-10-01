@@ -1,30 +1,30 @@
-ï»¿@echo off
+@echo off
 setlocal
 
 rem ============================================================
-rem  my-st ä¾èµ–å®‰è£…è„šæœ¬
-rem  ä½œç”¨ï¼šåˆ›å»ºè™šæ‹ŸçŽ¯å¢ƒå¹¶å®‰è£… requirements.txt ä¸­çš„ä¾èµ–
-rem  ç”¨æ³•ï¼šåŒå‡»æœ¬è„šæœ¬ï¼Œæˆ–å‘½ä»¤è¡Œæ‰§è¡Œ install.bat
-rem  è¯´æ˜Žï¼šä»…åœ¨è¿ç§» / é¦–æ¬¡éƒ¨ç½²æ—¶è¿è¡Œä¸€æ¬¡ï¼›ä¾èµ–å˜æ›´åŽé‡è·‘å³å¯
-rem        è„šæœ¬ä½ç½®æ— å…³ï¼Œå¯è§£åŽ‹åˆ°ä»»æ„ç›®å½•ç›´æŽ¥è¿è¡Œ
+rem  my-st ÒÀÀµ°²×°½Å±¾£¨ÒýÇæ¶ÀÁ¢ venv£©
+rem  ×÷ÓÃ£ºÔÚ engine/ ÏÂ´´½¨ venv ²¢°²×° requirements.txt ÖÐµÄÒÀÀµ
+rem  ÓÃ·¨£ºË«»÷±¾½Å±¾£¬»òÃüÁîÐÐÖ´ÐÐ install.bat
+rem  ËµÃ÷£º½öÔÚÊ×´Î²¿Êð / ÒÀÀµ±ä¸üÊ±ÔËÐÐ£»venv Î»ÓÚ engine/venv£¬
+rem        Óë²âÊÔµ¥Ôª venv ÍêÈ«¶ÀÁ¢£¬»¥²»¸ÉÈÅ¡£
 rem ============================================================
 
 set "ROOT=%~dp0"
 set "VENV=%ROOT%venv"
 
-title my-st ä¾èµ–å®‰è£…
+title my-st ÒÀÀµ°²×°
 
 cd /d "%ROOT%" || (
-    echo [é”™è¯¯] æ— æ³•è¿›å…¥å¼•æ“Žç›®å½•ï¼š%ROOT%
+    echo [´íÎó] ÎÞ·¨½øÈëÒýÇæÄ¿Â¼£º%ROOT%
     pause
     exit /b 1
 )
 
 echo ========================================
-echo   my-st ä¾èµ–å®‰è£…
+echo   my-st ÒÀÀµ°²×°
 echo ========================================
 
-rem ---- æŽ¢æµ‹ Pythonï¼šä¼˜å…ˆ py -3ï¼Œå…¶æ¬¡ python ----
+rem ---- Ì½²â Python£ºÓÅÏÈ py -3£¬Æä´Î python ----
 set "PY="
 py -3 --version >nul 2>&1
 if not errorlevel 1 (
@@ -36,34 +36,37 @@ if not errorlevel 1 (
     )
 )
 if not defined PY (
-    echo [é”™è¯¯] æœªæ‰¾åˆ° Pythonã€‚è¯·å®‰è£… Python 3.10+ å¹¶åŠ å…¥ PATHï¼Œ
-    echo        æˆ–ä»Ž python.org / Microsoft Store å®‰è£…ã€‚
+    echo [´íÎó] Î´ÕÒµ½ Python¡£Çë°²×° Python 3.10+ ²¢¼ÓÈë PATH¡£
     pause
     exit /b 1
 )
-echo [ä¿¡æ¯] ä½¿ç”¨ Pythonï¼š%PY%
+echo [ÐÅÏ¢] Ê¹ÓÃ Python£º%PY%
 
-echo [æ“ä½œ] åˆ›å»ºè™šæ‹ŸçŽ¯å¢ƒï¼š%VENV%
-%PY% -m venv "%VENV%"
-if errorlevel 1 (
-    echo [å¤±è´¥] è™šæ‹ŸçŽ¯å¢ƒåˆ›å»ºå¤±è´¥ã€‚
-    pause
-    exit /b 1
+if not exist "%VENV%\Scripts\python.exe" (
+    echo [²Ù×÷] ´´½¨ÐéÄâ»·¾³£º%VENV%
+    %PY% -m venv "%VENV%"
+    if errorlevel 1 (
+        echo [Ê§°Ü] ÐéÄâ»·¾³´´½¨Ê§°Ü¡£
+        pause
+        exit /b 1
+    )
+) else (
+    echo [ÐÅÏ¢] ÐéÄâ»·¾³ÒÑ´æÔÚ£¬Ìø¹ý´´½¨£º%VENV%
 )
 
-echo [æ“ä½œ] å‡çº§ pip å¹¶å®‰è£…ä¾èµ–ï¼ˆé¦–æ¬¡è¾ƒæ…¢ï¼Œè¯·è€å¿ƒç­‰å¾…ï¼‰...
+echo [²Ù×÷] Éý¼¶ pip ²¢°²×°ÒÀÀµ£¨Ê×´Î½ÏÂý£¬ÇëÄÍÐÄµÈ´ý£©...
 "%VENV%\Scripts\python.exe" -m pip install --upgrade pip
 if errorlevel 1 (
-    echo [è­¦å‘Š] pip å‡çº§å¤±è´¥ï¼Œç»§ç»­å°è¯•å®‰è£…ä¾èµ–...
+    echo [¾¯¸æ] pip Éý¼¶Ê§°Ü£¬¼ÌÐø³¢ÊÔ°²×°ÒÀÀµ...
 )
 "%VENV%\Scripts\python.exe" -m pip install -r requirements.txt
 if errorlevel 1 (
-    echo [å¤±è´¥] ä¾èµ–å®‰è£…å¤±è´¥ï¼Œè¯·æ£€æŸ¥ç½‘ç»œè¿žæŽ¥ï¼ˆå¦‚éœ€ä»£ç†è¯·é…ç½®åŽé‡è¯•ï¼‰ã€‚
+    echo [Ê§°Ü] ÒÀÀµ°²×°Ê§°Ü£¬Çë¼ì²éÍøÂçÁ¬½Ó£¨ÈçÐè´úÀíÇëÅäÖÃºóÖØÊÔ£©¡£
     pause
     exit /b 1
 )
 
 echo ========================================
-echo [å®Œæˆ] ä¾èµ–å®‰è£…æˆåŠŸã€‚å¯åŒå‡» run.bat å¯åŠ¨æœåŠ¡ã€‚
+echo [Íê³É] ÒÀÀµ°²×°³É¹¦¡£¿ÉË«»÷ run.bat Æô¶¯·þÎñ¡£
 echo ========================================
 pause

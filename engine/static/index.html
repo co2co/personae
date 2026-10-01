@@ -204,6 +204,82 @@
   .hit-row .tag.lore{ color:#1f6f54; background:#e3f3ec; }
   .hit-row .tag.sec{ color:#fff; background:#d6453e; }
   .hit-empty{ font-size:12.5px; color:var(--muted); }
+
+  /* ---------- 运行时日志窗（右侧滑出，默认隐藏） ---------- */
+  .logwin{
+    position:fixed; top:var(--topbar-h); right:0; z-index:54;
+    width:410px; max-width:94vw; height:calc(100vh - var(--topbar-h));
+    background:var(--surface); border-left:1px solid var(--line);
+    box-shadow:-12px 0 40px rgba(20,20,20,.10);
+    display:flex; flex-direction:column;
+    transform:translateX(108%); visibility:hidden;
+    transition:transform .22s ease, visibility .22s;
+  }
+  .logwin.show{ transform:translateX(0); visibility:visible; }
+  .lw-head{ display:flex; align-items:center; justify-content:space-between; gap:10px;
+    padding:11px 14px; border-bottom:1px solid var(--line); background:var(--surface-2); }
+  .lw-title{ font-weight:650; font-size:14px; letter-spacing:.02em; }
+  .lw-tools{ display:flex; align-items:center; gap:6px; }
+  .lw-sel{ padding:5px 8px; font-size:12px; border-radius:8px; }
+  .lw-btn{ padding:4px 10px; font-size:12px; border-radius:8px; background:var(--surface);
+    color:var(--ink-2); cursor:pointer; }
+  .lw-btn:hover:not(:disabled){ background:var(--surface-2); border-color:#dedcd6; }
+  .lw-body{ flex:1; overflow:auto; padding:8px 10px; background:#fbfbfa; }
+  .lw-foot{ padding:7px 14px; border-top:1px solid var(--line); font-size:11.5px; color:var(--muted);
+    display:flex; justify-content:space-between; gap:10px; background:var(--surface-2); }
+  .lw-foot #lw-status{ font-weight:600; }
+  .lw-item{ margin-bottom:6px; }
+  .lw-row{ display:flex; align-items:flex-start; gap:8px; padding:6px 8px; border-radius:9px;
+    background:var(--surface); border:1px solid var(--line); border-left-width:3px; line-height:1.5; }
+  .lw-row.lv-info{ border-left-color:#cfcdc7; }
+  .lw-row.lv-warn{ border-left-color:var(--warn); }
+  .lw-row.lv-error{ border-left-color:var(--danger); background:var(--danger-soft); }
+  .lw-row.lv-success{ border-left-color:var(--pos); }
+  .lw-row.lv-debug{ border-left-color:#c9c6bf; opacity:.82; }
+  .lw-time{ font:12px/1.5 ui-monospace,Menlo,Consolas,monospace; color:var(--muted);
+    flex-shrink:0; padding-top:1px; }
+  .lw-cat{ flex-shrink:0; font-size:11px; font-weight:600; padding:2px 7px; border-radius:999px;
+    border:1px solid var(--line); }
+  .cat-worldbook{ background:#e3f3ec; color:#1f6f54; border-color:#bfe3d3; }
+  .cat-model{ background:#ece8fb; color:#5b4bd6; border-color:#d6cdf6; }
+  .cat-prompt{ background:#fbeede; color:#9a6a16; border-color:#f0dcb8; }
+  .cat-director{ background:#e7eefb; color:#2f5fb0; border-color:#cdddf2; }
+  .cat-nsfw{ background:#fdeaef; color:#c23b6e; border-color:#f6cdda; }
+  .cat-scene{ background:#e6f4f6; color:#2a7c87; border-color:#c4e6ea; }
+  .cat-system{ background:#eef0f2; color:#5a6068; border-color:#dfe2e6; }
+  .cat-session{ background:#eef0f2; color:#5a6068; border-color:#dfe2e6; }
+  .cat-error{ background:#fbecec; color:#b23b3b; border-color:#f0c4c4; }
+  .lw-msg{ flex:1; color:var(--ink-2); white-space:pre-wrap; word-break:break-word; }
+  .lw-expand{ flex-shrink:0; font-size:11px; padding:2px 8px; border-radius:7px;
+    background:var(--accent-soft); color:var(--accent-strong); border:1px solid #ecd9d1; cursor:pointer; }
+  .lw-expand:hover{ background:#f1ded6; }
+  .lw-table{ width:100%; border-collapse:collapse; margin:6px 0 2px; font-size:12px;
+    background:var(--surface); border:1px solid var(--line); border-radius:8px; overflow:hidden; }
+  .lw-table th,.lw-table td{ border:1px solid var(--line); padding:5px 8px; text-align:left;
+    vertical-align:top; line-height:1.45; }
+  .lw-table th{ background:var(--surface-2); color:var(--muted); font-weight:600; }
+  .lw-table tr.wb-const td:first-child{ color:#1f6f54; font-weight:600; }
+  .lw-table tr.wb-before td:nth-child(2){ color:#2a7c87; font-weight:600; }
+  .lw-table tr.wb-after td:nth-child(2){ color:#9a6a16; font-weight:600; }
+  .lw-table tr.wb-secret td:nth-child(2){ color:var(--danger); font-weight:600; }
+  /* 拖拽调整宽度（左缘手柄） */
+  .lw-resize{ position:absolute; left:-5px; top:0; bottom:0; width:10px; cursor:ew-resize;
+    z-index:3; background:transparent; }
+  .lw-resize:hover, .lw-resize.dragging{ background:linear-gradient(90deg, transparent, var(--accent-soft)); }
+  /* 完整提示词明细（逐段核对世界书落点） */
+  .lw-prompt{ background:var(--surface); border:1px solid var(--line); border-radius:8px; overflow:auto; max-height:440px; }
+  .lw-pseg{ border-bottom:1px solid var(--line-2); }
+  .lw-pseg:last-child{ border-bottom:none; }
+  .lw-pseg.wb{ background:#eafaf3; }
+  .lw-pseg-h{ display:flex; align-items:center; gap:8px; padding:5px 8px; background:var(--surface-2);
+    border-bottom:1px solid var(--line-2); position:sticky; top:0; }
+  .lw-prole{ font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:.04em; color:var(--muted); }
+  .lw-pidx{ font-size:11px; color:var(--muted); }
+  .lw-pann{ font-size:11px; font-weight:600; color:#1f6f54; background:#e3f3ec; border:1px solid #bfe3d3;
+    border-radius:999px; padding:1px 8px; }
+  .lw-ptext{ margin:0; padding:8px 10px; font:12.5px/1.6 ui-monospace,Menlo,Consolas,monospace;
+    white-space:pre-wrap; word-break:break-word; color:var(--ink-2); max-height:240px; overflow:auto; }
+  @media (max-width:880px){ .logwin{ width:100%; max-width:100%; } }
 </style>
 </head>
 <body>
@@ -217,6 +293,7 @@
   <button id="open-worlds" class="btn btn-sm">世界书</button>
   <button id="open-sessions" class="btn btn-sm">会话</button>
   <button id="open-system" class="btn btn-sm">系统设置</button>
+  <button id="open-log" class="btn btn-sm">运行时日志</button>
 </header>
 
 <!-- 系统设置（统一收拢系统级选项：NSFW 开关 + 后端设置） -->
@@ -427,6 +504,36 @@
     </div>
   </div>
 </div>
+
+<!-- 运行时日志窗（默认隐藏，点击顶栏「运行时日志」从右侧滑出） -->
+<aside id="logwin" class="logwin" aria-hidden="true">
+  <div class="lw-resize" id="lw-resize" title="拖拽调整宽度"></div>
+  <div class="lw-head">
+    <div class="lw-title">运行时日志</div>
+    <div class="lw-tools">
+      <select id="lw-filter" class="lw-sel" title="按分类过滤">
+        <option value="">全部分类</option>
+        <option value="worldbook">世界书</option>
+        <option value="model">模型</option>
+        <option value="prompt">提示词</option>
+        <option value="director">导演</option>
+        <option value="nsfw">尺度</option>
+        <option value="scene">场景</option>
+        <option value="system">系统</option>
+        <option value="session">会话</option>
+        <option value="error">错误</option>
+        <option value="debug">调试</option>
+      </select>
+      <button id="lw-clear" class="lw-btn" title="清空本地日志">清空</button>
+      <button id="lw-close" class="lw-btn" title="收起">×</button>
+    </div>
+  </div>
+  <div class="lw-body" id="lw-body"></div>
+  <div class="lw-foot">
+    <span id="lw-status">未连接</span>
+    <span>打开时实时监听系统内部流程</span>
+  </div>
+</aside>
 
 <script>
 const log = document.getElementById('log');
@@ -1066,6 +1173,170 @@ document.getElementById('open-sessions').onclick = () => {
   loadSessions();
   sessionModal.classList.remove('hide');
 };
+
+// ---- 运行时日志窗（右侧滑出，SSE 实时监听系统内部流程） ----
+const logwin = document.getElementById('logwin');
+const lwBody = document.getElementById('lw-body');
+const lwStatus = document.getElementById('lw-status');
+const lwFilter = document.getElementById('lw-filter');
+const CAT_LABEL = { system:'系统', session:'会话', scene:'场景', director:'导演',
+  worldbook:'世界书', prompt:'提示词', model:'模型', nsfw:'尺度', error:'错误', debug:'调试' };
+let lwOpen = false, es = null, lwUserScrolled = false;
+const LW_MAX_DOM = 1500;
+
+function _catClass(c){ return 'cat-' + c; }
+function _lvClass(l){ return 'lv-' + l; }
+
+function buildWorldDetail(m){
+  const t = document.createElement('table');
+  t.className = 'lw-table';
+  t.innerHTML = '<thead><tr><th>条目</th><th>位置</th><th>触发词</th><th>内容 / 状态</th></tr></thead>';
+  const tb = document.createElement('tbody');
+  const add = (name, pos, keys, state, cls) => {
+    const tr = document.createElement('tr');
+    if (cls) tr.className = cls;
+    tr.innerHTML = '<td>' + escHtml(name || '(无名)') + '</td>'
+      + '<td>' + escHtml(pos) + '</td>'
+      + '<td>' + escHtml((keys || []).join('、')) + '</td>'
+      + '<td>' + escHtml(state) + '</td>';
+    tb.appendChild(tr);
+  };
+  (m.constants || []).forEach(x => add(x.name || x.summary, '常量', x.keys, '每轮必注入（before 段）', 'wb-const'));
+  (m.before || []).forEach(x => add(x.name || x.summary, 'before', x.keys, '命中 · 系统层注入', 'wb-before'));
+  (m.after || []).forEach(x => add(x.name || x.summary, 'after', x.keys, '命中 · 历史之后注入', 'wb-after'));
+  (m.secret_excluded || []).forEach(x => add(x.name || x.summary, '—', x.keys, '排除：秘密条目，不注入 prompt（走角色块）', 'wb-secret'));
+  if (!tb.children.length)
+    tb.innerHTML = '<tr><td colspan="4" style="color:var(--muted)">本轮无世界书条目命中</td></tr>';
+  t.appendChild(tb);
+  return t;
+}
+
+function buildPromptDetail(full){
+  const wrap = document.createElement('div');
+  wrap.style.margin = '6px 0 2px';
+  const box = document.createElement('div');
+  box.className = 'lw-prompt';
+  (full.messages || []).forEach((m, i) => {
+    const ann = full.annotations && full.annotations[i];
+    const blk = document.createElement('div');
+    blk.className = 'lw-pseg' + (ann ? ' wb' : '');
+    const head = document.createElement('div');
+    head.className = 'lw-pseg-h';
+    head.innerHTML = '<span class="lw-prole">' + escHtml(m.role || '?') + '</span>'
+      + '<span class="lw-pidx"># ' + (i + 1) + '</span>'
+      + (ann ? '<span class="lw-pann">' + escHtml(ann) + '</span>' : '');
+    const pre = document.createElement('pre');
+    pre.className = 'lw-ptext';
+    pre.textContent = m.content || '';
+    blk.appendChild(head);
+    blk.appendChild(pre);
+    box.appendChild(blk);
+  });
+  wrap.appendChild(box);
+  return wrap;
+}
+
+function makeItem(e){
+  const item = document.createElement('div');
+  item.className = 'lw-item';
+  item.dataset.cat = e.category;
+  const row = document.createElement('div');
+  row.className = 'lw-row ' + _lvClass(e.level) + ' ' + _catClass(e.category);
+  const isWB = e.category === 'worldbook' && e.meta && e.meta.total !== undefined;
+  const isPrompt = e.category === 'prompt' && e.meta && e.meta.full;
+  const hasDetail = isWB || isPrompt;
+  row.innerHTML = '<span class="lw-time">' + escHtml(e.ts) + '</span>'
+    + '<span class="lw-cat">' + (CAT_LABEL[e.category] || e.category) + '</span>'
+    + '<span class="lw-msg"></span>'
+    + (hasDetail ? '<button class="lw-expand">明细</button>' : '');
+  row.querySelector('.lw-msg').textContent = e.msg;
+  item.appendChild(row);
+  if (hasDetail){
+    const detail = isWB ? buildWorldDetail(e.meta) : buildPromptDetail(e.meta.full);
+    detail.style.display = 'none';
+    row.querySelector('.lw-expand').onclick = () =>
+      detail.style.display = (detail.style.display === 'none') ? 'block' : 'none';
+    item.appendChild(detail);
+  }
+  return item;
+}
+
+function applyFilter(){
+  const f = lwFilter.value;
+  lwBody.querySelectorAll('.lw-item').forEach(it =>
+    it.style.display = (!f || it.dataset.cat === f) ? '' : 'none');
+}
+
+function appendEntry(e){
+  const item = makeItem(e);
+  const f = lwFilter.value;
+  if (f && item.dataset.cat !== f) item.style.display = 'none';
+  lwBody.appendChild(item);
+  while (lwBody.children.length > LW_MAX_DOM) lwBody.removeChild(lwBody.firstChild);
+  if (!lwUserScrolled) lwBody.scrollTop = lwBody.scrollHeight;
+}
+
+function openLog(){
+  if (lwOpen) return;
+  lwOpen = true;
+  logwin.classList.add('show');
+  logwin.setAttribute('aria-hidden', 'false');
+  connectLog();
+}
+function closeLog(){
+  lwOpen = false;
+  logwin.classList.remove('show');
+  logwin.setAttribute('aria-hidden', 'true');
+  if (es){ es.close(); es = null; }
+  lwStatus.textContent = '已断开';
+}
+function connectLog(){
+  if (es) return;
+  lwStatus.textContent = '连接中…';
+  es = new EventSource('/api/log/stream');
+  es.onopen = () => { lwStatus.textContent = '实时监听中'; };
+  es.onmessage = (ev) => {
+    try { appendEntry(JSON.parse(ev.data)); } catch(_){}
+  };
+  es.onerror = () => { lwStatus.textContent = '连接中断，重连中…'; };
+}
+lwBody.addEventListener('scroll', () => {
+  const nearBottom = lwBody.scrollHeight - lwBody.scrollTop - lwBody.clientHeight < 40;
+  lwUserScrolled = !nearBottom;
+});
+
+// ---- 拖拽调整日志窗宽度（左缘手柄，宽度持久化到 localStorage） ----
+const lwResize = document.getElementById('lw-resize');
+let lwDrag = false;
+try { const savedW = localStorage.getItem('lw-width'); if (savedW) logwin.style.width = savedW; } catch (_) {}
+lwResize.addEventListener('mousedown', e => {
+  lwDrag = true;
+  lwResize.classList.add('dragging');
+  document.body.style.cursor = 'ew-resize';
+  document.body.style.userSelect = 'none';
+  e.preventDefault();
+});
+window.addEventListener('mousemove', e => {
+  if (!lwDrag) return;
+  const w = Math.max(300, Math.min(window.innerWidth - 60, window.innerWidth - e.clientX));
+  logwin.style.width = w + 'px';
+});
+window.addEventListener('mouseup', () => {
+  if (!lwDrag) return;
+  lwDrag = false;
+  lwResize.classList.remove('dragging');
+  document.body.style.cursor = '';
+  document.body.style.userSelect = '';
+  try { localStorage.setItem('lw-width', logwin.style.width); } catch (_) {}
+});
+document.getElementById('open-log').onclick = openLog;
+document.getElementById('lw-close').onclick = closeLog;
+document.getElementById('lw-clear').onclick = () => { lwBody.innerHTML = ''; };
+lwFilter.onchange = applyFilter;
+// 快捷键：Esc 收起日志窗
+document.addEventListener('keydown', e => { if (e.key === 'Escape' && lwOpen) closeLog(); });
+// 占位：消除旧版 index.html 末尾对未定义 refreshState 的引用（避免控制台报错）
+function refreshState(){}
 
 loadCharacters();
 refreshState();
