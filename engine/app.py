@@ -104,81 +104,28 @@ def _worldbook_meta(entries, before_hits, after_hits, secret_hits):
 
 @app.get("/")
 def index():
-    return send_from_directory(ROOT / "static", "index.html")
+    # 本地单用户开发工具：禁用缓存，确保改完 index.html 后浏览器立即拿到最新版，
+    # 避免「前端改了但 UI 行为仍是旧的」这类缓存导致的假性 bug。
+    r = send_from_directory(ROOT / "static", "index.html")
+    r.headers["Cache-Control"] = "no-store"
+    return r
 
 
 @app.get("/static/<path:filename>")
 def static_files(filename):
     # 引擎关闭了默认 static 服务（static_folder=None），此处按需提供本地静态资源，
     # 避免世界书文档依赖外部 CDN 而卡在「加载中…」。
-    return send_from_directory(ROOT / "static", filename)
+    # 同样禁用缓存，保证修复/改动即时生效。
+    r = send_from_directory(ROOT / "static", filename)
+    r.headers["Cache-Control"] = "no-store"
+    return r
 
 
 @app.get("/docs/worldbook")
 def worldbook_doc():
-    """返回世界书使用说明书的渲染网页（本地 marked.js 渲染 Markdown，带样式；
-    marked 未加载时回退为纯文本，绝不卡在「加载中…」）。"""
-    raw = (ROOT / "worldbook-guide.md").read_text(encoding="utf-8")
-    md_json = json.dumps(raw).replace("</", "<\\/")  # 安全嵌入脚本，避免 </script> 截断
-    html = _WORLD_BOOK_HTML.replace("__MD__", md_json)
-    return Response(html, mimetype="text/html; charset=utf-8")
+    """返回预渲染的世界书使用说明静态页（构建时由 Markdown 渲染，零 JS 依赖）。"""
+    return send_from_directory(ROOT / "static", "worldbook-guide.html")
 
-
-_WORLD_BOOK_HTML = """<!DOCTYPE html>
-<html lang="zh">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>世界书使用说明 · ST-Lite</title>
-<style>
-  :root { --bg:#0f1115; --panel:#171a21; --ink:#e8eaf0; --muted:#9aa3b2; --accent:#7aa2f7; --line:#262b36; }
-  * { box-sizing: border-box; }
-  body { margin:0; background:var(--bg); color:var(--ink);
-         font-family: -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif; line-height:1.7; }
-  .wrap { max-width: 880px; margin: 0 auto; padding: 28px 22px 80px; }
-  header { display:flex; align-items:center; justify-content:space-between;
-           padding-bottom:14px; margin-bottom:24px; border-bottom:1px solid var(--line); }
-  header a { color:var(--accent); text-decoration:none; font-size:14px; }
-  header a:hover { text-decoration:underline; }
-  h1 { font-size:26px; margin:.2em 0 .1em; }
-  h2 { font-size:21px; margin:1.8em 0 .6em; padding-top:.4em; border-top:1px solid var(--line); }
-  h3 { font-size:17px; margin:1.4em 0 .5em; color:var(--accent); }
-  p, li { color:#d6dae3; }
-  code { background:#222732; padding:2px 6px; border-radius:4px; font-size:.9em; }
-  pre { background:#11141a; border:1px solid var(--line); border-radius:8px; padding:14px 16px;
-        overflow:auto; }
-  pre code { background:none; padding:0; }
-  table { border-collapse:collapse; width:100%; margin:1em 0; font-size:14px; }
-  th, td { border:1px solid var(--line); padding:8px 10px; text-align:left; }
-  th { background:#1c212b; }
-  blockquote { border-left:3px solid var(--accent); margin:1em 0; padding:.2em 1em;
-               color:var(--muted); background:#151922; }
-  a { color:var(--accent); }
-  hr { border:none; border-top:1px solid var(--line); margin:2em 0; }
-</style>
-</head>
-<body>
-<div class="wrap">
-  <header><strong>世界书使用说明</strong><a href="/">← 返回沙盘</a></header>
-  <article id="content">加载中…</article>
-</div>
-<script src="/static/marked.min.js"></script>
-<script>
-  (function () {
-    var md = "__MD__";
-    var el = document.getElementById('content');
-    // 本地 marked 就绪则渲染；任何异常（含标记库未加载）均回退为纯文本，绝不卡在「加载中…」。
-    try {
-      if (window.marked && typeof marked.parse === 'function') {
-        el.innerHTML = marked.parse(md);
-        return;
-      }
-    } catch (e) { /* 落到下方纯文本回退 */ }
-    el.textContent = md;
-  })();
-</script>
-</body>
-</html>"""
 
 
 # ----------------------------------------------------------------------------

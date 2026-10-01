@@ -194,6 +194,27 @@
   .modal-box .acc-check{ display:flex; gap:10px; align-items:center; margin:14px 0 0;
                          font-size:14px; color:var(--ink-2); font-weight:500; cursor:pointer; }
   .modal-box .acc-check input{ width:18px; height:18px; accent-color:var(--accent); }
+  /* 已保存的 LLM 提供商清单（可展开编辑 / 删除 / 新增） */
+  .providers{ display:flex; flex-direction:column; gap:8px; }
+  .prov-empty{ font-size:12.5px; color:var(--muted); padding:6px 2px; }
+  .prov-card{ border:1px solid var(--line); border-radius:8px; background:var(--bg-2); overflow:hidden; }
+  .prov-head{ display:flex; align-items:center; gap:8px; min-height:42px; padding:0 10px; cursor:pointer; }
+  .prov-head:hover{ border-color:var(--accent); }
+  .prov-chev{ flex:none; width:16px; text-align:center; color:var(--muted); font-size:12px; }
+  .prov-name{ flex:1; min-width:0; font-size:13.5px; color:var(--ink-2);
+              overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .prov-current{ flex:none; font-size:11px; color:var(--accent-strong); font-weight:600;
+                 background:var(--accent-soft); border:1px solid var(--accent);
+                 border-radius:999px; padding:1px 8px; }
+  .prov-del{ flex:none; width:28px; height:28px; line-height:1; border:none; border-radius:6px;
+             background:transparent; color:var(--muted); font-size:18px; cursor:pointer;
+             transition:color .15s, background .15s; }
+  .prov-del:hover{ color:var(--danger); background:var(--danger-soft); }
+  .prov-body{ display:none; padding:10px 10px 12px; border-top:1px solid var(--line); }
+  .prov-card.open .prov-body{ display:block; }
+  .prov-body .field{ margin-bottom:4px; }
+  .prov-actions{ display:flex; gap:8px; margin-top:6px; }
+  .prov-msg{ margin-top:4px; min-height:16px; }
 
   /* ---------- 响应式（三栏自适应） ---------- */
   @media (max-width:1100px){
@@ -431,21 +452,10 @@
         <span class="acc-chev">▾</span>
       </summary>
       <div class="acc-body">
-        <label>预设</label>
-        <select id="cfg-preset" class="field">
-          <option value="local">本地 Llama.cpp（默认）</option>
-          <option value="silicon">HY4 Preview（SiliconFlow）</option>
-          <option value="custom">自定义</option>
-        </select>
-        <label>Base URL</label>
-        <input id="cfg-base" class="field" placeholder="http://127.0.0.1:1234/v1">
-        <label>API Key（本地可留空）</label>
-        <input id="cfg-key" class="field" placeholder="sk-...">
-        <label>模型
-          <button id="cfg-test" class="btn btn-sm" style="float:right;">测试连接</button>
-        </label>
-        <select id="cfg-model" class="field"></select>
-        <div class="cfg-msg" id="cfg-msg"></div>
+        <p class="sub" style="margin:0 0 10px;line-height:1.6;">已保存的 LLM 提供商。展开某项可修改其连接参数（如把火山引擎的模型从 Qwen 切换为混元）；右侧 × 删除该提供商；底部可新增。</p>
+        <div id="cfg-providers" class="providers"></div>
+        <button id="cfg-prov-add" class="btn btn-sm" style="margin-top:10px;">＋ 新增提供商</button>
+        <div class="cfg-msg" id="cfg-msg" style="margin-top:10px;"></div>
       </div>
     </details>
 
@@ -858,83 +868,190 @@ sendBtn.onclick = send;
 input.addEventListener('keydown', e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } });
 
 // ---- 系统设置（NSFW 开关 + 后端设置，统一入口） ----
-const PRESETS = {
-  local:  { base_url: "http://127.0.0.1:1234/v1", api_key: "sk-local", model: "local" },
-  silicon: { base_url: "https://api.siliconflow.cn/v1", api_key: "REMOVED", model: "tencent/Hy4-preview" },
-  custom: { base_url: "", api_key: "", model: "" },
-};
+// 已保存的 LLM 提供商（持久化到 config.providers，每项 {key,name,base_url,api_key,model}）
+let cfgProviders = [];      // 提供商清单
+let cfgActiveKey = "";      // 当前生效的提供商 key
+let cfgOpen = {};           // 展开状态：key -> bool
+function renderProviders() {
+  const box = document.getElementById('cfg-providers');
+  if (!cfgProviders.length) {
+    box.innerHTML = '<div class="prov-empty">（暂无已保存的提供商，点下方“新增提供商”）</div>';
+    return;
+  }
+  box.innerHTML = cfgProviders.map(p => {
+    const open = !!cfgOpen[p.key];
+    const isActive = p.key === cfgActiveKey;
+    return `
+    <div class="prov-card${open ? ' open' : ''}" data-key="${escHtml(p.key)}">
+      <div class="prov-head" data-act="toggle">
+        <span class="prov-chev">${open ? '▾' : '▸'}</span>
+        <span class="prov-name">${escHtml(p.name || p.key)}</span>
+        ${isActive ? '<span class="prov-current">当前</span>' : ''}
+        <button class="prov-del" data-act="del" title="删除该提供商" aria-label="删除">×</button>
+      </div>
+      <div class="prov-body">
+        <label>名称</label>
+        <input class="field prov-f-name" value="${escHtml(p.name || '')}">
+        <label>Base URL</label>
+        <input class="field prov-f-base" value="${escHtml(p.base_url || '')}" placeholder="http://127.0.0.1:1234/v1">
+        <label>API Key（本地可留空）</label>
+        <input class="field prov-f-key" value="${escHtml(p.api_key || '')}" placeholder="sk-...">
+        <label>模型
+          <button class="prov-f-test btn btn-sm" data-act="test" style="float:right;">测试连接</button>
+        </label>
+        <input class="field prov-f-model" value="${escHtml(p.model || '')}" placeholder="如 Qwen3.5-32B / hunyuan">
+        <select class="field prov-f-models" style="display:none;"></select>
+        <div class="prov-actions">
+          <button class="prov-f-apply btn btn-sm" data-act="apply">应用为当前</button>
+        </div>
+        <div class="prov-msg"></div>
+      </div>
+    </div>`;
+  }).join('');
+}
 const sysModal = document.getElementById('sys-modal');
 const cfgMsg = document.getElementById('cfg-msg');
 
-function cfgFill(p) {
-  document.getElementById('cfg-base').value = p.base_url || '';
-  document.getElementById('cfg-key').value = p.api_key || '';
-  document.getElementById('cfg-model').value = p.model || '';
-}
-// 按真实配置反推当前所属预设：base_url + model 命中即认领，否则归为 custom
-function presetForConfig(c) {
-  for (const k of ['local', 'silicon']) {
-    const p = PRESETS[k];
-    if (p.base_url === c.base_url && p.model === c.model) return k;
-  }
-  return 'custom';
-}
+function escHtml(s) { return String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+// 系统设置打开时载入已保存的提供商清单（可增删，持久化到 config.providers）
 
 document.getElementById('open-system').onclick = async () => {
   const c = await fetch('/api/config').then(r => r.json());
   document.getElementById('sys-nsfw').checked = !!c.nsfw_enabled;
   document.getElementById('sys-adult').checked = !!c.adult_confirmed;
-  document.getElementById('cfg-base').value = c.base_url || '';
-  document.getElementById('cfg-key').value = c.api_key || '';
-  document.getElementById('cfg-model').innerHTML = c.model
-    ? `<option>${c.model}</option>` : '<option value="">（未设置）</option>';
+  // 已保存的提供商，每项自带连接参数，可在卡片内独立展开编辑
+  cfgProviders = Array.isArray(c.providers) ? c.providers.map(p => ({...p})) : [];
+  cfgActiveKey = "";
+  cfgOpen = {};
+  renderProviders();
   document.getElementById('cfg-temp').value = c.temperature ?? 0.9;
   document.getElementById('cfg-topp').value = c.top_p ?? 0.95;
   document.getElementById('cfg-topk').value = c.top_k ?? 40;
   document.getElementById('cfg-maxtok').value = c.max_tokens ?? 4096;
   document.getElementById('cfg-think').checked = !!c.enable_thinking;
-  document.getElementById('cfg-preset').value = presetForConfig(c);
   cfgMsg.textContent = '';
   sysModal.classList.remove('hide');
 };
-document.getElementById('cfg-preset').onchange = e => cfgFill(PRESETS[e.target.value] || {});
 document.getElementById('cfg-cancel').onclick = () => sysModal.classList.add('hide');
 
-document.getElementById('cfg-test').onclick = async () => {
-  cfgMsg.style.color = 'var(--muted)';
-  cfgMsg.textContent = '连接中…';
-  const r = await fetch('/api/config/test', {
-    method: 'POST', headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({
-      base_url: document.getElementById('cfg-base').value.trim(),
-      api_key: document.getElementById('cfg-key').value.trim(),
-    }),
-  }).then(r => r.json());
-  if (r.ok) {
-    const sel = document.getElementById('cfg-model');
-    sel.innerHTML = r.models.map(m => `<option>${m}</option>`).join('')
-                || '<option value="">（无可用模型）</option>';
-    cfgMsg.style.color = 'var(--pos)';
-    cfgMsg.textContent = '连接成功，找到 ' + r.models.length + ' 个模型';
-  } else {
-    cfgMsg.style.color = 'var(--danger)';
-    cfgMsg.textContent = '连接失败：' + r.error;
-  }
+// 提供商清单：点选填入连接参数并设为当前 / 点 × 删除
+// 新增提供商：追加一个空卡片并自动展开
+document.getElementById('cfg-prov-add').onclick = () => {
+  const key = 'p' + Date.now().toString(36);
+  cfgProviders.push({ key, name: '', base_url: '', api_key: '', model: '' });
+  cfgOpen[key] = true;
+  renderProviders();
 };
 
+// 提供商列表：事件委托（展开 / 删除 / 应用为当前 / 测试连接）
+const provBox = document.getElementById('cfg-providers');
+function provKeyOf(e) { const card = e.target.closest('.prov-card'); return card ? card.dataset.key : null; }
+function syncProv(key, field, val) { const p = cfgProviders.find(x => x.key === key); if (p) p[field] = val; }
+// 保存前从 DOM 直读每张卡片的当前输入值，确保落盘数据与界面所见完全一致，
+// 不依赖 input 事件中间态（防御任何意外丢更新的边界情况）。
+function syncProvidersFromDOM() {
+  document.querySelectorAll('.prov-card').forEach(card => {
+    const p = cfgProviders.find(x => x.key === card.dataset.key);
+    if (!p) return;
+    const q = sel => card.querySelector(sel);
+    if (q('.prov-f-name')) p.name = q('.prov-f-name').value;
+    if (q('.prov-f-base')) p.base_url = q('.prov-f-base').value;
+    if (q('.prov-f-key')) p.api_key = q('.prov-f-key').value;
+    if (q('.prov-f-model')) p.model = q('.prov-f-model').value;
+  });
+}
+provBox.addEventListener('click', async e => {
+  const key = provKeyOf(e);
+  if (!key) return;
+  const act = e.target.dataset.act;
+  if (act === 'del') {
+    const p = cfgProviders.find(x => x.key === key);
+    if (!confirm('确定删除提供商「' + (p ? (p.name || p.key) : key) + '」？点“保存设置”后生效。')) return;
+    cfgProviders = cfgProviders.filter(x => x.key !== key);
+    if (cfgActiveKey === key) cfgActiveKey = "";
+    delete cfgOpen[key];
+    renderProviders();
+    return;
+  }
+  if (act === 'apply') { cfgActiveKey = key; renderProviders(); return; }
+  if (act === 'test') {
+    const p = cfgProviders.find(x => x.key === key);
+    if (!p) return;
+    const card = e.target.closest('.prov-card');
+    const msg = card.querySelector('.prov-msg');
+    const sel = card.querySelector('.prov-f-models');
+    msg.style.color = 'var(--muted)'; msg.textContent = '连接中…';
+    try {
+      const r = await fetch('/api/config/test', {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ base_url: (p.base_url || '').trim(), api_key: (p.api_key || '').trim() }),
+      }).then(r => r.json());
+      if (r.ok) {
+        const models = Array.isArray(r.models) ? r.models : [];
+        if (models.length) {
+          sel.innerHTML = models.map(m => `<option value="${escHtml(m)}">${escHtml(m)}</option>`).join('');
+          sel.style.display = '';
+          sel.value = p.model || models[0];
+          msg.style.color = 'var(--pos)';
+          msg.textContent = '连接成功，检测到 ' + models.length + ' 个模型，可在下拉中选择';
+        } else {
+          msg.style.color = 'var(--pos)'; msg.textContent = '连接成功，但未返回模型列表';
+        }
+      } else {
+        msg.style.color = 'var(--danger)'; msg.textContent = '连接失败：' + r.error;
+      }
+    } catch (err) {
+      msg.style.color = 'var(--danger)'; msg.textContent = '连接异常：' + err;
+    }
+    return;
+  }
+  // 点击卡片头部（非删除按钮）则展开 / 收起
+  if (e.target.closest('.prov-head')) { cfgOpen[key] = !cfgOpen[key]; renderProviders(); return; }
+});
+// 卡片内输入实时写回内存（不重渲染，避免丢焦点）
+provBox.addEventListener('input', e => {
+  const key = provKeyOf(e);
+  if (!key) return;
+  if (e.target.classList.contains('prov-f-name')) syncProv(key, 'name', e.target.value);
+  else if (e.target.classList.contains('prov-f-base')) syncProv(key, 'base_url', e.target.value);
+  else if (e.target.classList.contains('prov-f-key')) syncProv(key, 'api_key', e.target.value);
+  else if (e.target.classList.contains('prov-f-model')) syncProv(key, 'model', e.target.value);
+});
+// 测试连接拉取的模型下拉：选中即写回 model 字段
+provBox.addEventListener('change', e => {
+  const key = provKeyOf(e);
+  if (!key || !e.target.classList.contains('prov-f-models')) return;
+  const card = e.target.closest('.prov-card');
+  card.querySelector('.prov-f-model').value = e.target.value;
+  syncProv(key, 'model', e.target.value);
+});
+
 document.getElementById('sys-save').onclick = async () => {
+  // 保存前先把界面上每张卡片的当前输入同步进内存，确保落盘即所见
+  syncProvidersFromDOM();
+  // 当前生效连接取「应用为当前」的提供商；未指定则取列表首项（若有）
   const payload = {
     nsfw_enabled: document.getElementById('sys-nsfw').checked,
     adult_confirmed: document.getElementById('sys-adult').checked,
-    base_url: document.getElementById('cfg-base').value.trim(),
-    api_key: document.getElementById('cfg-key').value.trim(),
-    model: document.getElementById('cfg-model').value.trim(),
+    providers: cfgProviders,
     temperature: parseFloat(document.getElementById('cfg-temp').value),
     top_p: parseFloat(document.getElementById('cfg-topp').value),
     top_k: parseInt(document.getElementById('cfg-topk').value, 10),
     max_tokens: parseInt(document.getElementById('cfg-maxtok').value, 10),
     enable_thinking: document.getElementById('cfg-think').checked,
   };
+  // 仅当列表非空时才写入生效连接，避免删光后误保存清空当前可用连接。
+  // 关键保护：若「应用为当前」的提供商未填 Base URL（半填卡片），绝不把全局 base_url 清空，
+  // 否则对话请求会变成 /chat/completions（无 scheme）而报错。base_url 为空时保留现有可用连接。
+  if (cfgProviders.length) {
+    const active = cfgProviders.find(p => p.key === cfgActiveKey) || cfgProviders[0];
+    if ((active.base_url || '').trim()) {
+      payload.base_url = active.base_url.trim();
+      payload.api_key = (active.api_key || '').trim();
+      if ((active.model || '').trim()) payload.model = active.model.trim();
+      // model 留空则交由后端从 /v1/models 自动取，不覆盖现有 model
+    }
+  }
   const r = await fetch('/api/config', {
     method: 'POST', headers: {'Content-Type': 'application/json'},
     body: JSON.stringify(payload),

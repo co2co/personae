@@ -1,7 +1,7 @@
 {
-  "base_url": "https://api.siliconflow.cn/v1",
-  "api_key": "REMOVED",
-  "model": "tencent/Hy4-preview",
+  "base_url": "",
+  "api_key": "",
+  "model": "",
   "budget": 4096,
   "max_tokens": 4096,
   "temperature": 0.9,
@@ -9,5 +9,6 @@
   "top_k": 40,
   "enable_thinking": false,
   "nsfw_enabled": false,
-  "adult_confirmed": false
+  "adult_confirmed": false,
+  "providers": []
 }

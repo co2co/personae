@@ -29,3 +29,7 @@ tests/runs/
 .idea/
 Thumbs.db
 .DS_Store
+
+# Project red-line exclusions（绝不纳入版本库）
+.workbuddy/
+nul

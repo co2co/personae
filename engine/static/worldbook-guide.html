@@ -1,0 +1,434 @@
+<!DOCTYPE html><html lang="zh"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>世界书使用说明 · ST-Lite</title><style>
+:root{
+  --bg:#f5f6f8; --panel:#ffffff; --ink:#222833; --muted:#66707e;
+  --accent:#3b6ef0; --line:#e3e7ee; --code-bg:#eef1f6; --code-ink:#c0341d;
+}
+*{box-sizing:border-box;}
+body{margin:0;background:var(--bg);color:var(--ink);
+  font-family:-apple-system,"Segoe UI","PingFang SC","Microsoft YaHei","Hiragino Sans GB",sans-serif;
+  line-height:1.75;font-size:15px;}
+.wrap{max-width:900px;margin:0 auto;padding:22px 20px 90px;}
+header{display:flex;align-items:center;justify-content:space-between;
+  padding-bottom:14px;margin-bottom:6px;border-bottom:1px solid var(--line);}
+header strong{font-size:16px;color:var(--ink);}
+.close{font-size:13px;padding:6px 14px;border:1px solid var(--line);background:#fff;
+  border-radius:6px;cursor:pointer;color:var(--muted);}
+.close:hover{color:var(--ink);border-color:#c7cdd8;}
+.content h1:first-of-type{display:none;}
+.content h1{font-size:25px;margin:.2em 0 .4em;}
+.content h2{font-size:20px;margin:1.9em 0 .6em;padding-top:.6em;border-top:1px solid var(--line);}
+.content h3{font-size:16.5px;margin:1.5em 0 .5em;color:#2b3340;}
+.content p{margin:.7em 0;}
+.content ul,.content ol{padding-left:1.5em;margin:.6em 0;}
+.content li{margin:.3em 0;}
+.content a{color:var(--accent);text-decoration:none;}
+.content a:hover{text-decoration:underline;}
+.content code{background:var(--code-bg);color:var(--code-ink);padding:1.5px 5px;
+  border-radius:4px;font-size:.88em;font-family:ui-monospace,Menlo,Consolas,"Courier New",monospace;}
+.content pre{background:#f4f6f8;border:1px solid var(--line);border-radius:8px;
+  padding:14px 16px;overflow:auto;font-size:13px;line-height:1.55;}
+.content pre code{background:none;color:#2b3340;padding:0;}
+.content table{border-collapse:collapse;width:100%;margin:1.1em 0;font-size:14px;
+  display:block;overflow-x:auto;-webkit-overflow-scrolling:touch;}
+.content th,.content td{border:1px solid var(--line);padding:8px 11px;text-align:left;}
+.content th{background:#f0f3f8;font-weight:600;}
+.content blockquote{border-left:3px solid var(--accent);margin:1.1em 0;padding:.3em 1em;
+  color:var(--muted);background:#f0f3f8;border-radius:0 6px 6px 0;}
+.content hr{border:none;border-top:1px solid var(--line);margin:2em 0;}
+.content img{max-width:100%;}
+@media (max-width:640px){
+  .wrap{padding:16px 14px 70px;}
+  .content{font-size:14.5px;}
+  .content h2{font-size:18px;}
+}
+</style></head><body><div class="wrap"><header><strong>世界书使用说明 · ST-Lite</strong><button class="close" onclick="window.close()">关闭</button></header><main class="content"><h1>世界书使用说明书（Lorebook）</h1>
+<blockquote>
+<p>适用版本：<code>my-st</code> 精简版沙盘（基于 SillyTavern 理念重写的 Python/Flask 多角色关系推演引擎）。
+本文档面向<strong>创作者</strong>：告诉你世界书怎么用、每个字段干什么、什么时候该用什么，并附可直接照抄的例子。</p>
+</blockquote>
+<hr>
+<h2>一、世界书是什么</h2>
+<p>世界书（Lorebook）是一份&quot;<strong>按需投放的背景设定库</strong>&quot;。</p>
+<p>普通做法是把所有设定一股脑塞进提示词，又长又费 token，还容易让模型搞混。世界书的思路是：<strong>只有&quot;当前剧情/对话涉及到的设定&quot;才会被注入给模型</strong>。你为每条设定写几个触发词，模型读到相关情节时，这条设定才出现。</p>
+<p>一句话：<strong>提到什么，补什么。</strong></p>
+<p>在 <code>my-st</code> 里，世界书同时承担两种职责：</p>
+<table>
+<thead>
+<tr>
+<th>类型</th>
+<th>作用</th>
+<th>是否注入提示词</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><strong>设定条目</strong></td>
+<td>世界观、地点、规则、人物背景等背景信息</td>
+<td>命中后注入</td>
+</tr>
+<tr>
+<td><strong>秘密条目</strong></td>
+<td>某角色的隐秘（把柄、身份伪装、身体秘密等）</td>
+<td><strong>不注入</strong>；开局 seed 进该角色秘密表，按&quot;暴露逻辑&quot;逐步揭开</td>
+</tr>
+</tbody></table>
+<hr>
+<h2>二、怎么打开编辑器</h2>
+<ol>
+<li>启动服务：<code>python app.py</code>，浏览器打开 <code>http://127.0.0.1:5000</code></li>
+<li>点顶栏 <strong>「世界书」</strong> 按钮 → 打开世界书管理面板。</li>
+<li>面板顶部是一个下拉框（已有世界列表）+ 四个按钮：<ul>
+<li><strong>+ 新建世界</strong>：输入世界名（建议英文/拼音，作文件名）。</li>
+<li><strong>删除世界</strong>：删整份设定与秘密（若仍有角色卡绑定，会二次确认后强制删除）。</li>
+<li><strong>+ 新增条目</strong>：在列表中加一条空白条目（默认展开）。</li>
+<li><strong>保存整份</strong>：把当前所有条目整份覆盖写入 <code>data/worlds/&lt;名&gt;.json</code>。<strong>务必点保存，否则改动不落地。</strong></li>
+</ul>
+</li>
+<li>下方有&quot;命中预览&quot;框，用来测试触发词是否按预期 fire（见第六节）。</li>
+</ol>
+<blockquote>
+<p>世界书是&quot;整份覆盖保存&quot;——编辑完点一次「保存整份」即可，不需要逐条保存。</p>
+</blockquote>
+<hr>
+<h2>三、条目的基本结构</h2>
+<p>每条世界书条目由一组字段组成。展开任意条目可看到：</p>
+<pre><code>┌─ [⠿拖拽] [▾展开] 顺序 1  [秘密]  条目摘要  [✔启用] [▢秘密条目] [删除条目]
+│
+└─ 触发词 keys：魔法学院、学院
+   设定正文 content：
+   城西的魔法学院是大陆最高学府，入学者需通过天赋测验……
+   ── 高级选项 ──
+   [▢ 常量条目]   插入位置 position：[before ▾]   扫描深度 depth：[    ]
+   ── 秘密专属（勾选秘密条目才出现）──
+   秘密归属角色 character：[林梦雅]
+   bottom_line（暴露底线）：[……]
+</code></pre>
+<p>字段分三类：<strong>必填基础</strong>（keys、content）、<strong>开关</strong>（启用、秘密条目）、<strong>高级选项</strong>（常量/位置/深度）。</p>
+<hr>
+<h2>四、字段逐个讲解（含例子）</h2>
+<h3>1. 触发词 <code>keys</code> ⭐ 核心</h3>
+<p>一组关键词，用<strong>逗号、顿号或空格</strong>分隔。当前剧情/对话（含你注入的导演指令）里<strong>出现任一关键词</strong>，这条设定就命中。</p>
+<blockquote>
+<p>匹配是&quot;包含&quot;判断，不要求整词。关键词建议用作品的<strong>专有名词</strong>，越独特越精准，避免用&quot;她&quot;&quot;走&quot;这类泛词误触发。</p>
+</blockquote>
+<p><strong>例子</strong>：设定&quot;末日病毒法则&quot;，触发词写 <code>病毒、感染、丧尸、咬</code>。则只要某轮对话或指令里出现&quot;被咬了&quot;，这条就注入。</p>
+<h3>2. 设定正文 <code>content</code> ⭐ 核心</h3>
+<p>命中后要注入给模型的设定内容。写清楚、写具体，模型才会据此推演。</p>
+<p><strong>例子</strong>：</p>
+<pre><code>content：病毒通过血液与唾液传播，咬伤即感染；潜伏期约 6 小时，发作后丧失理智、
+只剩攻击本能。目前人类尚无解药，唯一可靠手段是物理隔离与即时清除。
+</code></pre>
+<h3>3. 启用 <code>enabled</code></h3>
+<p>取消勾选 = 该条目暂时停用（不参与命中、不注入）。适合&quot;先写着、以后再用&quot;或临时屏蔽某条。</p>
+<h3>4. 优先级 / 排序（拖拽 ⠿）</h3>
+<ul>
+<li>条目<strong>自上而下 = 优先级从高到低</strong>。顶部条目优先级最高。</li>
+<li>系统按 <code>优先级 = 100 - 序号×5</code> 计算（第 1 条=100，第 2 条=95……）。</li>
+<li>当命中的条目<strong>超过 8 条</strong>（<code>max_entries=8</code> 硬上限），只注入优先级最高的 8 条，其余<strong>静默丢弃、无提示</strong>。</li>
+</ul>
+<blockquote>
+<p>实操建议：把&quot;最该被先看到&quot;的设定（高优先级常量/核心规则）放顶部；把可有可无的补充设定放底部，避免挤掉重要条目。</p>
+</blockquote>
+<p><strong>例子</strong>：你写了 12 条设定，某一轮剧情同时触发了其中 9 条。系统只注入排名前 8 的，第 9 条被丢弃——而你可能以为它进去了。所以：<strong>别让可能同时命中的条目超过 8 条</strong>，或把关键条目用常量/高排序顶住。</p>
+<h3>5. 常量条目 <code>constant</code> 🔑 重点</h3>
+<p>勾选后：<strong>不依赖任何关键词，每一轮都必注入</strong>。用来放&quot;必须永远在场的基础规则&quot;。</p>
+<ul>
+<li>常量条目无视 <code>keys</code> 与 <code>depth</code>。</li>
+<li>是解决&quot;长文里基础设定掉线&quot;的关键武器：普通条目只回看最近几轮聊天，聊远了就不命中；常量条目永久在线。</li>
+</ul>
+<p><strong>例子</strong>（末日剧本）：</p>
+<pre><code>[常量] 病毒法则：咬伤即感染，无解药，唯一手段是隔离与清除。
+[常量] 处境总则：五人被困便利店后仓，门外尸群持续抓挠，补给见底。
+</code></pre>
+<p>这两条勾了常量，无论聊到哪、隔多少轮，模型始终把&quot;病毒无解+被困&quot;当铁背景，不会写出&quot;主角轻松找到解药&quot;这种崩设定剧情。</p>
+<h3>6. 插入位置 <code>position</code> 🔑 重点</h3>
+<p>决定命中设定<strong>插在提示词的哪个位置</strong>，影响&quot;谁该看到、何时看到&quot;。</p>
+<table>
+<thead>
+<tr>
+<th>值</th>
+<th>含义</th>
+<th>适合什么</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>before</code>（默认）</td>
+<td>系统层，放在对话历史<strong>之前</strong></td>
+<td>世界观基础、角色该共知的背景</td>
+</tr>
+<tr>
+<td><code>after</code></td>
+<td>放在对话历史<strong>之后、导演指令之前</strong>，作为独立 system 消息</td>
+<td>角色&quot;当前应当知晓&quot;的环境细节</td>
+</tr>
+</tbody></table>
+<p><strong>为什么 this 重要</strong>：把&quot;角色不该知道的上帝视角/元设定&quot;放错位置，会被模型当成角色已知，造成出戏（OOC）或第四面墙破裂。<code>after</code> 段贴近当下语境，适合&quot;当下环境细节&quot;；<code>before</code> 段像空气一样常驻系统层。</p>
+<p><strong>例子</strong>：</p>
+<pre><code>[after] 当下威胁：门外尸群已增至数十只，通风口有抓挠声，是今日最大隐患。
+</code></pre>
+<p>这条设 <code>after</code>——只有当某轮提到&quot;门外/尸群/通风口&quot;时才作为&quot;当前环境&quot;提示注入，且位置贴近当下，不会被当成远古背景。</p>
+<h3>7. 扫描深度 <code>depth</code> 🔑 重点</h3>
+<p>控制这条设定<strong>只回看最近多少轮聊天</strong>来匹配关键词。</p>
+<ul>
+<li>留空 = 用全局默认 <code>4</code>（回看最近 4 条聊天）。</li>
+<li>填数字（如 <code>10</code>）= 该条目回看最近 N 条。</li>
+<li>窗口 = 最近 N 条聊天 <strong>+ 你本轮注入的导演指令</strong>（指令也参与匹配）。</li>
+<li>若 depth ≥ 已有聊天总数，则回看全部。</li>
+</ul>
+<p><strong>用途</strong>：默认 4 条意味着&quot;第 5 轮提过的事，隔 4 轮后就不再触发&quot;。如果你的设定需要&quot;远距离仍能命中&quot;，就调大 depth。</p>
+<p><strong>例子</strong>（末日剧本 <code>depth=10</code>）：</p>
+<pre><code>keys：城东、庇护所、女儿
+content：城东废弃体育馆被传改成了临时庇护所，有物资有活人，但路途凶险。
+depth：10
+</code></pre>
+<p>第 1 轮提了&quot;城东还有希望&quot;，之后 5 轮都在聊别的。默认 depth=4 会丢失这条；设 <code>depth=10</code> 后，第 6~10 轮仍命中——角色不会突然&quot;忘了城东还有生路&quot;。</p>
+<h3>8. 秘密条目 <code>secret</code> + 归属角色 + 底线 🔑 重点</h3>
+<p>勾选「秘密条目」后，这条<strong>不进入提示词</strong>，而是：</p>
+<ol>
+<li>开局时 seed 进<strong>归属角色</strong>的秘密表（快照 <code>secrets</code>），初始状态&quot;潜伏&quot;（<code>known_by</code> 为空）。</li>
+<li>只有剧情里<strong>真的出现&quot;发现动作 + 秘密事实&quot;</strong>（如&quot;林晚拆开绷带，发现小臂咬伤&quot;），引擎才把它标记为&quot;暴露&quot;，并把知情者写进 <code>known_by</code>。</li>
+<li>暴露后，该秘密会以&quot;提示&quot;形式注入<strong>相关角色的人设块</strong>（&quot;你的秘密已被 X 知晓，须应对其反应&quot; / &quot;你已知 X 的秘密：……，可据此行动&quot;），驱动后续博弈。</li>
+</ol>
+<p>字段：</p>
+<ul>
+<li><strong>秘密归属角色 <code>character</code></strong>：这条秘密属于谁（owner）。必填——空了不会被 seed 成秘密。</li>
+<li><strong>bottom_line（暴露底线）</strong>：可选，描述&quot;暴露到什么程度会改写关系/越线&quot;，供模型把握后果烈度。</li>
+</ul>
+<blockquote>
+<p>勾选秘密后，上方的高级选项（常量/位置/深度）会自动隐藏——因为秘密不走世界设定注入，这些对它无意义。</p>
+</blockquote>
+<p><strong>例子</strong>（末日剧本，高洋的秘密）：</p>
+<pre><code>[秘密] 归属角色：高洋
+触发词：咬伤、感染、小臂
+content：高洋三天前被流浪猫样的东西咬伤小臂，自己偷偷包扎隐瞒，怕被当成威胁清掉。
+bottom_line：一旦暴露，高洋会拼命掩盖，团队信任崩塌，可能引发排挤或私逃。
+</code></pre>
+<p>开局高洋的秘密&quot;潜伏&quot;；直到某轮剧情写出&quot;林晚发现高洋绷带下的咬伤&quot;，引擎才翻成暴露，并让林晚据此行动（如借此要挟、或保护性隐瞒）。</p>
+<h3>9. 递归引用 <code>name</code> + <code>#name#</code> 🔑 重点（进阶）</h3>
+<p>当一条设定需要<strong>顺带带出相关的另一条设定</strong>时，用递归引用避免手动重复关键词。</p>
+<p>机制：</p>
+<ul>
+<li>给被引用条目起一个 <strong><code>name</code></strong>（编辑器里&quot;条目名 name&quot;输入框，可选）。</li>
+<li>在引用方的 <code>content</code> 里写 <code>#条目名#</code>，例如 <code>详见 #魔法学院校规#</code>。</li>
+<li>一旦引用方被命中注入，引擎会<strong>自动把被引条目也拉进来</strong>（BFS 展开，并防环，不会因互相引用死循环）。</li>
+<li>被引条目即使自身关键词没命中、也不是常量，也会被拉入——它是&quot;被带着走&quot;的依赖项。</li>
+</ul>
+<blockquote>
+<p>递归条目同样受 <code>max_entries=8</code> 上限约束：拉入后若总数超限，按优先级保留最高的 8 条。</p>
+</blockquote>
+<p><strong>例子</strong>（魔法学院世界）：</p>
+<pre><code>[设定] name：学院
+触发词：学院、校舍
+content：这是一所古老的魔法学院。校规详见 #校规#。
+
+[设定] name：校规
+触发词：（留空也行）
+content：学院校规：禁私斗、禁夜出、禁用黑魔法。
+</code></pre>
+<p>只提&quot;学院&quot;时，引擎注入&quot;学院&quot;条目，并因 <code>#校规#</code> 自动把&quot;校规&quot;条目也带进来——你不必在&quot;校规&quot;上重复填&quot;学院&quot;关键词。</p>
+<p><strong>什么时候用</strong>：世界观有&quot;总纲→分册&quot;&quot;地点→该地点规则&quot;&quot;家族→家规&quot;这类<strong>从属关系</strong>时最省心。扁平的、互不相关的设定不需要。</p>
+<hr>
+<h2>五、与角色卡的关系</h2>
+<ul>
+<li>角色卡上有 <code>world</code> 字段（默认 <code>home</code>），决定<strong>这个角色开局加载哪份世界书</strong>。</li>
+<li>开局时，引擎取&quot;首个在场角色&quot;的 <code>world</code> 加载对应世界书（如末日剧本角色都设 <code>world: 末日</code>）。</li>
+<li>世界书里的<strong>秘密条目</strong>会在开局 seed 进对应角色的秘密表（需填 <code>character</code>）。</li>
+</ul>
+<blockquote>
+<p>提示：删世界书时，若仍有角色卡 <code>world</code> 指向它，会先二次确认——避免误删导致角色开局丢失设定。</p>
+</blockquote>
+<hr>
+<h2>六、命中预览（测试工具）</h2>
+<p>编辑器底部&quot;命中预览&quot;框：</p>
+<ol>
+<li>粘贴一段<strong>模拟的场景/对话文本</strong>（就当是某一轮会发生的事）。</li>
+<li>点 <strong>测试命中</strong>。</li>
+<li>下方列出会触发的条目：标签显示「设定」或「秘密」，附触发词与正文。</li>
+</ol>
+<p>用途：</p>
+<ul>
+<li>写完后立刻验证&quot;我的触发词到底 fire 没 fire&quot;。</li>
+<li>常量条目在<strong>任意文本</strong>下都应命中（因为它不看关键词）。</li>
+<li>秘密条目命中也<strong>只作提醒，不注入 prompt</strong>——红色「秘密」标签提示你这条走的是秘密线。</li>
+</ul>
+<p><strong>例子</strong>：在预览框输入&quot;高洋小臂的咬伤被林晚看见了&quot;，点测试 → 应看到高洋的秘密条目命中（标记秘密），以及任何被&quot;咬伤/感染&quot;等词命中的设定条目。</p>
+<hr>
+<h2>七、一份完整示例世界书（可直接照抄）</h2>
+<pre><code class="language-json">[
+  {
+    &quot;keys&quot;: [&quot;病毒&quot;, &quot;感染&quot;, &quot;丧尸&quot;, &quot;咬&quot;],
+    &quot;content&quot;: &quot;病毒经血液与唾液传播，咬伤即感染；潜伏期约6小时，发作后丧失理智。无解药，唯一手段是隔离与清除。&quot;,
+    &quot;priority&quot;: 100,
+    &quot;enabled&quot;: true,
+    &quot;constant&quot;: true,
+    &quot;position&quot;: &quot;before&quot;,
+    &quot;depth&quot;: null
+  },
+  {
+    &quot;keys&quot;: [&quot;后仓&quot;, &quot;便利店&quot;, &quot;补给&quot;],
+    &quot;content&quot;: &quot;五人被困城郊便利店后仓，卷帘门紧闭，门外尸群持续抓挠，泡面与饮水见底。&quot;,
+    &quot;priority&quot;: 95,
+    &quot;enabled&quot;: true,
+    &quot;constant&quot;: true,
+    &quot;position&quot;: &quot;before&quot;,
+    &quot;depth&quot;: null
+  },
+  {
+    &quot;keys&quot;: [&quot;门外&quot;, &quot;尸群&quot;, &quot;通风口&quot;, &quot;抓挠&quot;],
+    &quot;content&quot;: &quot;当下威胁：门外尸群已增至数十只，通风口有持续的抓挠声，是今日最大隐患。&quot;,
+    &quot;priority&quot;: 90,
+    &quot;enabled&quot;: true,
+    &quot;constant&quot;: false,
+    &quot;position&quot;: &quot;after&quot;,
+    &quot;depth&quot;: null
+  },
+  {
+    &quot;keys&quot;: [&quot;城东&quot;, &quot;庇护所&quot;, &quot;女儿&quot;],
+    &quot;content&quot;: &quot;城东废弃体育馆传闻被改成临时庇护所，有物资有活人，但路途凶险。&quot;,
+    &quot;priority&quot;: 85,
+    &quot;enabled&quot;: true,
+    &quot;constant&quot;: false,
+    &quot;position&quot;: &quot;before&quot;,
+    &quot;depth&quot;: 10
+  },
+  {
+    &quot;keys&quot;: [&quot;咬伤&quot;, &quot;感染&quot;, &quot;小臂&quot;],
+    &quot;content&quot;: &quot;高洋三天前被咬伤小臂，自己偷偷包扎隐瞒，怕被当成威胁清掉。&quot;,
+    &quot;priority&quot;: 80,
+    &quot;enabled&quot;: true,
+    &quot;secret&quot;: true,
+    &quot;character&quot;: &quot;高洋&quot;,
+    &quot;bottom_line&quot;: &quot;一旦暴露，团队信任崩塌，可能引发排挤或私逃。&quot;
+  }
+]
+</code></pre>
+<blockquote>
+<p>这份示例覆盖了全部机制：常量（前两条）、after 位置（第三条）、条目级 depth=10（第四条）、秘密条目+归属+底线（第五条）。</p>
+</blockquote>
+<hr>
+<h2>八、从零建一个世界书（末日剧本完整走查）</h2>
+<p>以&quot;末日丧尸生存&quot;为例，从点开编辑器到保存、开局跑通一局，串一遍完整流程。每一步都对应界面上真实的按钮/字段名。</p>
+<h3>步骤 1 · 打开编辑器</h3>
+<ul>
+<li>启动服务：<code>python app.py</code> → 浏览器开 <code>http://127.0.0.1:5000</code>。</li>
+<li>顶栏点 <strong>「世界书」</strong>，打开世界书面板。</li>
+<li>下拉框选已有世界，或点 <strong>「+ 新建世界」</strong> 输入名字（本例用 <code>apoc</code>，建议英文/拼音作文件名）。</li>
+<li>面板结构一眼看全：</li>
+</ul>
+<pre><code>下拉[apoc ▾]  [+ 新建世界] [删除世界] [+ 新增条目] [保存整份]
+─────────────────────────────────────────────────
+条目列表（可拖 ⠿ 排序、展开 ▸、勾启用/秘密、删除）
+─────────────────────────────────────────────────
+命中预览框 [测试命中]   命中结果区
+</code></pre>
+<h3>步骤 2 · 先打常量底（必做，防长文掉线）</h3>
+<p>点 <strong>「+ 新增条目」</strong> 并展开，建两条基础规则：</p>
+<ul>
+<li>条目 A：<code>content</code> 写&quot;病毒经血液与唾液传播，咬伤即感染；无解药，唯一手段是隔离与清除&quot;；勾 <strong>常量条目</strong>；<code>position</code> 默认 <code>before</code>（keys 可留空，常量不看关键词）。</li>
+<li>条目 B：<code>content</code> 写&quot;五人被困城郊便利店后仓，门外尸群持续抓挠，补给见底&quot;；同样勾 <strong>常量条目</strong>。</li>
+</ul>
+<blockquote>
+<p>这两条每轮必注入，模型永远记得&quot;无解药 + 被困&quot;，不会写出崩设定剧情。</p>
+</blockquote>
+<h3>步骤 3 · 建触发型设定（提到才补）</h3>
+<ul>
+<li>条目 C：<code>keys</code> 写 <code>门外、尸群、通风口、抓挠</code>；<code>content</code> 写&quot;当下威胁：门外尸群已增至数十只，通风口有持续抓挠声&quot;；<code>position</code> 选 <strong>after</strong>（贴近当下语境）；<code>depth</code> 留空（默认 4）。</li>
+<li>条目 D：<code>keys</code> 写 <code>城东、庇护所、女儿</code>；<code>content</code> 写&quot;城东废弃体育馆传闻改成了临时庇护所，有物资有活人，但路途凶险&quot;；<code>depth</code> 填 <strong>10</strong>（远距离仍命中，聊远了也不会忘）。</li>
+</ul>
+<h3>步骤 4 · 埋一条秘密（逐步揭开）</h3>
+<p>点 <strong>「+ 新增条目」</strong>，勾 <strong>秘密条目</strong> → 自动展开归属字段：</p>
+<ul>
+<li><code>character</code> 填 <strong>高洋</strong>（归属角色，必填，否则不会被 seed 成秘密）。</li>
+<li><code>keys</code> 写 <code>咬伤、感染、小臂</code>。</li>
+<li><code>content</code> 写&quot;高洋三天前被咬伤小臂，自己偷偷包扎隐瞒，怕被当成威胁清掉&quot;。</li>
+<li><code>bottom_line</code> 写&quot;一旦暴露，团队信任崩塌，可能引发排挤或私逃&quot;。</li>
+</ul>
+<blockquote>
+<p>秘密<strong>不进 prompt</strong>；开局 seed 进高洋的秘密表（状态&quot;潜伏&quot;），只有剧情真的写出发现动作（如&quot;林晚拆开绷带看见咬伤&quot;）才翻成&quot;暴露&quot;。</p>
+</blockquote>
+<h3>步骤 5 · 排顺序（定优先级）</h3>
+<ul>
+<li>拖 ⠿ 把常量/核心规则（A、B）拖到<strong>顶部</strong>（优先级最高），补充设定（C、D）放底部。</li>
+<li>自查：同一轮剧情里可能同时命中的条目<strong>不要超过 8 条</strong>，否则低优先级会被静默丢弃。</li>
+</ul>
+<h3>步骤 6 · 预览验证（避免白写）</h3>
+<p>滚动到底部&quot;命中预览&quot;框，粘贴一段模拟文本，例如：</p>
+<pre><code>高洋小臂的咬伤被林晚看见了，门外尸群又在抓挠。
+</code></pre>
+<p>点 <strong>测试命中</strong>，结果区应显示：</p>
+<ul>
+<li>高洋的秘密条目（带「秘密」标签，只提醒不注入）</li>
+<li>条目 C&quot;当下威胁&quot;（被&quot;尸群/抓挠&quot;命中）</li>
+<li>条目 A、B 常量（任意文本都命中）</li>
+</ul>
+<p>若没命中，回去检查 keys 是否写错、是否忘了勾启用。</p>
+<h3>步骤 7 · 保存</h3>
+<p>点 <strong>「保存整份」</strong>。世界书整份写入 <code>data/worlds/apoc.json</code>。</p>
+<blockquote>
+<p>注意：世界书是<strong>整份覆盖</strong>保存，逐条改完一次性点保存即可。</p>
+</blockquote>
+<h3>步骤 8 · 让角色卡指向它 + 开局跑通</h3>
+<ul>
+<li>打开「角色库」，把同场角色的 <code>world</code> 字段设为 <code>apoc</code>（如 <code>world: apoc</code>）。不指向它，开局不会加载这份世界书。</li>
+<li>返回主界面，顶栏 <strong>「开启一个世界」</strong> → 选同场角色（含高洋）→ 填开场场景 → 点 <strong>开始</strong>。</li>
+<li>引擎加载 <code>apoc</code> 世界书，并把高洋秘密 seed 进快照。</li>
+<li>在对话区注入扰动指令，例如&quot;林晚替高洋换药，拆开绷带&quot; → 推演：相关设定随剧情注入，秘密在&quot;发现动作&quot;被写出后才暴露，并驱动后续博弈。</li>
+</ul>
+<h3>走查小结</h3>
+<pre><code>打开 → 常量打底(A/B) → 触发设定(C/D) → 秘密埋雷(高洋) → 排顺序
+     → 预览验证 → 保存 → 角色卡 world 指向 apoc → 开局推演
+</code></pre>
+<hr>
+<h2>九、常见坑 &amp; 最佳实践</h2>
+<ol>
+<li><strong>改了不保存</strong>：世界书是整份覆盖保存，务必点「保存整份」。</li>
+<li><strong>命中超 8 条被静默丢弃</strong>：同时命中的条目超过 8 条时，低优先级的那条会悄悄消失，模型看不到。把关键设定放顶部，或拆世界。</li>
+<li><strong>泛词误触发</strong>：触发词别用&quot;走、说、她&quot;这类高频泛词，用专有名词。</li>
+<li><strong>长文基础设定掉线</strong>：核心规则（无解药、被困、禁忌）一定要勾<strong>常量</strong>，否则聊远了设定就&quot;蒸发&quot;。</li>
+<li><strong>上帝视角放错位置</strong>：只有角色该共知的背景放 <code>before</code>；&quot;角色当前才该知晓的环境细节&quot;放 <code>after</code>，避免 OOC。</li>
+<li><strong>秘密没生效</strong>：秘密条目<strong>必须填 <code>character</code>（归属角色）</strong>，否则不会被 seed 成秘密；且秘密不进 prompt，它的&quot;暴露&quot;靠剧情真的写出发现动作才触发。</li>
+<li><strong>depth 不是越大越好</strong>：depth 太大等于&quot;每条聊天都回看很远&quot;，可能让陈年旧事反复误触发。按需设（6~10 覆盖中长距，4 为默认）。</li>
+<li><strong><code>character</code> 字段对&quot;非秘密条目&quot;无效</strong>：当前沙盘里，非秘密条目的 <code>character</code> 不参与过滤（秘密的 <code>character</code> 才是归属）。给普通设定加 <code>character</code> 标签不会按角色隔离，别误用。</li>
+</ol>
+<hr>
+<h2>十、机制速查表</h2>
+<table>
+<thead>
+<tr>
+<th>想要的效果</th>
+<th>怎么做</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>任何时候都注入（基础规则）</td>
+<td>勾 <strong>常量条目</strong></td>
+</tr>
+<tr>
+<td>提到 X 才补充 X 的设定</td>
+<td>设 <code>keys: [X]</code></td>
+</tr>
+<tr>
+<td>设定贴近当下语境、不被当远古背景</td>
+<td><code>position: after</code></td>
+</tr>
+<tr>
+<td>第 N 轮前提过，隔很久仍要命中</td>
+<td>设 <code>depth: 10</code>（或更大）</td>
+</tr>
+<tr>
+<td>角色隐秘，逐步揭开</td>
+<td>勾 <strong>秘密条目</strong> + 填 <code>character</code></td>
+</tr>
+<tr>
+<td>该条目永久优先于他人</td>
+<td>拖到列表<strong>顶部</strong>（优先级最高）</td>
+</tr>
+<tr>
+<td>暂时停用某条</td>
+<td>取消 <strong>启用</strong></td>
+</tr>
+<tr>
+<td>实时验证触发词</td>
+<td>用底部 <strong>命中预览</strong></td>
+</tr>
+</tbody></table>
+</main></div></body></html>

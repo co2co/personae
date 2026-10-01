@@ -2,6 +2,44 @@
 
 记录架构决策、待办与搁置项。非任务日志，按主题追加。
 
+## 2026-10-01 v0.5.4（世界书静态 HTML + 提供商可增删重构 + 收口修复）
+
+- 升 v0.5.4：收口世界书预渲染静态 HTML、模型与生成「提供商」可持久化增删重构，以及两处配套修复（均为 PATCH 档、向后兼容、非破坏性）。
+
+### 1. 世界书帮助文档改为预渲染静态 HTML
+- 根因：v0.5.3 用 marked.js 渲染 Markdown，仍可能因 CDN/脚本时序卡「加载中…」。改为一次性预渲染为静态 HTML（`engine/static/worldbook-guide.html`，内联浅色主题 CSS，表格/代码/引用/响应式），`/docs/worldbook` 直接 `send_from_directory` 返回，零外部依赖、永不卡加载。
+- 删除 `engine/static/marked.min.js`（不再需要）；`package.py` 的 `EXCLUDE_SUBPATHS` 移除 `worldbook-guide.md`（现产物为 `.html`，需随分发）。
+
+### 2. 模型与生成：提供商（provider）可持久化增删
+- 动机：原「预设」是硬编码在 `index.html` 的 `PRESETS`（local/silicon/custom），后端只有一套生效连接，无「多提供商」数据，无法提供「删除具体提供商」入口。simon 明确删除接口应针对具体提供商（本地大模型/火山引擎/矽谷引擎…）而非某个模型名。
+- 后端（engine/llm.py）：`DEFAULT_PROVIDERS = []`（不随分发预置任何内置提供商）；`config_view` 对缺省 `providers` 做 `setdefault([])`；`_WRITABLE` 加 `providers`；`save_config` 新增 `providers` 分支（列表存为原样、非列表→`[]`），并 `_clean_providers` 过滤非法项（key 非空才保留）去重。
+- 前端（engine/static/index.html）：删除硬编码 `PRESETS` 与 `presetForConfig`；「预设」下拉改为**可增删的提供商清单**（每行带「应用为当前」「删除」，新增即登记为 provider）；`open-system` 从 `providers` 渲染，`sys-save` 回写 `providers`。
+
+### 3. 修复：静态文件缓存导致「改了代码 UI 不变」
+- 根因：Flask `send_from_directory` 默认 `Cache-Control: max-age=43200`（12 小时），多次改 `index.html` 后浏览器跑旧 JS，表现为「新增提供商保存后消失」等怪异。
+- 修复（engine/app.py）：`/` 与 `/static/<path>` 响应加 `Cache-Control: no-store`，本地开发工具杜绝静态缓存，改动即时生效。
+
+### 4. 修复：空字段提供商污染全局连接（Invalid URL）
+- 现象：新增「本地大模型」卡片三项留空即保存，会把空 `base_url` 写进全局连接，覆盖原本可用的 `http://127.0.0.1:1234/v1`，聊天请求变成 `/chat/completions`（无 scheme）→ `Invalid URL`。
+- 修复：
+  - 前端 `sys-save`：仅当 provider **确实填了 Base URL** 才写入全局连接；为空则跳过、保留现有可用连接。
+  - 前端新增 `syncProvidersFromDOM()`：点保存时先从每张卡片输入框**直读当前值**写回内存再发请求，落盘数据与界面所见一致、不依赖内存中间态。
+  - 后端（engine/llm.py）：`stream`/`complete`/`list_models` 的 URL 改为 `(base_url or setting("base_url") or DEFAULTS["base_url"])`，空串时回退默认，任何情况都不拼出无 scheme 的 URL（最后一道防线）。
+
+### 验证
+- 语法：engine/llm.py / engine/app.py `ast.parse` 通过；engine/static/index.html 内联 JS `node --check` 通过。
+- 逻辑：后端 `save_config` 对 `providers` 往返（列表存为原样、非列表→`[]`、过滤非法/去重）临时文件验证通过；jsdom 三场景（普通新增 / 保存后重开还原 / 折叠后再保存还原）全 PASS；空 base_url 卡片保存 → payload 不含 `base_url`（现有连接保留，PASS），填了 Base URL 正常写入（PASS）。
+- 本机 Chrome 不可用，未做真机视觉回归。
+
+### 收口范围与排除
+- 纳入：engine/VERSION / README.md / engine/DEVLOG.md / engine/app.py / engine/llm.py / engine/static/index.html / engine/static/worldbook-guide.html（新增）/ engine/data/config.json（出厂默认，空连接 + NSFW off）/ package.py / .gitignore（加固红线）/ `engine/static/marked.min.js`（删除）。
+- 红线排除：`.workbuddy/`、`nul`（保留名，Windows 拒绝清理，无害残留，已写入 .gitignore）；`pytest.ini` + `tests/README.md` + `tests/test_focus_follow.py`（此前标记「暂不提交」的可选测试，本次仍排除）。`engine/player-cast/Cast_New v0.5 限定版.md` 的删除不在本次范围，保持未暂存待后续处理。
+- 个人配置（本地 Qwen + NSFW on）不进版本库：出厂默认 `config.json` 为**空连接 + NSFW off**（base_url/api_key/model 为空、providers 为空列表），不再随分发附带任何真实密钥（v0.5.3 曾预置 SiliconFlow 密钥，v0.5.4 起移除）；个人配置已备份至 `backups/config.personal.*.bak` 并还原回工作树（未提交）。
+
+### v0.5.4 收口动作
+- `VERSION` 升 v0.5.4；提交 + 打 tag `v0.5.4`；产出 `my-st-v0.5.4.zip`（package.py 按 VERSION 自动命名）。
+- 删除旧 `my-st-v0.5.3.zip`，仅保留最新；README / DEVLOG 版本号同步。git tag 现 `v0.1`–`v0.5.4` 连续。
+
 ## 2026-10-01 v0.5.3（采样参数独立分组 + top_k + 世界书文档 CDN 修复）
 
 - 升 v0.5.3：系统设置增强（采样参数独立 + top_k）与一处文档渲染 bug 修复，均向后兼容、非破坏性 → PATCH（v0.5.2 → v0.5.3）。
