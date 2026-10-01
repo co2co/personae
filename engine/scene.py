@@ -51,18 +51,35 @@ _PROMPT = """你是关系沙盘的“场景导演”。环境推手注入一条�
 2. 仅当指令明确写某角色离开（如“让林泽宇离开”“周晓杰回房睡了”）或到来（“周晓杰进来了”），才在 leave/arrive 填入。
 3. leave/arrive 名字必须严格来自 all_chars；无人进出则为空数组。只输出 JSON，不要任何解释文字。"""
 
+# 停留超时触发时追加在 _PROMPT 之后：把可选的"是否变化"变成必须的"必须变化"，
+# 否则 LLM 倾向于返回 changed=false，防僵死保护会被架空。
+_FORCE_HINT = """
+
+【强制推进】当前场景已连续停留 {stuck} 轮未发生变化。本轮必须让时间或环境发生一次
+可见推移（如天色由清晨转至正午/入夜、天气起变化、队伍转移到新地点），changed 必须为
+true；不得返回无变化。若实在无地点变化，也至少推进 time 或 weather。"""
+
 
 def _triggered(directive, snap):
+    """判定本轮是否调用场景导演，并区分触发来源。
+
+    返回 (triggered, force)：
+    - triggered：本轮是否需要调用 LLM 定稿。
+    - force：是否因"同场景停留过久"而触发。为 True 时是防僵死保护的唯一生效
+      路径，apply 会要求 LLM 本轮必须产出一次可见推移（见 _FORCE_HINT）。
+    """
     t = directive or ""
-    if any(k in t for k in MOVE_KEYS):
-        return True
-    if any(k in t for k in TIME_KEYS):
-        return True
-    if any(k in t for k in WEATHER_KEYS):
-        return True
+    # 停留超时必须优先于关键词判定：否则只要指令常含"去/天亮"等触发词，
+    # 就永远走关键词分支（force=False），防僵死保护同样会被架空。
     if snap["scene"].get("same_scene", 0) >= AUTO_TIME_THRESHOLD:
-        return True
-    return False
+        return True, True
+    if any(k in t for k in MOVE_KEYS):
+        return True, False
+    if any(k in t for k in TIME_KEYS):
+        return True, False
+    if any(k in t for k in WEATHER_KEYS):
+        return True, False
+    return False, False
 
 
 def apply(sid, directive, snap):
@@ -71,7 +88,8 @@ def apply(sid, directive, snap):
     prop 为 LLM 解析结果，未切换或解析失败为 None。环境推手不入场，故在场名单只受
     指令中显式进出影响；地点/天气变化默认全员随世界移动（安全网保证名单不乱）。
     """
-    if not _triggered(directive, snap):
+    triggered, force = _triggered(directive, snap)
+    if not triggered:
         snap["scene"]["same_scene"] = snap["scene"].get("same_scene", 0) + 1
         return False, None
 
@@ -84,18 +102,31 @@ def apply(sid, directive, snap):
         action=directive,
         all_chars="、".join(all_chars),
     )
+    if force:
+        prompt += _FORCE_HINT.format(stuck=snap["scene"].get("same_scene", 0))
     try:
         raw = llm.complete(
             [{"role": "system", "content": prompt}],
             temperature=0.3, top_p=0.9, max_tokens=200, timeout=45,
         )
     except Exception:
-        snap["scene"]["same_scene"] = 0
+        # 调用失败等同于场景未变，停留计数累加。此处若清零会架空防僵死保护。
+        snap["scene"]["same_scene"] = snap["scene"].get("same_scene", 0) + 1
         return False, None
 
     prop = _parse(raw)
     if not prop or not prop.get("changed"):
-        snap["scene"]["same_scene"] = 0
+        # 场景实际未变化，停留计数必须累加。
+        # 原实现在此清零，导致指令常含触发词时（"去/回到/天亮"等）每轮都触发、
+        # 每轮都清零，same_scene 永远达不到 AUTO_TIME_THRESHOLD，防僵死保护彻底
+        # 失效——实测表现为场景连续 23 轮不变、与叙事已推进到的地点脱节。
+        cur = snap["scene"].get("same_scene", 0) + 1
+        if force:
+            # 强制推进已尝试一次仍未变化：重置计数进入冷却，避免此后每轮都调 LLM
+            # （保留"规则版触发避免每轮调 LLM"的设计原则）。最坏情况为每
+            # AUTO_TIME_THRESHOLD 轮尝试一次强制推进，而非永不推进。
+            cur = 0
+        snap["scene"]["same_scene"] = cur
         return False, prop
 
     # 落实新场景
