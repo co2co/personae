@@ -2,6 +2,22 @@
 
 记录架构决策、待办与搁置项。非任务日志，按主题追加。
 
+## 2026-10-01 v0.5.2（移动端适配 + 启动绑定 0.0.0.0）
+
+- 升 v0.5.2：收口移动端响应式适配与启动脚本局域网绑定（均为 PATCH 档、向后兼容、非破坏性）。
+- 移动端适配（engine/static/index.html）：
+  - 顶栏汉堡菜单（≤880px）：7 个操作按钮收进 `#topnav`，新增「菜单」按钮（`#open-menu`）展开下拉，修掉窄屏按钮换行溢出与 `--topbar-h` 固定导致的与 `#board` 顶部错位；全部按钮 ID 不变。
+  - 抽屉遮罩 `#scrim`：左栏/日志抽屉打开时显示半透明遮罩，点击遮罩关闭抽屉与菜单；接入 `openLog`/`closeLog`/`open-left`（≤880 才显示）。
+  - 手机断点（≤720）补齐：管理面板 `.mgr` 双列改单列、弹窗可滚动占满、输入条与气泡间距收紧、`#input` 高 48px、`font-size:16px` 防 iOS 缩放、触摸目标 min-height:42px、刘海安全区 `env(safe-area-inset-*)`。
+  - 系统设置 UI 重构为分职责折叠分组（`<details>` accordion）：内容管控(NSFW) / 模型与生成(LLM) / 帮助与文档(DOC)，每组带职责徽章；16 个 JS 依赖 ID 原样保留。
+  - 沿用应用浅色主题，无 emoji。
+- 启动绑定 0.0.0.0（engine/app.py + engine/run.bat）：
+  - `app.py:643`：`app.run(host=os.getenv("HOST","127.0.0.1"))`，默认仍本地回环，由 run.bat 覆盖。
+  - `run.bat`：新增 `set "HOST=0.0.0.0"`；启动前用 `powershell Test-Connection 8.8.8.8` 取本机局域网源 IP 打印「局域网访问」地址，使手机等局域网设备可访问。
+- 验证：HTML 标签平衡、21+ 关键 ID 无缺失、内嵌脚本 `node --check` 通过、CSS 括号平衡；`app.py` `py_compile` 通过。本机 Chrome 不可用未做真机视觉回归。
+- 说明：config.json 的 `temperature:0.85→0.9` 漂移与 `tests/` 下可选测试（分头行动 3 项 + pytest.ini/README 同步）属此前标记「暂不提交」内容，本次不纳入 v0.5.2 收口，保留在工作区待后续单独处理。
+- `VERSION` 升 v0.5.2；提交 + 打 tag `v0.5.2`；产出 `my-st-v0.5.2.zip`（package.py 按 VERSION 自动命名）。删除旧 `my-st-v0.5.1.zip`，仅保留最新；README / DEVLOG 版本号同步。git tag 现 `v0.1`–`v0.5.2` 连续。
+
 ## 2026-10-01 v0.5.1（前端三栏布局修正 + 日志残留修复）
 
 - 升 v0.5.1：收口前端三栏布局两处修正与日志窗残留上一轮推演内容的 Bug 修复（均为 PATCH 档、向后兼容、非破坏性）。
@@ -16,6 +32,13 @@
   - 验证：脚本连开世界 A/B，连接 2（B 之后）回放仅含"世界B"、不含"世界A"，判定 PASS；JS/Python 语法均通过。
 - `VERSION` 升 v0.5.1；提交 + 打 tag `v0.5.1`；产出 `my-st-v0.5.1.zip`（package.py 按 VERSION 自动命名）。
 - 删除旧 `my-st-v0.5.0.zip`，仅保留最新；README / DEVLOG 版本号同步。git tag 现 `v0.1`–`v0.5.1` 连续。
+- 四情景单元测试验证（迭代后引擎回归，纯测试改动，按 simon 要求暂不提交）：覆盖 ① 有 NSFW ② 无 NSFW ③ 角色分头行动叙事 ④ ending 机制 + 总结报告。
+  - 快测基线 53 passed / 4 deselected；补 `tests/test_focus_follow.py` 分头行动确定性测试 3 项（此前仅覆盖单焦点子集，缺"多角色被点名分头走、镜头跟随被点名者、留守者移出镜头、在场名单不清空"这一核心行为）→ 56 passed。
+  - 集成测试（真实 LLM 端到端）首跑 2 passed / 2 failed：`test_directive_focus_on_leavers`（分头行动）+ `test_playthrough_saves_markdown`（ending 走查落盘）通过；`test_nsfw_arc_produces_intimate_content`、`test_directive_focus_on_full_opportunity_pair` 失败。根因非引擎 bug —— 被测服务跑在出厂锁定配置（`adult_confirmed:false` + `nsfw_enabled:false`），真实链路门控锁死、模型拿不到解锁提示词；确定性测试用 monkeypatch 强制成年确认故全过，证明逻辑正确。
+  - 临时把 `config.json` 切到开启配置、重启服务重跑集成 → 4 passed（四情景全绿）；验证后已回滚 config、清场、停服务（红线 `.workbuddy/` 与保留名 `nul` 未纳入）。
+  - 结论：四情景逻辑均正确。分头行动当前以"被点名集合 = 单一镜头组"跟随，多组分头去不同地点会合并为同一焦点（设计如此，非缺陷）。ending 经 `/api/end` 生成复盘并导出 `summary.md` 存档，且 `/api/ending/dismiss` 支持驳回抑制复弹。
+  - 产出 `tests/runs/引擎四情景测试验证报告.md`；测试文件改动（`test_focus_follow.py` +3 项）暂未提交（属测试单元、不进分发 zip）。
+  - 微信频道推送未执行：本会话当前无可用微信发送类工具（`search_plugins` 仅返回未安装候选，已绑定连接器不在列；可用工具无消息推送入口）。待 simon 确认绑定连接器（如企业微信机器人）后补推；常态化跑 NSFW 集成测试需让被测服务以"开启配置"启动。
 
 ## 2026-10-01 v0.5.0 结局判定（软指引）收口
 

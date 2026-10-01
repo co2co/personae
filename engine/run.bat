@@ -10,6 +10,7 @@ rem  说明：venv 位于 engine/venv，与测试单元 venv 完全独立。
 rem ============================================================
 
 set "PORT=5051"
+set "HOST=0.0.0.0"
 set "ROOT=%~dp0"
 set "VENV=%ROOT%venv"
 
@@ -54,9 +55,17 @@ if defined PID (
 )
 
 rem ---- 2. 启动服务 ----
+rem 计算本机局域网 IP（取访问公网时的源地址），用于手机等设备的访问提示
+for /f "delims=" %%a in (
+    'powershell -NoProfile -Command "(Test-Connection -ComputerName 8.8.8.8 -Count 1 -ErrorAction SilentlyContinue).SourceAddress.IPAddress" 2^>nul'
+) do set "LAN_IP=%%a"
+if not defined LAN_IP set "LAN_IP=127.0.0.1"
+
 echo ========================================
 echo   正在启动 my-st 服务
-echo   访问地址：http://127.0.0.1:%PORT%
+echo   本机访问：http://127.0.0.1:%PORT%
+echo   局域网访问（手机/其他设备）：http://%LAN_IP%:%PORT%
+echo   绑定地址：%HOST%:%PORT%
 echo   按 Ctrl+C 停止服务
 echo ========================================
 set "FLASK_DEBUG=0"

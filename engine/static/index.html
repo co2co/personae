@@ -79,6 +79,10 @@
     background:rgba(255,255,255,.86); -webkit-backdrop-filter:blur(8px); backdrop-filter:blur(8px);
     border-bottom:1px solid var(--line);
   }
+  .topnav{ display:flex; gap:14px; align-items:center; }
+  #open-menu{ display:none; }
+  .scrim{ position:fixed; inset:var(--topbar-h) 0 0 0; background:rgba(20,20,20,.28); z-index:45; }
+  .scrim.hide{ display:none; }
   .brand{ display:flex; align-items:baseline; gap:9px; }
   .brand b{ font-size:16px; font-weight:650; letter-spacing:.01em; }
   .brand span{ font-size:12.5px; color:var(--muted); letter-spacing:.06em; }
@@ -172,19 +176,45 @@
   .sys-sec{ margin:22px 0 8px; font-size:13px; font-weight:600; color:var(--muted); letter-spacing:.08em; }
   .sys-sec:first-of-type{ margin-top:6px; }
 
+  /* 系统设置：按职责分组的折叠面板（accordion） */
+  .acc{ border:1px solid var(--line); border-radius:12px; margin-top:14px; background:var(--surface); }
+  .acc[open]{ border-color:#dedcd6; }
+  .acc-head{ display:flex; align-items:center; gap:10px; list-style:none; cursor:pointer;
+             padding:13px 16px; font-size:14.5px; font-weight:600; color:var(--ink); user-select:none; }
+  .acc-head::-webkit-details-marker{ display:none; }
+  .acc-head:hover{ background:var(--surface-2); }
+  .acc-badge{ font-size:10.5px; font-weight:700; letter-spacing:.06em; padding:2px 9px; border-radius:999px; }
+  .badge-nsfw{ background:var(--danger-soft); color:var(--danger); }
+  .badge-llm{ background:var(--accent-soft); color:var(--accent-strong); }
+  .badge-doc{ background:var(--pos-soft); color:var(--pos); }
+  .acc-chev{ margin-left:auto; color:var(--muted); font-size:12px; transition:transform .18s ease; }
+  .acc:not([open]) .acc-chev{ transform:rotate(-90deg); }
+  .acc-body{ padding:2px 16px 16px; border-top:1px solid var(--line-2); }
+  .modal-box .acc-check{ display:flex; gap:10px; align-items:center; margin:14px 0 0;
+                         font-size:14px; color:var(--ink-2); font-weight:500; cursor:pointer; }
+  .modal-box .acc-check input{ width:18px; height:18px; accent-color:var(--accent); }
+
   /* ---------- 响应式（三栏自适应） ---------- */
   @media (max-width:1100px){
     .rail-right{ width:330px; flex-basis:330px; }
   }
   @media (max-width:880px){
-    :root{ --topbar-h:104px; }
-    header{ height:auto; padding:10px 14px; }
+    :root{ --topbar-h:56px; }
+    header{ flex-wrap:nowrap; height:var(--topbar-h); padding:0 14px; padding-top:env(safe-area-inset-top); }
+    .brand span{ display:none; }
+    .tag{ display:none; }
+    #open-menu{ display:inline-flex; }
+    .topnav{ display:none; position:absolute; top:100%; right:8px; flex-direction:column; gap:6px;
+             align-items:stretch; background:var(--surface); border:1px solid var(--line);
+             border-radius:12px; padding:8px; box-shadow:var(--shadow); z-index:55; min-width:168px; }
+    .topnav.show{ display:flex; }
+    .topnav .btn{ width:100%; justify-content:flex-start; }
     .rail-right{ width:300px; flex-basis:300px; }
   }
   /* 窄屏：左右栏变可滑出 overlay 抽屉，中间占满（用 .collapsed 控制滑入/滑出） */
   @media (max-width:720px){
     .rail-left, .rail-right{
-      position:fixed; top:var(--topbar-h); bottom:0; z-index:46;
+      position:fixed; top:calc(var(--topbar-h) + env(safe-area-inset-top)); bottom:0; z-index:46;
       width:86vw; max-width:360px; height:auto;
     }
     .rail-left{ left:0; border-right:1px solid var(--line);
@@ -193,6 +223,27 @@
       transform:translateX(100%); transition:transform .2s ease; }
     .rail-left.open{ transform:translateX(0); }
     .rail-right:not(.collapsed){ transform:translateX(0); }
+    /* 管理面板（角色库 / 世界书）双列在手机上改单列 */
+    .mgr{ grid-template-columns:1fr; }
+    .mgr-list{ border-right:none; border-bottom:1px solid var(--line); max-height:38vh;
+               margin-bottom:12px; padding-right:0; }
+    /* 弹窗在手机端占满且可滚动 */
+    .modal{ padding:0; align-items:flex-start; }
+    .modal-box{ width:100%; max-width:94vw; max-height:calc(100vh - 24px); }
+    /* 输入条与叙事区间距收紧 */
+    #bar{ padding:10px 12px; padding-bottom:calc(10px + env(safe-area-inset-bottom)); }
+    #input{ height:48px; }
+    #center .stage{ padding:14px 14px 8px; }
+    .msg{ font-size:15px; }
+    /* 触摸目标与防 iOS 聚焦缩放 */
+    button, .btn, input, select, textarea{ font-size:16px; }
+    .btn{ min-height:42px; }
+    input, select, textarea{ min-height:42px; }
+    /* 开场卡与结局横幅在窄屏换行 */
+    .hero{ padding:calc(var(--topbar-h) + 16px) 16px 16px; }
+    .card{ padding:24px 20px; }
+    #ending-banner{ flex-wrap:wrap; }
+    #ending-banner .eb-text{ min-width:0; }
   }
   /* 初始化管理面板（角色库 / 世界书，参考酒馆 Character / Lorebook） */
   .modal-box.wide{ width:min(900px, 94vw); }
@@ -324,14 +375,18 @@
   <span class="tag" id="round-tag">回合 –</span>
   <span class="tag" id="scale-tag">尺度 –</span>
   <span class="spacer"></span>
-  <button id="open-chars" class="btn btn-sm">角色库</button>
-  <button id="open-worlds" class="btn btn-sm">世界书</button>
-  <button id="open-left" class="btn btn-sm">世界状态</button>
-  <button id="open-sessions" class="btn btn-sm">会话</button>
-  <button id="open-system" class="btn btn-sm">系统设置</button>
-  <button id="open-log" class="btn btn-sm">运行时日志</button>
-  <button id="open-end" class="btn btn-sm">结束剧本</button>
+  <button id="open-menu" class="btn btn-sm" aria-label="打开菜单">菜单</button>
+  <nav id="topnav" class="topnav">
+    <button id="open-chars" class="btn btn-sm">角色库</button>
+    <button id="open-worlds" class="btn btn-sm">世界书</button>
+    <button id="open-left" class="btn btn-sm">世界状态</button>
+    <button id="open-sessions" class="btn btn-sm">会话</button>
+    <button id="open-system" class="btn btn-sm">系统设置</button>
+    <button id="open-log" class="btn btn-sm">运行时日志</button>
+    <button id="open-end" class="btn btn-sm">结束剧本</button>
+  </nav>
 </header>
+<div id="scrim" class="scrim hide"></div>
 
 <!-- 结局软提示横幅（非阻塞：命中终局条件时提议是否终结，由用户拍板） -->
 <div id="ending-banner">
@@ -343,54 +398,81 @@
   </div>
 </div>
 
-<!-- 系统设置（统一收拢系统级选项：NSFW 开关 + 后端设置） -->
+<!-- 系统设置（按职责分组的折叠面板：内容管控 / 模型与生成 / 帮助与文档） -->
 <div id="sys-modal" class="modal hide">
   <div class="modal-box wide">
     <h3>系统设置</h3>
-    <div class="sub">系统级选项统一在此管理。NSFW 与成年确认均为系统级设置。</div>
+    <div class="sub">系统级选项按职责分组管理，点击各组标题可展开 / 收起。</div>
 
-    <h4 class="sys-sec">帮助文档</h4>
-    <p class="sub" style="margin:0 0 8px;line-height:1.6;">新手建议先读世界书使用说明，了解触发词、常量、插入位置、扫描深度与秘密等机制及示例。</p>
-    <a href="/docs/worldbook" target="_blank" rel="noopener" class="btn btn-sm" style="text-decoration:none;">打开世界书使用说明（新窗口）</a>
+    <!-- 内容管控：NSFW 开关 + 成年确认（同一职责，归为一组） -->
+    <details class="acc" open>
+      <summary class="acc-head">
+        <span>内容管控</span>
+        <span class="acc-badge badge-nsfw">NSFW</span>
+        <span class="acc-chev">▾</span>
+      </summary>
+      <div class="acc-body">
+        <label class="acc-check">
+          <input type="checkbox" id="sys-adult"> 确认已成年（开启 NSFW 内容的前提）
+        </label>
+        <label class="acc-check">
+          <input type="checkbox" id="sys-nsfw"> 开启 NSFW 内容
+        </label>
+        <p class="sub" style="margin:10px 0 0;line-height:1.6;">开启后，已确认成年的会话会按角色间的机会等级推进亲密内容；关闭则始终受限。该设置存于 config.json，不受「重置」影响。</p>
+      </div>
+    </details>
 
-    <h4 class="sys-sec">内容</h4>
-    <label style="display:flex;gap:10px;align-items:center;font-size:14px;color:var(--ink-2);font-weight:500;cursor:pointer;">
-      <input type="checkbox" id="sys-adult" style="width:18px;height:18px;accent-color:var(--accent);"> 确认已成年（开启 NSFW 内容的前提）
-    </label>
-    <label style="display:flex;gap:10px;align-items:center;font-size:14px;color:var(--ink-2);font-weight:500;cursor:pointer;">
-      <input type="checkbox" id="sys-nsfw" style="width:18px;height:18px;accent-color:var(--accent);"> 开启 NSFW 内容
-    </label>
-    <p class="sub" style="margin:10px 0 0;line-height:1.6;">开启后，已确认成年的会话会按角色间的机会等级推进亲密内容；关闭则始终受限。该设置存于 config.json，不受「重置」影响。</p>
+    <!-- 模型与生成：LLM 后端全部设置（同一职责，归为一组） -->
+    <details class="acc">
+      <summary class="acc-head">
+        <span>模型与生成</span>
+        <span class="acc-badge badge-llm">LLM</span>
+        <span class="acc-chev">▾</span>
+      </summary>
+      <div class="acc-body">
+        <label>预设</label>
+        <select id="cfg-preset" class="field">
+          <option value="local">本地 Llama.cpp（默认）</option>
+          <option value="silicon">HY4 Preview（SiliconFlow）</option>
+          <option value="custom">自定义</option>
+        </select>
+        <label>Base URL</label>
+        <input id="cfg-base" class="field" placeholder="http://127.0.0.1:1234/v1">
+        <label>API Key（本地可留空）</label>
+        <input id="cfg-key" class="field" placeholder="sk-...">
+        <label>模型
+          <button id="cfg-test" class="btn btn-sm" style="float:right;">测试连接</button>
+        </label>
+        <select id="cfg-model" class="field"></select>
+        <label>采样参数</label>
+        <div class="row">
+          <span style="font-size:12.5px;color:var(--muted);">温度</span>
+          <input id="cfg-temp" class="field" type="number" step="0.05" style="max-width:110px">
+          <span style="font-size:12.5px;color:var(--muted);">top_p</span>
+          <input id="cfg-topp" class="field" type="number" step="0.05" style="max-width:110px">
+          <span style="font-size:12.5px;color:var(--muted);">max_tokens</span>
+          <input id="cfg-maxtok" class="field" type="number" step="64" style="max-width:120px">
+          <label style="margin:0;display:flex;align-items:center;gap:6px;font-size:13px;color:var(--ink-2);font-weight:400;">
+            <input id="cfg-think" type="checkbox"> 启用思考
+          </label>
+        </div>
+        <div class="cfg-msg" id="cfg-msg"></div>
+      </div>
+    </details>
 
-    <h4 class="sys-sec">后端</h4>
-    <label>预设</label>
-    <select id="cfg-preset" class="field">
-      <option value="local">本地 Llama.cpp（默认）</option>
-      <option value="silicon">HY4 Preview（SiliconFlow）</option>
-      <option value="custom">自定义</option>
-    </select>
-    <label>Base URL</label>
-    <input id="cfg-base" class="field" placeholder="http://127.0.0.1:1234/v1">
-    <label>API Key（本地可留空）</label>
-    <input id="cfg-key" class="field" placeholder="sk-...">
-    <label>模型
-      <button id="cfg-test" class="btn btn-sm" style="float:right;">测试连接</button>
-    </label>
-    <select id="cfg-model" class="field"></select>
-    <label>采样参数</label>
-    <div class="row">
-      <span style="font-size:12.5px;color:var(--muted);">温度</span>
-      <input id="cfg-temp" class="field" type="number" step="0.05" style="max-width:110px">
-      <span style="font-size:12.5px;color:var(--muted);">top_p</span>
-      <input id="cfg-topp" class="field" type="number" step="0.05" style="max-width:110px">
-      <span style="font-size:12.5px;color:var(--muted);">max_tokens</span>
-      <input id="cfg-maxtok" class="field" type="number" step="64" style="max-width:120px">
-      <label style="margin:0;display:flex;align-items:center;gap:6px;font-size:13px;color:var(--ink-2);font-weight:400;">
-        <input id="cfg-think" type="checkbox"> 启用思考
-      </label>
-    </div>
+    <!-- 帮助与文档 -->
+    <details class="acc">
+      <summary class="acc-head">
+        <span>帮助与文档</span>
+        <span class="acc-badge badge-doc">DOC</span>
+        <span class="acc-chev">▾</span>
+      </summary>
+      <div class="acc-body">
+        <p class="sub" style="margin:0 0 8px;line-height:1.6;">新手建议先读世界书使用说明，了解触发词、常量、插入位置、扫描深度与秘密等机制及示例。</p>
+        <a href="/docs/worldbook" target="_blank" rel="noopener" class="btn btn-sm" style="text-decoration:none;">打开世界书使用说明（新窗口）</a>
+      </div>
+    </details>
 
-    <div class="cfg-msg" id="cfg-msg"></div>
     <div class="modal-foot">
       <button id="cfg-cancel" class="btn">取消</button>
       <button id="sys-save" class="btn btn-primary">保存</button>
@@ -1352,11 +1434,16 @@ function appendEntry(e){
 function openLog(){
   rightRail.classList.remove('collapsed');
   if (!es) connectLog();
+  if (window.innerWidth <= 880){ const s = document.getElementById('scrim'); if (s) s.classList.remove('hide'); }
 }
 function closeLog(){
   rightRail.classList.add('collapsed');
   if (es){ es.close(); es = null; }
   lwStatus.textContent = '已断开';
+  if (window.innerWidth <= 880){
+    const s = document.getElementById('scrim');
+    if (s && !document.getElementById('left-rail').classList.contains('open')) s.classList.add('hide');
+  }
 }
 function connectLog(){
   if (es) return;
@@ -1456,7 +1543,31 @@ document.querySelectorAll('#left-rail .panel').forEach(p => {
 });
 document.querySelectorAll('#left-rail .panel[data-collapse]').forEach(p => p.classList.add('collapsed'));
 const openLeftBtn = document.getElementById('open-left');
-if (openLeftBtn) openLeftBtn.onclick = () => leftRail.classList.toggle('open');
+if (openLeftBtn) openLeftBtn.onclick = () => {
+  const open = leftRail.classList.toggle('open');
+  const s = document.getElementById('scrim');
+  if (open){ if (s) s.classList.remove('hide'); }
+  else if (rightRail.classList.contains('collapsed') && s) s.classList.add('hide');
+};
+// 遮罩点击：关闭所有抽屉与菜单
+const scrimEl = document.getElementById('scrim');
+if (scrimEl) scrimEl.addEventListener('click', () => {
+  leftRail.classList.remove('open');
+  if (!rightRail.classList.contains('collapsed')) closeLog();
+  const tn = document.getElementById('topnav'); if (tn) tn.classList.remove('show');
+  scrimEl.classList.add('hide');
+});
+// 汉堡菜单：开合与点击项后收起
+const topnavEl = document.getElementById('topnav');
+const openMenuBtn = document.getElementById('open-menu');
+if (openMenuBtn) openMenuBtn.addEventListener('click', e => {
+  e.stopPropagation();
+  const show = topnavEl.classList.toggle('show');
+  if (scrimEl) scrimEl.classList.toggle('hide', !show);
+});
+if (topnavEl) topnavEl.querySelectorAll('button').forEach(b => b.addEventListener('click', () => {
+  topnavEl.classList.remove('show'); if (scrimEl) scrimEl.classList.add('hide');
+}));
 // 日志窗默认不自动连接：开始界面不应回放上一轮缓冲；进入世界后由 startSession 连接
 if (window.innerWidth < 720) {
   rightRail.classList.add('collapsed');
