@@ -165,3 +165,12 @@ def test_opp_from_history_ignores_neutral_homonyms():
     """历史里出现「墓穴」不应把机会等级抬到半步。"""
     hist = [{"role": "assistant", "content": "这地方可能成为五个人共同的墓穴"}]
     assert director._opp_from_history(hist) == "无"
+
+
+def test_body_mid_narrowed_avoids_neutral_false_positive():
+    """T3 收窄后：末日题材中性词不再误抬半步 / 误判接触。"""
+    for t in ["他按在墙上检查装备", "地面湿润，空气里全是铁锈味",
+              "她低头检查衣服有没有破损", "王浩的腰撞上了货架", "贴着标签的罐头"]:
+        assert director.detect_intimacy(t) == "无", t
+    hist = [{"role": "assistant", "content": "他按在墙上检查装备"}]
+    assert director._opp_from_history(hist) == "无"
