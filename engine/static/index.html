@@ -516,6 +516,7 @@
         <button id="char-new" class="btn btn-sm">+ 新建角色</button>
         <button id="char-import-btn" class="btn btn-sm">导入 JSON</button>
         <input id="char-import" type="file" accept=".json,application/json" style="display:none">
+        <button id="open-script-import" class="btn btn-sm">从剧本生成</button>
         <div class="mgr-list" id="char-list"></div>
       </div>
       <div class="mgr-form">
@@ -1716,6 +1717,111 @@ if (topnavEl) topnavEl.querySelectorAll('button').forEach(b => b.addEventListene
 if (window.innerWidth < 720) {
   rightRail.classList.add('collapsed');
 }
+
+// ---- S3 剧本→设定 自动导入 ----
+const siModal = document.getElementById('script-import-modal');
+document.getElementById('open-script-import').onclick = () => {
+  document.getElementById('si-msg').textContent = '';
+  document.getElementById('si-preview').innerHTML = '';
+  document.getElementById('si-apply').style.display = 'none';
+  siModal.classList.remove('hide');
+};
+document.getElementById('si-close').onclick = () => siModal.classList.add('hide');
+siModal.addEventListener('click', e => { if (e.target === siModal) siModal.classList.add('hide'); });
+
+let _siData = null;
+document.getElementById('si-refine').onclick = async () => {
+  const script = document.getElementById('si-script').value.trim();
+  const msg = document.getElementById('si-msg');
+  if (!script) { msg.style.color = 'var(--danger)'; msg.textContent = '请先粘贴剧本'; return; }
+  msg.style.color = 'var(--muted)'; msg.textContent = '提炼中……';
+  try {
+    const r = await fetch('/api/import/from-script', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({script})}).then(r=>r.json());
+    if (!r.ok) { msg.style.color = 'var(--danger)'; msg.textContent = '提炼失败：' + (r.error || '未知'); return; }
+    _siData = r;
+    renderSiPreview(r);
+    msg.style.color = 'var(--pos)';
+    msg.textContent = '提炼完成：' + (r.characters?.length || 0) + ' 角色 / ' + (r.world?.entries?.length || 0) + ' 世界书条目';
+    document.getElementById('si-apply').style.display = '';
+  } catch (e) { msg.style.color = 'var(--danger)'; msg.textContent = '请求异常：' + e; }
+};
+
+function renderSiPreview(r) {
+  const box = document.getElementById('si-preview');
+  let html = '<div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;">';
+  html += '<div><h4>角色卡 (' + (r.characters?.length || 0) + ')</h4>';
+  for (const c of (r.characters || [])) {
+    html += '<div class="card" style="padding:10px;margin-bottom:8px;">';
+    html += '<b>' + escHtml(c.name) + '</b> <span class="sub">' + escHtml(c.world || '') + '</span><br>';
+    html += '<span class="sub">' + escHtml(c.description || '') + '</span><br>';
+    html += '<span class="sub">性格：' + escHtml(c.personality || '') + '</span><br>';
+    if (c.relations) html += '<span class="sub">关系：' + escHtml(Object.entries(c.relations).map(([k,v])=>k+'→'+v).join('；')) + '</span>';
+    html += '</div>';
+  }
+  html += '</div><div><h4>世界书：' + escHtml(r.world?.name || '') + ' (' + (r.world?.entries?.length || 0) + ')</h4>';
+  for (const e of (r.world?.entries || [])) {
+    const border = e.secret ? ' style="border-left:3px solid #d6453e;"' : '';
+    html += '<div class="card"' + border + ' style="padding:8px;margin-bottom:6px;">';
+    html += '<span class="sub">[' + (e.secret ? '秘密' : '设定') + '] ' + escHtml((e.keys||[]).join('、')) + '</span><br>';
+    html += escHtml(e.content || '');
+    html += '</div>';
+  }
+  html += '</div></div>';
+  box.innerHTML = html;
+}
+
+document.getElementById('si-apply').onclick = async () => {
+  if (!_siData) return;
+  const msg = document.getElementById('si-msg');
+  const chars = await fetch('/api/characters').then(r=>r.json());
+  const worlds = await fetch('/api/worlds').then(r=>r.json());
+  const conflicts = (_siData.characters || []).filter(c => (chars||[]).includes(c.name));
+  const wconf = _siData.world?.name && (worlds||[]).includes(_siData.world.name);
+  if (conflicts.length || wconf) {
+    const parts = [];
+    if (conflicts.length) parts.push('角色：' + conflicts.join('、'));
+    if (wconf) parts.push('世界：' + _siData.world.name);
+    if (!confirm('以下已存在，将覆盖：\n' + parts.join('\n') + '\n\n确定覆盖？')) return;
+  }
+  msg.style.color = 'var(--muted)'; msg.textContent = '导入中……';
+  let ok = 0, fail = 0;
+  for (const c of (_siData.characters || [])) {
+    const res = await fetch('/api/character', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(c)}).then(r=>r.json());
+    res.ok ? ok++ : fail++;
+  }
+  if (_siData.world?.name) {
+    const res = await fetch('/api/world/' + encodeURIComponent(_siData.world.name), {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({entries: _siData.world.entries || []})}).then(r=>r.json());
+    res.ok ? ok++ : (fail++, console.error(res));
+  }
+  msg.style.color = fail ? 'var(--danger)' : 'var(--pos)';
+  msg.textContent = '导入完成：成功 ' + ok + (fail ? '，失败 ' + fail : '');
+  if (!fail) { if (typeof refreshCharList === 'function') refreshCharList(); if (typeof loadWorldNames === 'function') loadWorldNames(); document.getElementById('si-apply').style.display = 'none'; }
+};
+
+document.getElementById('si-copy').onclick = () => {
+  if (!_siData) return;
+  navigator.clipboard.writeText(JSON.stringify(_siData, null, 2));
+  document.getElementById('si-msg').textContent = '已复制 JSON 到剪贴板';
+};
+
 </script>
+
+<!-- 从剧本生成设定（S3 大工程） -->
+<div id="script-import-modal" class="modal hide">
+  <div class="modal-box wide">
+    <h3>从剧本生成设定</h3>
+    <div class="sub">把构思好的剧本粘贴进去，引擎用 LLM 提炼角色卡与世界书。确认后一键写入，无需手动填表；也可复制 JSON 手动微调。</div>
+    <textarea id="si-script" class="field" style="min-height:170px;" placeholder="在此粘贴你的剧本 / 构思，例如：末日来临，退役兵老秦带着养女小满躲进地下车库……"></textarea>
+    <div class="row" style="margin:10px 0;gap:10px;flex-wrap:wrap;">
+      <button id="si-refine" class="btn btn-primary">提炼</button>
+      <button id="si-copy" class="btn btn-sm">复制 JSON</button>
+      <button id="si-apply" class="btn btn-primary" style="display:none;">确认导入</button>
+      <button id="si-close" class="btn btn-sm">关闭</button>
+    </div>
+    <div id="si-msg" class="cfg-msg"></div>
+    <div id="si-preview" class="mgr" style="margin-top:8px;"></div>
+  </div>
+</div>
+
 </body>
 </html>

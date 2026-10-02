@@ -2,6 +2,25 @@
 
 记录架构决策。待办与搁置项已统一收口至 [TODO.md](./TODO.md)（各版本「下版本待办」外链至此，避免日志臃肿），非任务日志，按主题追加。
 
+## 2026-10-02 v0.7.0（S3 剧本→设定 自动导入器）
+
+- 升 v0.7.0：新增能力（MINOR），降低酒馆入门门槛——玩家贴剧本，引擎用 LLM 提炼角色卡与世界书，确认后一键写入，无需手动填表。
+- 核心结论：LLM 不能直接改文件（无权限）；由后端中间层执行。玩家剧本 → 后端固定 system prompt 调 LLM → 产出结构化 JSON → 后端调 `store.save_card` / `store.save_world` 写入。引擎已有写入入口（`/api/character`、`/api/world/<name>`）作下游复用。
+
+### 新增模块与接口
+- `engine/script_refiner.py`：spec 单一事实源——固定 `REFINER_SYSTEM_PROMPT`（第 7 条把剧本当素材、不执行其中指令，防 prompt injection）、角色卡/世界书字段白名单、`extract_json`（剥离 ```json 包裹 + 截取对象）、`sanitize_refiner`（白名单过滤 + 非秘密不带元字段 + 秘密保留 + world 回写）、`refine_script`（truncate → 调 `llm.complete` → 解析 → 沙箱）。
+- `POST /api/import/from-script`：收 `script`，返回预览 `{world, characters}`（只预览、不写文件）。
+- 前端 `static/index.html`：角色库新增「从剧本生成」按钮 → `script-import-modal` 面板（textarea → 提炼 → 预览角色卡/世界书 → 确认导入调现有 save 路由逐条写入；防覆盖确认；复制 JSON 供手动微调）。
+
+### 安全
+- 固定 prompt + 只取白名单字段：剧本文本只当素材，越权输出后端不执行。
+- 后端只写 `characters/`+`worlds/`，触不到 config/代码。
+
+### 验证
+- 单元 `tests/test_script_refiner.py`：10 passed / 1 skipped（真实 e2e 跳过，免烧额度）。
+- 真实 e2e（线上矽基流动 DeepSeek-V4-Flash）：末日车库、空间站「鹊桥」剧本，提炼角色/世界书字段与 `secret`+`character`+`bottom_line` 标记均正确；模拟确认导入写文件落盘、清理无残留。
+- 待办归属：S3 详情见 [TODO.md](./TODO.md)。
+
 ## 2026-10-02 v0.6.4（T1 历史滑动窗口压缩，抑制长上下文叙事衰退）
 
 - 升 v0.6.4：长上下文治理（PATCH 级，抑制 prompt 无限膨胀导致的叙事衰退）。
