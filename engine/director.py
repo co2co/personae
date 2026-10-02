@@ -93,10 +93,50 @@ def _evidence_ok(evidence, reply):
 
 
 # ---- 身体接触词表（尺度判定用，与关系亲密度无关；关系亲密度路径已废弃）----
-BODY_STRONG = ["阴道", "鸡巴", "阴茎", "阳具", "穴", "插入", "进入", "高潮", "抽送",
+# 性行为/性器官明确词：仅用于「事实越线」判定（detect_intimacy）与导演意图信号。
+# 刻意不含「进入」「穴」等极通用词——「进入房间/下水道」是纯动作，「穴」单字中性义
+# （穴位/巢穴/洞穴，虽已剔除常见组合仍有遗漏）会大规模误判越线，进而触发事后余韵
+# 压制（把满机会强制压半步）与虚假亲密旧账。轻写法「进入身体」由 _sexual_entry 单独识别。
+BODY_STRONG = ["阴道", "鸡巴", "阴茎", "阳具", "插入", "高潮", "抽送",
                "射精", "交合", "做爱", "上床", "性器", "肉棒"]
 BODY_MID = ["压在身下", "按在身下", "吻", "脱掉", "脱了", "脱去",
             "抱紧", "骑", "跨坐", "腿间", "抚摸", "舔", "含住", "顶住", "呻吟"]
+
+# ---- 满机会触发源（补充：双向好感 / 暴力强迫胁迫）----
+# ① 双向好感/恋爱：镜头内一对角色为恋人/互有好感 -> 满机会（正向亲密推进的自然结果）
+STRONG_AFFECTION = ["恋人", "相爱", "两情相悦", "互许", "定情", "伴侣", "夫妻",
+                    "圆房", "身心相许", "热恋", "互有好感", "彼此喜欢",
+                    "两心相悦", "相爱多年", "未婚夫妻", "情人"]
+# 单向暧昧/暗恋 -> 半步（升温，不强制满机会，避免两个仅微有好感的人直接跳到性行为）
+SOFT_AFFECTION = ["暗恋", "暧昧", "心动", "倾心", "在意", "眷恋", "恋慕",
+                  "好感", "喜欢", "钟情", "倾慕"]
+# ③ 第三方/对方暴力或强迫胁迫 -> 满机会（陌生男人性侵类场景）
+# 直接点名性暴力的词单独出现即触发；其它暴力/强迫词需伴随性语境词才触发，
+# 避免「强盗用枪威胁交钱」这类非性胁迫误开 NSFW 尺度。
+DIRECT_ASSAULT = ["强暴", "强奸", "性侵", "奸污", "猥亵", "非礼"]
+COERCION_FORCE = ["强迫", "威胁", "强行", "按住", "揪住", "拖进", "拖走", "压在墙上",
+                  "压住", "捆住", "绑住", "刀抵", "刀架", "枪指", "劫持", "被迫",
+                  "勒令", "掐住", "制服", "控制住", "锁住", "堵住嘴", "逼", "施暴"]
+COERCION_SEXUAL = BODY_MID + BODY_STRONG + [
+    "衣服", "脱", "撕", "唇", "腿", "腰", "胸", "私处", "下身", "肌肤",
+    "赤裸", "就范", "身子", "强暴"]
+
+# 导演意图信号：玩家在指令里明确推进到性行为（「进入」+身体/性语境）才给满机会；
+# 纯场景移动（进入房间/下水道/车厢）不含身体语境，不应误判为亲密推进。
+# 注意：本函数只用于 brief 的「导演意图」信号，不用于 detect_intimacy 的「事实越线」
+# 判定——轻写法「进入身体」不算充分越线，不应触发事后余韵压制（见 MEMORY 许可≠事实）。
+def _sexual_entry(text):
+    """指令里玩家明确推进性行为（「进入」+身体/性语境）才算满机会信号。
+
+    纯场景移动（进入房间/下水道）不含身体语境，不算。用于尊重导演意图：
+    玩家写「男人进入了苏曼的身体」应给满机会，写「众人进入了下水道」不应。
+    """
+    t = text or ""
+    if "进入" not in t:
+        return False
+    if "进入她" in t or "进入他" in t:
+        return True
+    return bool(re.search(r"进入[^，。；！？\n]{0,10}(身体|私处|下身|腿间|阴道|穴|里面)", t))
 
 # 同形中性词：含 BODY_STRONG 里的单字「穴」但毫无性含义，末日/野外题材高频出现。
 # 判定前必须先剔除，否则「墓穴 / 洞穴 / 穴位」会被误判为性行为越线，
@@ -160,6 +200,57 @@ def _opp_from_history(history):
     return "无"
 
 
+def _opp_from_affection(snap, scope):
+    """① 双向好感/恋爱关系 -> 满机会（正向亲密推进）；单向暧昧/暗恋 -> 半步（升温）。
+
+    关系亲密度路径此前废弃（好感度系统下线），但 snap["relations"] 仍由 reflect 的 LLM
+    写入自由文本关系描述（如「恋人」「暗恋多年」）。这里补回「关系 -> 机会等级」的读取，
+    让互有好感成为满机会的合法触发源之一。
+
+    作用域：仅当关系两端（源与目标）同处镜头内（scope）或全场（scope=None 且两端都在场）
+    时才对该对生效，避免镜头外的恋人误给全场满机会。relations 键形如「源 → 目标」，
+    两端名与描述值都参与情感词匹配（描述里常写「恋人」「暗恋」）。
+    """
+    rels = snap.get("relations") or {}
+    if not rels:
+        return "无"
+    best = "无"
+    for key, val in rels.items():
+        text = f"{key} {val}"
+        # 解析两端角色名（键形如「源 → 目标」，兼容「->」）
+        norm = key.replace("\u2192", "->")
+        parts = [p.strip() for p in norm.split("->")] if "->" in norm else [key.strip()]
+        a, b = (parts[0], parts[-1]) if len(parts) >= 2 else (parts[0], "")
+        if scope is not None:
+            if not (a in scope and b in scope):
+                continue
+        elif a and b and (a not in snap.get("present", [])
+                          or b not in snap.get("present", [])):
+            continue
+        if any(k in text for k in STRONG_AFFECTION):
+            best = _opp_max(best, "满机会")
+        elif any(k in text for k in SOFT_AFFECTION):
+            best = _opp_max(best, "半步")
+    return best
+
+
+def _opp_from_coercion(directive):
+    """③ 第三方/对方暴力或强迫胁迫 -> 满机会（陌生男人性侵类场景）。
+
+    直接点名性暴力的词（强暴/强奸/性侵/奸污/猥亵/非礼）单独出现即触发；
+    其它暴力/强迫词（按住/揪住/刀抵/威胁/拖进…）需同时出现性语境词
+    （身体/脱衣/腿/胸/衣服…或 BODY_MID/STRONG）才触发，
+    避免「强盗用枪威胁交钱」这类非性胁迫误开 NSFW 尺度。
+    纯场景移动（进入房间/下水道）不含身体语境，本函数不触发。
+    """
+    t = strip_neutral(directive or "")
+    if any(k in t for k in DIRECT_ASSAULT):
+        return "满机会"
+    if any(k in t for k in COERCION_FORCE) and any(k in t for k in COERCION_SEXUAL):
+        return "满机会"
+    return "无"
+
+
 # ---- 镜头跟随（焦点）----
 # 玩家把扰动引向某个在场子集时，叙事镜头应跟随该子集，其余在场角色视为"在别处待命、
 # 不在本回合镜头内"，避免模型死守初始位置、只写留下的戏剧性角色（如怀孕/秘密组）。
@@ -217,7 +308,12 @@ def brief(sid, directive):
     snap["scene"]["round"] += 1
 
     # A5 机会等级 + 节奏状态机
-    # 综合「关系亲密度 / 秘密把柄胁迫 / 近期叙事推进 / 扰动指令」四类信号取最高。
+    # 综合五类信号取最高（满机会 = 本轮剧情被许可写到性行为尺度上限）：
+    #   ① 双向好感/恋爱关系（_opp_from_affection）
+    #   ② 秘密把柄胁迫（_opp_from_secrets，成对作用域）
+    #   ③ 第三方/对方暴力强迫胁迫（_opp_from_coercion，陌生男人性侵类）
+    #   ④ 近期叙事推进的升温连贯（_opp_from_history，上限半步）
+    #   ⑤ 扰动指令（独处脆弱 / 导演明写性）
     # 节奏状态机：上一轮发生性行为 -> 进入"事后"阶段（余韵回合，不推进性行为）。
     present = snap.get("present", [])
     history = memory.load_chat(sid)
@@ -233,9 +329,14 @@ def brief(sid, directive):
             snap["phase_rounds"] = 0
 
     opp = "无"
-    # 把柄成对：作用域取本轮镜头主角（app 已算好并写回 snap["focus"]）
-    opp = _opp_max(opp, _opp_from_secrets(
-        snap, present, (snap.get("focus") or {}).get("subjects")))
+    # 镜头主角（成对信号的作用域）：app 已算好写回 snap["focus"]
+    scope = (snap.get("focus") or {}).get("subjects")
+    # ① 把柄成对胁迫 -> 满机会
+    opp = _opp_max(opp, _opp_from_secrets(snap, present, scope))
+    # ② 双向好感/恋爱 -> 满机会；单向暧昧 -> 半步
+    opp = _opp_max(opp, _opp_from_affection(snap, scope))
+    # ③ 第三方/对方暴力强迫胁迫 -> 满机会（陌生男人性侵类）
+    opp = _opp_max(opp, _opp_from_coercion(text))
     opp = _opp_max(opp, _opp_from_history(history))
     # 扰动指令：独处→半步；独处+软弱且无干扰→满机会
     if any(c in text for c in ALONE):
@@ -245,7 +346,9 @@ def brief(sid, directive):
     # 扰动指令直接描述身体接触/亲密推进 -> 尊重导演意图
     # （先剔除同形中性词：导演写「躲进洞穴」不是亲密推进）
     tn = strip_neutral(text)
-    if any(k in tn for k in BODY_STRONG):
+    # 导演意图信号：玩家直接在指令里推进到性行为（进入+身体/性语境）给满机会，
+    # 纯场景移动（进入房间/下水道）不含身体语境则不给——否则误把普通移动当满机会。
+    if any(k in tn for k in BODY_STRONG) or _sexual_entry(tn):
         opp = _opp_max(opp, "满机会")
     elif any(k in tn for k in BODY_MID):
         opp = _opp_max(opp, "半步")
@@ -265,6 +368,22 @@ def brief(sid, directive):
     }, snap
 
 
+# 拒写/否定语境里的性词不算「事实越线」：模型拒绝描写时若在拒写文本里提到
+# 「插入/性交」等词（如「我不能写强制插入内容」），会被误判为已发生，进而错误
+# 记亲密旧账 + 触发事后余韵压制（把满机会强制压半步）。剔除含元层拒写标记的整句
+# 后再判定；只剔拒写句，不伤世界内叙事（「他没有停下，继续插入她」不含拒写标记，
+# 照常判越线）。这正是对「进入」误判的同源修复：事实判定须排除非叙事语境。
+REFUSAL_MARKERS = ["抱歉", "我不能", "我无法", "我拒绝", "不能写", "不会按", "不按",
+                   "无法按", "避免写", "避免露骨", "改写成", "改写此", "改为双方",
+                   "不描写", "拒绝写", "不能按此", "不愿按", "不按你", "不按这条"]
+
+
+def _mask_refusal(text):
+    """返回剔除「元层拒写句」后的文本，供 detect_intimacy 的事实判定使用。"""
+    parts = re.split(r"[。！？\n；;]", text or "")
+    return "".join(p for p in parts if not any(m in p for m in REFUSAL_MARKERS))
+
+
 def detect_intimacy(text):
     """检测正文中**实际**写出的亲密程度，返回 越线 / 接触 / 无。
 
@@ -272,8 +391,9 @@ def detect_intimacy(text):
     该尺度，写不写由剧情定；本函数返回的是「事实」——本轮到底写到了哪一步。
     凡需要"已经发生了什么"的判断（后果留痕、余韵节奏），一律以此为准，
     不能拿机会等级代替，否则"许可发了但剧情没走到"会被误记为既成事实。
+    事实判定先剔除元层拒写句（_mask_refusal），避免拒写文本里的性词被当既成事实。
     """
-    t = strip_neutral(text)
+    t = strip_neutral(_mask_refusal(text))
     if any(k in t for k in BODY_STRONG):
         return "越线"
     if any(k in t for k in BODY_MID):

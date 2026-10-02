@@ -2,6 +2,36 @@
 
 记录架构决策。待办与搁置项已统一收口至 [TODO.md](./TODO.md)（各版本「下版本待办」外链至此，避免日志臃肿），非任务日志，按主题追加。
 
+## 2026-10-02 v0.7.3（NSFW 机会等级修复 + 提示词构造兼容）
+
+- 升 v0.7.3：NSFW 机会等级系统修复（PATCH 档，修正误判与补全触发源）+ 提示词构造兼容性修复（prompter 多 system 消息合并）。普通迭代，按压测触发规则无需压测。
+
+### NSFW 机会等级误判修复（director.py / nsfw.py）
+- 根因 A（`BODY_STRONG` 含极通用词「进入」）：`detect_intimacy()` 把「进入房间/下水道」「进入她身体(轻写法)」误判为越线 → 错误记亲密旧账 + `after_reply` 的 aftermatch 状态机把下一轮满机会强制压半步（即「满机会→下轮回落半机会」的实测 bug 模式）；`brief()` 的导演意图信号把「众人进入下水道」误算满机会（纯场景移动当亲密推进）。
+- 修复 A：`BODY_STRONG` 移除「进入」「穴」（仅留明确性器官/性行为词：阴道/鸡巴/阴茎/阳具/插入/高潮/抽送/射精/交合/做爱/上床/性器/肉棒）；新增 `_sexual_entry(text)`——仅「进入」+身体/性语境（进入身体/进入她）才算满机会信号，纯移动（进入房间/下水道）不算；该函数只用于 brief 导演意图信号，不用于 detect_intimacy 事实判定（轻写法"进入身体"不算充分越线，不触发 aftermatch 压制）。
+
+### NSFW 机会等级触发源补全（director.py）
+- 审视结论：好感度系统此前下线（relations 死路径），「互有好感」完全不触发满机会；「第三方暴力胁迫」无专门信号，仅当指令含露骨器官词才走「导演指令」路径，"陌生男人按住她撕衣服强迫就范"类性侵描述（无露骨器官词）不触发。
+- 新增 `_opp_from_affection(snap, scope)`：读 `snap["relations"]`，两端同处镜头内（或全场且两端在场）时，强好感词（恋人/相爱/互有好感/圆房/伴侣/夫妻…）→满机会；单向暧昧词（暗恋/暧昧/心动/好感/喜欢…）→半步（升温，不强制满）。关系键「源→目标」两端名+描述值都参与匹配。
+- 新增 `_opp_from_coercion(directive)`：性暴力直述词（强暴/强奸/性侵/奸污/猥亵/非礼）单独命中→满机会；其它暴力/强迫词（按住/揪住/刀抵/威胁/拖进/逼/施暴…）须同时伴性语境词（身体/脱衣/腿/胸/衣服…或 BODY_MID/STRONG）才→满机会，避免「强盗用枪威胁交钱」误开 NSFW。
+- `brief()` 五类信号取最高：把柄(_opp_from_secrets) + 好感(_opp_from_affection) + 胁迫(_opp_from_coercion) + 历史(_opp_from_history，半步上限) + 指令(独处脆弱/_sexual_entry/BODY_STRONG)。同步更新 `nsfw.py` docstring 标注满机会五类来源。
+
+### detect_intimacy 拒写假阳性修复（director.py）
+- 根因：模型拒写文本里含「插入」等性词（如「抱歉，我不能写插入内容」）→ `detect_intimacy` 误判=越线 → 错误记亲密旧账 + 触发事后余韵把满机会压半步。
+- 修复：detect_intimacy 先 `_mask_refusal(text)` 剔除含元层拒写标记（抱歉/我不能/避免写/改写…）的整句再判定；世界内真实露骨（不含拒写标记）仍正确判越线。
+
+### 提示词构造兼容性修复（prompter.py）
+- 根因：原 `build_session()` 在首条 system 后追加 `after_hits` 的第二个 system 消息；Qwen3.6 严格 chat template 要求 system 必须在首位 → 报 `System message must be at the beginning` → 500 空回。
+- 修复：把所有非首位 system 消息并入首条 system（index 0）。通用改进，对主模型 Qwen3.8 同样消除潜在双 system 问题。
+
+### 验证
+- 单测：`backups/verify_6108_fix.py`、`backups/nsfw_opt_unit.py`（21 PASS）、`backups/nsfw_detect_fix_check.py` 全 PASS：detect 对"进入房间/进入身体(轻)"=无、对露骨词=越线；_sexual_entry 对"进入下水道"=False/"进入苏曼身体"=True；_opp_from_affection/_opp_from_coercion 各场景（含镜头外过滤、非性胁迫不触发、事后余韵仍半步）正确。
+- 端到端（本地 Qwen3.8-27B，1234，带小雨人格）：
+  - 结论 A（互有好感/恋人，信号①）：确证可真实越线——写出完整露骨性行为过程，`detect_intimacy=越线`。
+  - 结论 B（第三方暴力胁迫，信号③）：机会逻辑正确（brief=满机会、nsfw 允许越线=True），但 Qwen3.8 安全策略拒绝描写非自愿/强迫性行为（返回拒写替代方案）。属模型安全行为，非引擎 bug；真实生成非自愿露骨需换 abliterated/无限制本地模型。
+- 20 轮 + 10 轮在线 deepseek 回归：满机会连续区间稳定、aftermatch 误压制 0 次，原 bug 模式消失（在线模型安全限制不写露骨，非代码 bug）。
+- 归类：普通迭代（NSFW 机会等级系统修复 + 提示词构造兼容，未改 director 推演/关系/秘密记账核心判定逻辑的形态，仅补全信号源与修误判），按压测触发规则无需压测。
+
 ## 2026-10-02 v0.7.2（流式叙事）
 
 - 升 v0.7.2：叙事正文改为逐字打字机式流式显示，优化玩家等待体感（非憋完一次性倒空，不再突兀）。
