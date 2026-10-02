@@ -27,6 +27,67 @@ def count_tokens(text):
     return max(1, len(text) // 2)
 
 
+# 历史滑动窗口：保留最近 N 轮原始叙事，更早的回合压缩为摘要块。
+# 依据：probe_history_degradation 梯度探测显示，prompt tok（≈字符数/2）在
+# ~5300（R=16 轮，约 10600 字符）起出现叙事衰退，tok<3000（R≤8）为安全区。
+# 取窗口 8 轮使最近原始叙事稳定在安全区，窗口外压缩抑制无限膨胀。
+HISTORY_WINDOW_ROUNDS = 8
+
+
+def _pair_history(history):
+    """把 [user, assistant, ...] 消息流按 role 配对成 (user_content, assistant_content) 轮列表。
+
+    孤立消息（无配对的 user 或 assistant）单独成轮。system 等非标准角色归入 assistant 槽，
+    因引擎 history 仅含 user/assistant（system 由 build_session 另行注入）。
+    """
+    pairs = []
+    buf = None  # 暂存的 user content
+    for m in (history or []):
+        role = m.get("role")
+        c = (m.get("content") or "")
+        if role == "user":
+            if buf is not None:
+                pairs.append((buf, ""))
+            buf = c
+        else:
+            if buf is not None:
+                pairs.append((buf, c))
+                buf = None
+            else:
+                pairs.append(("", c))
+    if buf is not None:
+        pairs.append((buf, ""))
+    return pairs
+
+
+def compress_history(history, window_rounds=HISTORY_WINDOW_ROUNDS):
+    """滑动窗口压缩：保留最近 window_rounds 轮原始叙事，更早回合压成单条摘要块。
+
+    目的：抑制长上下文下 prompt 无限膨胀导致的叙事衰退（探针定位拐点 tok≈5300）。
+    零额外 LLM 调用——older 每轮取「导演指令前 80 字 + 叙事首 90 字」作为剧情骨架。
+    未超窗口时原样返回，等价旧行为。
+    """
+    if not history:
+        return []
+    pairs = _pair_history(history)
+    if len(pairs) <= window_rounds:
+        return list(history)
+    recent = pairs[-window_rounds:]
+    older = pairs[:-window_rounds]
+    lines = ["[历史叙事摘要] 以下为较早回合的压缩记录，仅保留剧情骨架："]
+    for i, (u, a) in enumerate(older):
+        head_u = (u or "").replace("\n", " ")[:80]
+        head_a = (a or "").replace("\n", " ")[:90]
+        lines.append("R%d｜指令: %s｜叙事: %s" % (i + 1, head_u, head_a))
+    out = [{"role": "system", "content": "\n".join(lines)}]
+    for u, a in recent:
+        if u:
+            out.append({"role": "user", "content": u})
+        if a:
+            out.append({"role": "assistant", "content": a})
+    return out
+
+
 def parse_examples(raw):
     """把示例对话文本切成成对的 user / assistant 消息。"""
     pairs = []
@@ -177,7 +238,7 @@ def build_session(cards_present, directive, world_hits, snap,
 
     fixed = "\n\n".join(blocks)
     messages = [{"role": "system", "content": fixed}]
-    for m in (history or []):
+    for m in compress_history(history, HISTORY_WINDOW_ROUNDS):
         messages.append(m)
     if after_hits:
         # after 位置：插在对话历史之后、导演指令之前，作为独立 system 消息
