@@ -534,6 +534,17 @@ def act():
             logger.warn("model", "在场校验：剥离了非在场角色的台词块（已自动清洗）")
         else:
             logger.info("model", "在场校验通过：仅含在场角色台词")
+        # 背景人物活动化自检：无独立角色卡、仅关系事实的角色若被写成对白/独白/主角行动，
+        # 属引擎失责（simon 验收标准）。仅检测不删正文，结果向前端报告。
+        offscreens = director.background_names_from_relations(snap, present)
+        off_viol, off_hits = director.detect_offscreen_activity(full, offscreens)
+        if off_viol:
+            present_violation = True
+            logger.warn("model", "背景人物活动化自检失责：" + "；".join(off_hits[:3])
+                        + ("…" if len(off_hits) > 3 else ""))
+        else:
+            logger.info("model", "背景人物自检通过："
+                        + ("、".join(offscreens) + " 保持背景" if offscreens else "无背景人物"))
         # 注：原始 token 已实时流式回传，此处不再回吐整段以免重复；
         # 校验后的 canonical 文本经末尾 done.reply 回传，前端据此对齐（极少剥离时无缝修正）。
 
@@ -566,6 +577,7 @@ def act():
             "done": True,
             "reply": full,
             "present_violation": present_violation,
+            "offscreen_violation": off_hits,
             "opportunity": brief["opportunity"],
             "nsfw": decision,
             "scene_change": _scene_change_payload(scene_changed, scene_prop, snap)

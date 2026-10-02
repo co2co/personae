@@ -90,3 +90,49 @@ def test_reflect_freezes_offscreen_relation(monkeypatch):
     assert snap["relations"]["周牧野 → 林梦琪"] == "小姨子", snap["relations"]
     # 镜头内角色：关系允许随剧情演化
     assert snap["relations"]["周牧野 → 林梦雅"] == "妻子，关系紧张（镜头内演化）"
+
+
+# ---------------------------------------------------------------------------
+# 4. 背景人物活动化自检（simon 验收：引擎把背景人物写成活动角色即失责）
+# ---------------------------------------------------------------------------
+
+def test_background_names_excludes_present():
+    """relations 里出现但不在在场名单的角色 = 背景人物（如林梦琪）。"""
+    snap = {"present": ["周牧野", "林梦雅"],
+            "relations": {"周牧野 → 林梦琪": "小姨子",
+                          "林梦雅 → 林梦琪": "妹妹",
+                          "周牧野 → 林梦雅": "妻子"}}
+    offs = director.background_names_from_relations(snap, snap["present"])
+    assert offs == ["林梦琪"]
+
+
+def test_offscreen_dialogue_flagged():
+    """背景人物获得独立台词块（对白/独白）-> 失责。"""
+    offs = ["林梦琪"]
+    reply = "周牧野看着窗外。\n林梦琪：其实我早就知道了，姐夫。\n林梦雅叹了口气。"
+    viol, hits = director.detect_offscreen_activity(reply, offs)
+    assert viol is True
+    assert any("林梦琪" in h for h in hits)
+
+
+def test_offscreen_action_subject_flagged():
+    """第三人称里背景人物作主语且有动作 -> 失责（如「林梦琪从门后走出」）。"""
+    offs = ["林梦琪"]
+    reply = "周牧野沉默不语。林梦琪从门后走出，静静望着二人。林梦雅握紧了手。"
+    viol, hits = director.detect_offscreen_activity(reply, offs)
+    assert viol is True
+    assert any(h.startswith("林梦琪") for h in hits)
+
+
+def test_offscreen_mentioned_by_present_ok():
+    """在场角色以谈论方式带过背景人物 -> 不失责（允许的背景提及）。"""
+    offs = ["林梦琪"]
+    reply = "林梦雅低声说：我妹妹梦琪最近总一个人待着，怪让人担心的。周牧野点点头。"
+    viol, hits = director.detect_offscreen_activity(reply, offs)
+    assert viol is False, hits
+
+
+def test_offscreen_no_background_clean():
+    """无背景人物时自检直接通过。"""
+    viol, hits = director.detect_offscreen_activity("周牧野走了出去。", [])
+    assert viol is False and hits == []

@@ -487,6 +487,53 @@ def validate_present(reply, present, known_names, allowed=None):
     return "\n".join(out), violated
 
 
+def background_names_from_relations(snap, present):
+    """从快照关系表中析出「背景人物」：在 relations 键里出现、但不在在场名单 present 的角色。
+
+    这些角色无独立角色卡（store 不收录），仅在他人 relations 字段/世界书里被定位，
+    属于「非在场」背景板。引擎应保证其不被活动化（见 detect_offscreen_activity）。
+    """
+    present_set = set(present or [])
+    rel_names = set()
+    for k in (snap or {}).get("relations", {}):
+        for e in k.split("→"):
+            rel_names.add(e.strip())
+    return sorted(n for n in rel_names if n and n not in present_set)
+
+
+def detect_offscreen_activity(reply, background_names):
+    """自检「背景人物是否被活动化」——simon 验收标准：引擎把背景人物写成活动角色即失责。
+
+    仅检测、不删正文（背景被在场角色提及本身是允许的，误删风险高）。返回 (是否失责, 命中行列表)。
+    命中两类：
+      ① 背景人物获得独立台词块（'背景名：' 起头）——被写了对白/独白；
+      ② 第三人称段落以背景人物为主语并含动作/出场信号（如「林梦琪从门后走出」）——被写成主角行动。
+    """
+    if not reply or not background_names:
+        return False, []
+    names_sorted = sorted(set(background_names), key=len, reverse=True)
+    pat = re.compile(r"^(?:" + "|".join(re.escape(n) for n in names_sorted) + r")\s*[:：]")
+    action_re = re.compile(r"[走跑走进出开看说笑问拿放抱亲吻摸扯拉推挡站坐躺靠冲望回头转转身来到去迎送探伸]")
+    hits = []
+    for ln in reply.split("\n"):
+        s = ln.strip()
+        if not s:
+            continue
+        if pat.match(ln):                      # ① 独立台词块（对白/独白）
+            hits.append(s)
+            continue
+        # ② 第三人称分句：以背景名作主语且含动作/出场信号（兼顡整段混写无换行的情况）
+        for seg in re.split(r"[。！？；\n]", s):
+            seg = seg.strip()
+            if not seg:
+                continue
+            for n in names_sorted:
+                if seg.startswith(n) and len(seg) > len(n) and action_re.search(seg[len(n):]):
+                    hits.append(seg)
+                    break
+    return (len(hits) > 0), hits
+
+
 def seed_relations_from_cards(cards_present):
     """从角色卡自带的 relations 字段确定性地构建初始关系表（"源 → 目标": 描述）。
 
