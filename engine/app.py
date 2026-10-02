@@ -27,6 +27,7 @@ import director
 import scene
 import hooks
 import llm
+import narrative_clean
 import logger
 import memory
 import nsfw
@@ -522,6 +523,10 @@ def act():
         logger.info("model", "模型输出完成，共 " + str(len(full)) + " 字")
         result = hooks.emit("message_received", reply=full, snap=snap)
         full = result["reply"]
+        # 叙事净身：剥离模型倒进正文的元信息（安全前言 / 铁律复述 / 导演推演笔记 /
+        # 后果清单 / 下回合预告），与 prompter 的「输出纪律」双保险。
+        # 必须在 present 校验 / 背景自检 / reflect / 落盘之前，使下游都吃到干净正文。
+        full = narrative_clean.clean_narrative(full)
         # present 名单校验/后处理：剥离非在场角色（含已离场者、环境推手）的台词块；
         # 若本轮有镜头焦点，则按焦点子集裁剪，使镜头真正跟随被引向的角色，其余在场者不展开
         known = store.list_characters()
