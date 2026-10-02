@@ -851,6 +851,7 @@ async function send() {
       if (!line.startsWith('data:')) continue;
       const data = JSON.parse(line.slice(5).trim());
       if (data.error) { statusEl.textContent = '错误：' + data.error; break; }
+      if (data.status) statusEl.textContent = data.status;
       if (data.delta) {
         if (!node) node = bubble('assistant', '');
         acc += data.delta;
@@ -858,6 +859,7 @@ async function send() {
         stageEl.scrollTop = stageEl.scrollHeight;
       }
       if (data.done) {
+        if (data.reply) { if (!node) node = bubble('assistant', ''); node.textContent = data.reply; acc = data.reply; }
         if (data.snapshot) {
           data.snapshot._lastNsfw = data.nsfw;
           renderSnapshot(data.snapshot);

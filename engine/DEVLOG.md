@@ -2,6 +2,15 @@
 
 记录架构决策。待办与搁置项已统一收口至 [TODO.md](./TODO.md)（各版本「下版本待办」外链至此，避免日志臃肿），非任务日志，按主题追加。
 
+## 2026-10-02 v0.7.2（流式叙事）
+
+- 升 v0.7.2：叙事正文改为逐字打字机式流式显示，优化玩家等待体感（非憋完一次性倒空，不再突兀）。
+- 根因：链路本就端到端流式（`llm.stream` 逐块产 token + 前端 `send()` 已逐字渲染），但后端 `app.py` 的 `events()` 生成器把整段收齐、跑完后处理，才 `for ln in full.split("\n"): yield delta` 一次性按行回吐 —— 体感为「等半天突然一大片」。
+- 后端 `events()`：`/api/act` SSE 开头先 `yield {"status":"模型思考中…"}`；流式循环内对每个 chunk 即时 `yield {"delta": chunk}`（真打字机流）；首 token 到 `yield {"status":"生成中…"}`；末 `done.reply` 仍为 `hooks/validate_present` 校验后的 canonical 文本（删除了原憋完回吐逻辑）。
+- 前端 `send()`：新增 `data.status` → 状态栏反馈（思考间隙有提示，不再干等）；`data.done` 时用校验后 `reply` 对齐最终文本（极少剥离时无缝修正）。
+- 验证（免费确定性，mock `llm.stream` 吐 4 块 + Flask test_client 跑真实 `/api/act`）：4 个 delta 事件、全在 done 前、`模型思考中…` 状态到位、joined deltas == done.reply → PASS。
+- 归类：普通迭代（仅改 events 回吐方式与前端 2 行，未动 director 推演/关系/秘密记账核心路径），按压测触发规则无需压测。
+
 ## 2026-10-02 v0.7.1（S3 收口 + 前端修复）
 
 - 升 v0.7.1：收口 v0.7.0 漏提的后端路由，并修复前端两处问题（合并收口，非新能力）。

@@ -499,13 +499,18 @@ def act():
         reply_text = []
         model = llm.setting("model")
         logger.info("model", "远程模型开始生成（" + str(model) + "）…")
+        # 实时流式：首 token 抵达前先发「思考中」状态，避免玩家干等无反馈
+        yield "data: " + json.dumps({"status": "模型思考中…"}, ensure_ascii=False) + "\n\n"
         first = True
         try:
             for chunk in llm.stream(messages, **params):
                 if first:
                     first = False
                     logger.success("model", "首 token 已到达，模型正在输出…")
+                    yield "data: " + json.dumps({"status": "生成中…"}, ensure_ascii=False) + "\n\n"
                 reply_text.append(chunk)
+                # 逐块即时回传，前端逐字追加渲染（打字机效果），不再憋完一次性倒空
+                yield "data: " + json.dumps({"delta": chunk}, ensure_ascii=False) + "\n\n"
         except Exception as exc:
             logger.error("model", "模型流异常：" + repr(exc))
             yield "data: " + json.dumps({"error": str(exc)}, ensure_ascii=False) + "\n\n"
@@ -525,9 +530,8 @@ def act():
             logger.warn("model", "在场校验：剥离了非在场角色的台词块（已自动清洗）")
         else:
             logger.info("model", "在场校验通过：仅含在场角色台词")
-        # 按行流式回传校验后的文本
-        for ln in full.split("\n"):
-            yield "data: " + json.dumps({"delta": ln + "\n"}, ensure_ascii=False) + "\n\n"
+        # 注：原始 token 已实时流式回传，此处不再回吐整段以免重复；
+        # 校验后的 canonical 文本经末尾 done.reply 回传，前端据此对齐（极少剥离时无缝修正）。
 
         memory.append_chat(sid, {"role": "user", "content": "【导演指令】" + directive})
         memory.append_chat(sid, {"role": "assistant", "content": full})
