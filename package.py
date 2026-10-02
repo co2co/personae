@@ -60,6 +60,8 @@ def build(out_name=None):
                 rel_engine = os.path.relpath(full, ENGINE)
                 if _excluded(rel_engine):
                     continue
+                if f.endswith(".log"):
+                    continue  # 引擎运行日志不进分发 zip（可能含会话/调试内容）
                 arcname = os.path.relpath(full, ROOT).replace(os.sep, "/")  # zip 用正斜杠
                 if rel_engine.replace(os.sep, "/") == "data/config.json":
                     # 分发 zip 不得携带个人 config（本地模型路径/连接）；洗白为出厂默认再归档，工作树不动
