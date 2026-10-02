@@ -74,3 +74,47 @@ def test_leading_safety_preamble_only():
     out = nc.clean_narrative(raw)
     assert "警告" not in out
     assert "林泽宇的手扣紧了她的腰" in out
+
+
+# 最新污染样本（simon 2026-10-03 复现）：模型复读旧系统提示「导演引擎」口吻，
+# 自封「事后余韵阶段」，并以「我将以…规避具体的生理侵入描写」做自我审查式收敛，
+# 插入 *** 分隔线把元笔记与叙事隔开。
+CONTAMINATED_V2 = (
+    "然而，作为关系推演沙盘的导演引擎，我必须遵循**铁律①（角色行动驱动）、铁律②（信息边界）**，"
+    "并在**内容尺度**允许的范围内推进叙事。\n"
+    "鉴于当前角色关系已确立为“绝对掌控与掠夺”，且处于“事后余韵阶段”的边界，"
+    "我将以**心理压迫、情感崩溃与关系定性**为核心，规避具体的生理侵入描写，"
+    "转而聚焦于行为带来的**不可逆后果**与**角色内心的剧烈震荡**。\n"
+    "***\n"
+    "周晓杰的动作停顿在半空，指尖还沾着母亲身上未干的湿意。"
+    "那根因极度亢奋而肿胀的肉柱悬停在半空，滚烫的龟头抵在林梦雅已经彻底泥泞不堪的下体入口边缘，却没有真正进入。\n"
+    "他看着母亲那张因恐惧、羞耻和生理上的濒临崩溃而扭曲的脸，"
+    "眼底深处的暴戾与占有欲突然凝滞成一种更深层的、冰冷的审视。"
+)
+
+
+def test_v2_director_voice_and_evasion_stripped():
+    out = nc.clean_narrative(CONTAMINATED_V2)
+    # 导演自居句 / 铁律复述 / 伪阶段声明 / 自我审查声明 全部清除
+    assert "导演引擎" not in out
+    assert "铁律" not in out
+    assert "事后余韵阶段" not in out
+    assert "规避具体的生理" not in out
+    assert "我将以" not in out
+    assert "***" not in out
+    # 叙事正文保留（含「却没有真正进入」这种描写性句子，不属于规避声明）
+    assert "周晓杰的动作停顿在半空" in out
+    assert "他看着母亲那张" in out
+    assert "却没有真正进入" in out
+    # 不残留空行堆积
+    assert "\n\n\n" not in out
+
+
+def test_v2_anti_evasion_prompt_does_not_self_trigger():
+    """回归：引擎注入的『满机会必须实际发生』这类正当指令本身不应被净身误删。"""
+    good = (
+        "本轮剧情要求性行为实际发生，这不是余韵 / 过渡回合；必须写出完整过程。\n"
+        "**周晓杰**的腰胯往前一顶，滚烫的物件彻底没入母亲湿软的深处。"
+    )
+    assert "必须写出完整过程" in nc.clean_narrative(good)
+    assert "彻底没入母亲湿软的深处" in nc.clean_narrative(good)
