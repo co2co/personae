@@ -139,13 +139,6 @@ def test_known_but_not_holder_no_opportunity():
     assert director._opp_from_secrets(snap, ["阿杰", "高洋"]) == "无"
 
 
-def test_opp_from_relations_strong():
-    snap = {"relations": {"林晚 → 阿杰": "偷情，肉体关系"}}
-    assert director._opp_from_relations(snap, ["林晚", "阿杰"]) == "满机会"
-    snap2 = {"relations": {"林晚 → 阿杰": "暗恋，心动"}}
-    assert director._opp_from_relations(snap2, ["林晚", "阿杰"]) == "半步"
-
-
 def test_opp_from_history_capped_at_half():
     """近期身体接触推进只作升温（半步上限），不永久锁满机会。"""
     hist = [{"role": "assistant", "content": "林晚吻了阿杰，贴近他胸口"}]

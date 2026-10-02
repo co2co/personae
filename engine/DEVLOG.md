@@ -2,6 +2,32 @@
 
 记录架构决策、待办与搁置项。非任务日志，按主题追加。
 
+## 2026-10-02 v0.6.2（删 relations 死代码路径 + 修 config/model 损坏 + BODY_MID 注释）
+
+- 升 v0.6.2：清理（PATCH 级，删除恒为「无」的死路径，行为不变）。
+
+### 删除 relations 机会等级死路径
+- 删除 `REL_STRONG` / `REL_MID` 词表、`_REL_TAINT`、`_sanitize_relation()`、`_opp_from_relations()`，
+  及 `compute_opp` 中的调用（director.py:263）与 reflect 写回关系时的 `_sanitize_relation` 包裹
+  （director.py:468，relations 现原样存）。
+- 根因：relations 文本每轮 reflect 写回都过 `_sanitize_relation` 剥离 REL 词，路径恒返回「无」，
+  对机会等级零贡献（满机会唯一真实来源是 secrets）。属自 v0.6.0 起即存在的死代码。
+- 测试：删 `test_opp_from_relations_strong`；全套 **67 passed / 4 deselected**。
+
+### 修本地 config.json model 损坏串
+- `engine/data/config.json` 的 `model` 原为 `D:\u0007i\models\...`（响铃符 `\u0007` = `\a` 被误转义），
+  修正为 `D:\ai\models\Qwen3.8-27B-UD-Q4_K_M.gguf`。**个人配置，不提交、不进 zip。**
+
+### BODY_MID 注释过期修正
+- `after_reply` docstring 旧注释写「含 衣服/腰/贴 等」，与实际词表
+  （吻/脱/压在身下/按在 + 衣服/胸/腰/贴/骑/跨坐 等）不符，已更正并标注「偏宽隐患下版本解决」。
+
+### 下版本待办（simon 已排期，本次未做）
+1. **history 全量注入无窗口/预算/压缩**（prompter.py:180）：长上下文真触顶（100+ 轮）前需治理。
+2. **在场名单 30 轮恒定未拆分**：根因待实证（R16 指令本应拆在场却未拆），下版本研究。
+3. **BODY_MID 词表偏宽隐患**：下版本收紧接触级判定词，降低末日题材中性词误抬半步。
+4. **回复长度后期 -24% 衰减**（v0.6.0 复测发现）：下版本定位衰减来源再解决。
+
 ## 2026-10-02 v0.6.1（known_by/holders 全版拆分 + 死参数清理）
 
 - 升 v0.6.1：语义修正 + 清理（PATCH 级，行为校正）。

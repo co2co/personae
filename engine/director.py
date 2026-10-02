@@ -92,11 +92,7 @@ def _evidence_ok(evidence, reply):
     return e in (reply or "")
 
 
-# ---- A5 机会等级信号词与判定 ----
-REL_STRONG = ["做爱", "上床", "睡过", "上过", "发生过关系", "性关系", "同床", "恋人",
-              "情人", "夫妻", "占有她", "属于我", "属于他", "肉体", "偷情"]
-REL_MID = ["暗恋", "喜欢", "心动", "独占欲", "占有欲", "亲密", "身体接触", "抱过",
-           "吻过", "暧昧", "动情", "想要", "渴望", "贪图", "眷恋", "沉迷"]
+# ---- 身体接触词表（尺度判定用，与关系亲密度无关；关系亲密度路径已废弃）----
 BODY_STRONG = ["阴道", "鸡巴", "阴茎", "阳具", "穴", "插入", "进入", "高潮", "抽送",
                "射精", "交合", "做爱", "上床", "性器", "肉棒"]
 BODY_MID = ["压在身下", "按在身下", "按在", "压在", "吻", "脱掉", "脱了", "脱去",
@@ -126,28 +122,6 @@ def _opp_max(a, b):
     return b if _OPP_ORDER.get(b, 0) > _OPP_ORDER.get(a, 0) else a
 
 
-# 关系文本中的强/中亲密度词：被 reflect 写回的关系若夹带这些动作词（如“偷情了一晚”），
-# 会被 _opp_from_relations 永久误判为满机会/半步，造成机会等级锁死——一旦亲密，永远满机会，
-# 之后任何把焦点移开的扰动指令都会被模型无视。写回时剥离这些词，保留关系定位语义。
-_REL_TAINT = REL_STRONG + REL_MID
-
-
-def _sanitize_relation(text):
-    """reflect 写回关系时，剥离 REL_STRONG/REL_MID 动作词，避免机会等级被叙事污染后锁死。"""
-    t = text or ""
-    for w in _REL_TAINT:
-        t = t.replace(w, "")
-    return t.strip(" 、，。,.;；:：")
-
-
-def _opp_from_relations(snap, present):
-    """关系亲密度信号 -> 机会等级。"""
-    rel_text = " ".join(snap.get("relations", {}).values())
-    if any(k in rel_text for k in REL_STRONG):
-        return "满机会"
-    if any(k in rel_text for k in REL_MID):
-        return "半步"
-    return "无"
 
 
 def _opp_from_secrets(snap, present, scope=None):
@@ -260,7 +234,6 @@ def brief(sid, directive):
             snap["phase_rounds"] = 0
 
     opp = "无"
-    opp = _opp_max(opp, _opp_from_relations(snap, present))
     # 把柄成对：作用域取本轮镜头主角（app 已算好并写回 snap["focus"]）
     opp = _opp_max(opp, _opp_from_secrets(
         snap, present, (snap.get("focus") or {}).get("subjects")))
@@ -313,8 +286,9 @@ def after_reply(sid, reply):
     """生成后：本轮**实际**写出越线级亲密内容时，记一条旧账（后果留痕，不重置）。
 
     只记「越线」不记「接触」：旧账的文案是关系被改写（把柄/伤疤/人情债），对应
-    性行为级后果；BODY_MID 词表偏宽（含 衣服/腰/贴 等），据此记账会凭空堆出大量
-    轻账，后续命中触发词时整批激活、撑爆提示词。
+    性行为级后果；BODY_MID 词表偏宽（含 吻/脱/压在身下/按在 等接触动作词，且覆盖
+    衣服/胸/腰/贴/骑/跨坐 等末日题材高频中性词），据此记账会凭空堆出大量轻账，
+    后续命中触发词时整批激活、撑爆提示词。【偏宽隐患下版本解决】
     许可发了而剧情没走到 -> 不留后果，这正是「许可 ≠ 事实」的落点。
     """
     if detect_intimacy(reply) != "越线":
@@ -464,8 +438,7 @@ def reflect(sid, reply):
     if isinstance(data.get("relations"), dict):
         for k, v in data["relations"].items():
             if v:
-                # 剥离强/中亲密度动作词，防止关系被叙事污染后永久锁死满机会
-                snap["relations"][k] = _sanitize_relation(v)
+                snap["relations"][k] = v
     if isinstance(data.get("actions"), dict):
         snap["actions"] = {k: v for k, v in data["actions"].items() if v}
     if isinstance(data.get("goals"), dict):
