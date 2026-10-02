@@ -554,6 +554,48 @@ def seed_relations_from_cards(cards_present):
     return out
 
 
+# 亲属身份词表：关系定性里出现这些词即代表一种「亲属身份定位」。
+# 引擎强制冻结其身份——作者定义的血缘/姻亲关系（父子、母子等）是固定事实，
+# 模型只能演化情感/状态修饰，不得把「父亲」改写成「姐夫/嫂子」之类导致乱伦逻辑崩塌。
+# 注意：恋人/情人等「关系状态」不在冻结之列（沙盘本就要演好感→恋人），只冻结亲属身份。
+_KINSHIP_TOKENS = [
+    "父亲", "母亲", "儿子", "女儿", "丈夫", "妻子", "哥哥", "弟弟", "姐姐", "妹妹",
+    "叔叔", "舅舅", "姑姑", "阿姨", "侄子", "外甥", "公公", "婆婆", "媳妇", "女婿",
+    "爷爷", "奶奶", "孙子", "孙女", "外公", "外婆", "姐夫", "嫂子", "妹夫", "弟妹",
+    "连襟", "妯娌", "养父", "养母", "继父", "继母", "兄长", "爸爸", "妈妈", "爹爹",
+    "娘亲", "老婆", "老公", "老爸", "老妈",
+    "父", "母", "子", "女", "夫", "妻", "兄", "弟", "姐", "妹",
+    "叔", "舅", "姑", "姨", "侄", "甥", "爷", "奶", "孙", "公", "婆", "婿",
+]
+_KINSHIP_TOKENS.sort(key=len, reverse=True)
+_KINSHIP_RE = re.compile("|".join(re.escape(t) for t in _KINSHIP_TOKENS))
+
+
+def _first_kinship(text):
+    """返回文本里第一个亲属身份词（最长优先），无则 None。"""
+    if not text:
+        return None
+    m = _KINSHIP_RE.search(text)
+    return m.group(0) if m else None
+
+
+def _preserve_kinship(base_val, new_val):
+    """冻结亲属身份：若基线含亲属身份词，模型新值不得改写为另一种亲属身份。
+
+    - 基线无亲属身份词：放行（模型可自由定义非血缘关系，如同事、上下级）。
+    - 基线/新值亲属身份一致：放行（允许情感/状态修饰演化，如「父亲」→「父亲，关系紧张」）。
+    - 新值亲属身份与基线冲突（父子→姐夫）：用基线身份替换新值里的错误身份，
+      保留模型写出的情感/状态修饰，既守住血缘事实又不丢剧情演化。
+    """
+    bk = _first_kinship(base_val)
+    if not bk:
+        return new_val
+    nk = _first_kinship(new_val)
+    if nk and nk != bk:
+        return new_val.replace(nk, bk, 1)
+    return new_val
+
+
 def init_relations(cards_present):
     """构建初始关系网：以角色卡 relations 字段为权威基线，LLM 仅补卡片未覆盖的空缺。
 
@@ -631,6 +673,7 @@ def reflect(sid, reply):
             "}\n"
             "规则：\n"
             "- relations 只写跨回合稳定的关系定性，严禁把本轮动作（如\'靠肩头\'\'护送\'\'命令其回房\'）写进关系描述；关系键保持\"源 → 目标\"格式；只更新确实变化的条目，不要删除未提及的关系。\n"
+            "- 亲属身份是固定事实：父子/母子/夫妻/兄弟姐妹等血缘与姻亲身份由作者设定，只能演化其情感状态（如加「关系紧张」「疏离」），绝对不得改写为另一种亲属身份（例如不得把「父亲」写成「姐夫」、把「母亲」写成「嫂子」）。\n"
             "- actions 覆盖本轮所有在场角色的一句行为摘要，用于展示\'这回合谁做了什么\'；这是回合级信息，可每轮整体覆盖。\n"
             "- secret_exposures 只填本轮叙事里**确实发生**了「某人得知了某秘密」的条目；仅凭角色起了疑心、或只是提到相关物品，都不算。\n"
             "- handle_releases 只填本轮叙事里**确实发生**了「把柄消失或转手」的条目：例如药物/证据/信件被丢弃、被夺走、交给第三方、或当众说开后不再构成胁迫。to 为空字符串表示彻底消失。\n"
@@ -656,7 +699,10 @@ def reflect(sid, reply):
             parts = [e.strip() for e in k.split("→")] if "→" in k else [k.strip()]
             ends = [p for p in parts if p]
             if len(ends) >= 2 and all(e in present_set for e in ends):
-                # 两端都在场（镜头内角色）：允许关系随剧情演化
+                # 两端都在场（镜头内角色）：允许关系随剧情演化；
+                # 但若基线已确定亲属身份（父子/母子等），冻结身份、只允许情感状态修饰演化。
+                if k in base and base.get(k):
+                    v = _preserve_kinship(base[k], v)
                 snap["relations"][k] = v
             else:
                 # 涉及未在场/无卡关联人物（如林梦琪）：冻结为初始关系定位，

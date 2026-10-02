@@ -136,3 +136,30 @@ def test_offscreen_no_background_clean():
     """无背景人物时自检直接通过。"""
     viol, hits = director.detect_offscreen_activity("周牧野走了出去。", [])
     assert viol is False and hits == []
+
+
+def test_preserve_kinship_blocks_identity_flip():
+    """亲属身份冻结：父亲被模型改写成姐夫时，应回退为父亲、保留情感修饰。"""
+    corrected = director._preserve_kinship("父亲", "姐夫，挑衅者/主动方")
+    assert corrected.startswith("父亲"), corrected
+    assert "挑衅者" in corrected, corrected
+
+
+def test_preserve_kinship_allows_emotional_evolution():
+    """亲属身份一致时，允许情感/状态修饰演化（父亲 -> 父亲，关系紧张）。"""
+    corrected = director._preserve_kinship("父亲，关系紧张", "父亲，关系彻底破裂")
+    assert corrected == "父亲，关系彻底破裂", corrected
+
+
+def test_preserve_kinship_no_baseline_free():
+    """基线无亲属身份词时（如同事），模型可自由定义关系身份。"""
+    corrected = director._preserve_kinship("同事", "恋人，暗通款曲")
+    assert corrected == "恋人，暗通款曲", corrected
+
+
+def test_preserve_kinship_mother_sister_in_law_blocked():
+    """母亲被改写成嫂子时，应回退为母亲。"""
+    corrected = director._preserve_kinship("母亲", "嫂子，复杂情感萌芽")
+    assert corrected.startswith("母亲"), corrected
+    assert "复杂情感" in corrected, corrected
+
