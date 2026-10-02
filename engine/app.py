@@ -443,7 +443,6 @@ def act():
             cards_present, directive, before_hits, snap,
             decision["prompt"], brief["opportunity"], history=history,
             after_hits=after_hits,
-            reserve=int(body.get("max_tokens", llm.setting("max_tokens"))) + 200,
             focus=focus,
         )
         messages = hooks.emit("prompt_ready", messages=messages, snap=snap)["messages"]

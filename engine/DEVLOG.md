@@ -2,6 +2,29 @@
 
 记录架构决策、待办与搁置项。非任务日志，按主题追加。
 
+## 2026-10-02 v0.6.1（known_by/holders 全版拆分 + 死参数清理）
+
+- 升 v0.6.1：语义修正 + 清理（PATCH 级，行为校正）。
+
+### 全版拆分：known_by（知情）与 holders（握把柄者）分离
+
+原 `_opp_from_secrets` 与 `_release_handle` 把 `known_by` 同时当「知情者」与「把柄持有者」，
+信息不可逆与把柄可失去两种语义被混在一个字段里（简版）。改为全版：
+
+- 每个 secret 新增 `holders` 字段；曝光（`_record_exposure`）同时写入 `known_by` 与 `holders`。
+- 把柄消除（`_release_handle`）**仅操作 `holders`**：移除 from、加入 to（to 空=彻底失去）；`known_by` 不变（知道了就无法不知道）。
+- `_secret_state` 改为基于 `holders` 重算——`holders` 清空即回落「潜伏」，状态回落路径仍成立。
+- `_opp_from_secrets`、reflect 纪官提示（"握有把柄者"）、prompter 角色提示（"你握有 X 的把柄"）全部改读 `holders`；旧快照缺 `holders` 时回退 `known_by`，兼容无迁移成本。
+- 收益：能正确表达「知道却无把柄」（如秘密公开但无人可胁迫）不再顶格满机会。零额外 LLM 调用、零新增 schema 字段、存储与计算复杂度不变——无性能下降。
+
+### 清理：prompter.build_session 死参数
+
+- 移除签名 `budget=4096, reserve=900`（函数体内从未使用）；同步移除 `app.py` 的 `reserve=` 传参。
+
+### 验证
+
+- `tests/test_director.py` 改写 release 测试（断言 known_by 保留、holders 驱动 state），新增 `test_record_exposure_adds_holder` / `test_known_but_not_holder_no_opportunity`；全套 **68 passed / 4 deselected**（tests/venv, pytest 9.1.1）。
+
 ## 2026-10-02 v0.6.0（秘密机制改为记录员模式 + 把柄成对化 + 把柄消除）
 
 - 升 v0.6.0：新增能力（MINOR）。新增把柄消除机制 `handle_releases`，并变更秘密判定范式。

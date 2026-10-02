@@ -103,19 +103,40 @@ def test_opp_from_secrets_is_pair_scoped():
 
 
 def test_release_handle_drops_and_transfers():
-    """把柄消除：移除持有者 / 转交第三方；无人知情时状态回落潜伏。"""
-    s = {"owner": "高洋", "state": "暴露", "known_by": ["阿杰", "林晚"]}
+    """全版把柄消除：仅改 holders、known_by 不变；holders 清空时状态回落潜伏。"""
+    s = {"owner": "高洋", "state": "暴露",
+         "known_by": ["阿杰", "林晚"], "holders": ["阿杰", "林晚"]}
     # 转交第三方：阿杰失去、老周接手
     assert director._release_handle(s, "阿杰", "老周", 7) is True
-    assert "阿杰" not in s["known_by"] and "老周" in s["known_by"]
-    assert s["state"] == "暴露"
-    # 彻底失效：林晚也失去 -> 无人知情 -> 回落潜伏
+    assert "阿杰" not in s["holders"] and "老周" in s["holders"]
+    # 知情不可逆：known_by 仍含阿杰、林晚
+    assert s["known_by"] == ["阿杰", "林晚"]
+    assert s["state"] == "暴露"          # 林晚仍在 holders
+    # 彻底失效：林晚也失去 -> 仅老周在 holders
     assert director._release_handle(s, "林晚", "", 8) is True
+    assert s["holders"] == ["老周"]
+    assert s["state"] == "暴露"
+    # 老周失去 -> holders 空 -> 回落潜伏
     assert director._release_handle(s, "老周", "", 8) is True
-    assert s["known_by"] == []
+    assert s["holders"] == []
     assert s["state"] == "潜伏"
     # 不持有该把柄的人 -> 无变更
     assert director._release_handle(s, "苏曼", "", 9) is False
+
+
+def test_record_exposure_adds_holder():
+    """全版：曝光同时写入 known_by 与 holders；state 基于 holders。"""
+    s = {"owner": "高洋", "known_by": []}
+    director._record_exposure(s, "阿杰", "叙事揭露", 3)
+    assert "阿杰" in s["known_by"] and "阿杰" in s["holders"]
+    assert s["state"] == "暴露"
+
+
+def test_known_but_not_holder_no_opportunity():
+    """全版区分：known_by 有人但 holders 为空（知道却无把柄）-> 不顶格。"""
+    s = {"owner": "高洋", "state": "潜伏", "known_by": ["阿杰"], "holders": []}
+    snap = {"secrets": [s]}
+    assert director._opp_from_secrets(snap, ["阿杰", "高洋"]) == "无"
 
 
 def test_opp_from_relations_strong():

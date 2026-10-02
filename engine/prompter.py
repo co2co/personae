@@ -52,8 +52,7 @@ def parse_examples(raw):
 
 
 def build_session(cards_present, directive, world_hits, snap,
-                  nsfw_prompt, opp_level, history=None, after_hits=None, budget=4096, reserve=900,
-                  focus=None):
+                  nsfw_prompt, opp_level, history=None, after_hits=None, focus=None):
     """多角色沙盘模式（环境推手作为外部导演，不登场）：返回 messages 列表。
 
     cards_present: {名字: 角色卡}（全部为 NPC，环境推手不在其中）
@@ -70,16 +69,18 @@ def build_session(cards_present, directive, world_hits, snap,
     for name, card in cards_present.items():
         goal = snap["goals"].get(name, "")
         hint = ""
-        for s in snap["secrets"]:
-            owner = s["owner"]
-            knowers = [k for k in s.get("known_by", []) if k != ENV_PUSHER and k != owner]
-            if not knowers:
-                continue
-            names = "、".join(knowers)
-            if name == owner:
-                hint += "\n  （你的秘密「" + s["content"][:60] + "」已被 " + names + " 知晓，须应对其反应）"
-            elif name in knowers:
-                hint += "\n  （你已知 " + owner + " 的秘密：" + s["content"][:80] + "，可据此行动）"
+    for s in snap["secrets"]:
+        owner = s["owner"]
+        knowers = [k for k in s.get("known_by", []) if k != ENV_PUSHER and k != owner]
+        holders = [k for k in (s.get("holders") or s.get("known_by", []))
+                   if k != ENV_PUSHER and k != owner]
+        if not knowers:
+            continue
+        names = "、".join(knowers)
+        if name == owner:
+            hint += "\n  （你的秘密「" + s["content"][:60] + "」已被 " + names + " 知晓，须应对其反应）"
+        elif name in holders:
+            hint += "\n  （你握有 " + owner + " 的把柄：" + s["content"][:80] + "，可据此行动）"
         # 人设块：描述 + 性格 + 核心渴望（驱动力）+ 核心恐惧（底线），分层明确
         block = "【" + name + "】\n" + card.get("description", "")
         if card.get("personality"):

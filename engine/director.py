@@ -33,35 +33,45 @@ OPP_NOTE = {
 _FULL = "全曝光"
 
 
-def _secret_state(known_by):
-    """in-world 暴露状态：只要有在场角色知情即为「暴露」；仅环境推手/无人知情则「潜伏」。"""
-    return "暴露" if any(k != ENV_PUSHER for k in known_by) else "潜伏"
+def _secret_state(leverage):
+    """in-world 暴露状态：只要有人握有该秘密作为把柄（leverage 非空）即为「暴露」；
+    仅环境推手/无人握把柄则「潜伏」。leverage 传 holders（握把柄者），
+    与 known_by（知情者）分离——信息不可逆，但把柄可失去。"""
+    return "暴露" if any(k != ENV_PUSHER for k in leverage) else "潜伏"
 
 
 def _record_exposure(s, by, via, round_no):
-    """记录一次秘密曝光：写入知情者集合与曝光路径日志，并重算暴露状态。"""
+    """记录一次秘密曝光：写入知情者集合与把柄持有集合，并重算暴露状态。
+
+    全版语义：曝光 = 某人得知秘密 = 同时成为知情者(known_by)与把柄持有者(holders)。
+    known_by 不可逆（知道了就无法不知道），holders 可因把柄消除而移除。
+    """
+    s.setdefault("holders", list(s.get("known_by", [])))
     if by not in s["known_by"]:
         s["known_by"].append(by)
+    if by not in s["holders"]:
+        s["holders"].append(by)
     s.setdefault("exposures", []).append({"by": by, "via": via, "round": round_no})
-    s["state"] = _secret_state(s["known_by"])
+    s["state"] = _secret_state(s["holders"])
 
 
 def _release_handle(s, frm, to, round_no):
-    """把柄失效/转手：从 known_by 移除 from、加入 to，并重算暴露状态。
+    """把柄失效/转手（全版）：仅操作 holders（握把柄者），known_by（知情者）不变。
 
     to 为空表示彻底失去（药物被丢弃、证据被销毁、当众说开后不再构成胁迫）。
-    无人知情时 _secret_state 自动回落「潜伏」——这是此前缺失的**秘密状态回落路径**，
-    也是「机会等级永久锁死」三因素中的第一项。
+    holders 清空时 _secret_state 自动回落「潜伏」——这是「机会等级永久锁死」三因素中
+    「秘密暴露后无回落路径」这一项的修复。known_by 不移除（信息不可逆）。
     返回 True 表示确有变更。
     """
-    kb = s.get("known_by", [])
-    if frm not in kb:
+    s.setdefault("holders", list(s.get("known_by", [])))
+    hb = s["holders"]
+    if frm not in hb:
         return False
-    kb = [k for k in kb if k != frm]
-    if to and to != s.get("owner") and to not in kb:
-        kb.append(to)
-    s["known_by"] = kb
-    s["state"] = _secret_state(kb)
+    hb = [k for k in hb if k != frm]
+    if to and to != s.get("owner") and to not in hb:
+        hb.append(to)
+    s["holders"] = hb
+    s["state"] = _secret_state(hb)
     s.setdefault("releases", []).append(
         {"from": frm, "to": to or None, "via": "把柄失效/转手", "round": round_no})
     return True
@@ -152,7 +162,7 @@ def _opp_from_secrets(snap, present, scope=None):
         if s.get("state") == "潜伏":
             continue
         owner = s.get("owner")
-        holders = [k for k in s.get("known_by", [])
+        holders = [k for k in (s.get("holders") or s.get("known_by", []))
                    if k != ENV_PUSHER and k != owner and k in present]
         if not holders:
             continue
@@ -412,7 +422,7 @@ def reflect(sid, reply):
     # 秘密全景（含已被谁知情）：把柄可失去/转手，纪官必须知道当前持有情况
     sec_lines = []
     for s in snap.get("secrets", []):
-        kb = [k for k in s.get("known_by", []) if k != ENV_PUSHER]
+        kb = [k for k in (s.get("holders") or s.get("known_by", [])) if k != ENV_PUSHER]
         sec_lines.append(f"{s.get('owner')}（{s.get('state')}｜握有把柄者："
                          f"{'、'.join(kb) if kb else '无'}）")
     secret_text = "\n".join(sec_lines) or "（无秘密）"
@@ -473,12 +483,13 @@ def reflect(sid, reply):
         if not _evidence_ok(exp.get("evidence"), reply):
             continue
         for s in snap.get("secrets", []):
-            if s.get("owner") == owner and by not in s.get("known_by", []):
+            holders = s.setdefault("holders", list(s.get("known_by", [])))
+            if s.get("owner") == owner and by not in holders:
                 _record_exposure(s, by, "叙事揭露", snap["scene"]["round"])
                 break
 
-    # 把柄消除：同样按举证归档。known_by 移除 from、加入 to，
-    # _secret_state 会自动让无人知情者回落「潜伏」（此前缺失的状态回落路径）。
+    # 把柄消除：同样按举证归档。仅操作 holders（握把柄者），known_by 保持不变；
+    # holders 清空时 _secret_state 自动回落「潜伏」（状态回落路径）。
     for rel in (data.get("handle_releases") or []):
         owner = rel.get("owner")
         frm = rel.get("from")
