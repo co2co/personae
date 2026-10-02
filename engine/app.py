@@ -155,6 +155,16 @@ def save_character():
     name = (body.get("name") or "").strip()
     if not name:
         return jsonify({"error": "name 不能为空"}), 400
+    # 世界归属强制校验：角色必须归属于系统已存在的世界书。
+    # 前端已用下拉限制只能选已存在的世界，此处为服务端兜底，
+    # 杜绝错写 / 漏写 world（如误写 home）导致开局加载错世界、关系/设定错位的隐患。
+    world = (body.get("world") or "").strip()
+    valid_worlds = store.list_worlds()
+    if world not in valid_worlds:
+        return jsonify({
+            "error": f"world 必须指向已存在的世界书之一，当前传入 {world!r}；"
+                     f"可用世界：{valid_worlds}"
+        }), 400
     try:
         store.save_card(name, body)
     except Exception as exc:

@@ -520,28 +520,31 @@
         <input id="char-import" type="file" accept=".json,application/json" style="display:none">
         <div class="mgr-list" id="char-list"></div>
       </div>
-      <div class="mgr-form">
-        <div class="sub" style="margin-bottom:10px;">带 <span class="req">*</span> 为必填人设，不填推演引擎无法完整发挥；其余为可选，留空由系统自动生成。</div>
-        <label>角色名 <span class="req">*</span></label>
-        <input id="c-name" class="field">
-        <label>description（身份 / 外貌 / 处境） <span class="req">*</span></label>
-        <textarea id="c-desc" class="field"></textarea>
-        <label>core_desire（核心渴望，推演驱动力） <span class="req">*</span></label>
-        <textarea id="c-desire" class="field"></textarea>
-        <label>core_fear（核心恐惧，越线底线） <span class="req">*</span></label>
-        <textarea id="c-fear" class="field"></textarea>
+        <div class="mgr-form">
+          <div class="sub" style="margin-bottom:10px;">带 <span class="req">*</span> 为必填项，不填推演引擎无法完整发挥；其余为可选，留空由系统自动生成。</div>
 
-        <details class="opt-group">
-          <summary>更多字段（可选；留空由系统自动生成）</summary>
-          <label>world（所属世界，默认 home；决定开局加载哪份世界书）</label>
-          <input id="c-world" class="field" placeholder="home">
-          <label>personality（其余性格，可选；注入角色人设块）</label>
-          <textarea id="c-pers" class="field"></textarea>
-          <label>short_goal（短期目标：开局意图种子，进入推演后由系统自动演化）</label>
-          <textarea id="c-goal" class="field"></textarea>
-          <label>relations（初始关系 JSON 种子，如 {"林泽宇":"表甥"}；留空系统自动生成）</label>
-          <textarea id="c-rel" class="field"></textarea>
-        </details>
+          <label>所属世界 <span class="req">*</span></label>
+          <select id="c-world" class="field"></select>
+          <div class="sub" style="margin:-4px 0 10px;">角色只能归属于系统已存在的世界书；下拉选择、不可手填，避免错写 world 导致开局加载错世界（如误写 home）。</div>
+
+          <label>角色名 <span class="req">*</span></label>
+          <input id="c-name" class="field">
+          <label>description（身份 / 外貌 / 处境） <span class="req">*</span></label>
+          <textarea id="c-desc" class="field"></textarea>
+          <label>core_desire（核心渴望，推演驱动力） <span class="req">*</span></label>
+          <textarea id="c-desire" class="field"></textarea>
+          <label>core_fear（核心恐惧，越线底线） <span class="req">*</span></label>
+          <textarea id="c-fear" class="field"></textarea>
+
+          <details class="opt-group">
+            <summary>更多字段（可选；留空由系统自动生成）</summary>
+            <label>personality（其余性格，可选；注入角色人设块）</label>
+            <textarea id="c-pers" class="field"></textarea>
+            <label>short_goal（短期目标：开局意图种子，进入推演后由系统自动演化）</label>
+            <textarea id="c-goal" class="field"></textarea>
+            <label>relations（初始关系 JSON 种子，如 {"林泽宇":"表甥"}；留空系统自动生成）</label>
+            <textarea id="c-rel" class="field"></textarea>
+          </details>
 
         <div class="modal-foot">
           <button id="char-delete" class="btn">删除</button>
@@ -1095,16 +1098,36 @@ document.getElementById('open-chars').onclick = () => { charMsg.textContent=''; 
 document.getElementById('open-worlds').onclick = () => { worldMsg.textContent=''; loadWorldNames(); worldModal.classList.remove('hide'); };
 
 function refreshCharList() {
+  loadWorldOptions();
   fetch('/api/characters').then(r=>r.json()).then(list=>{
     const box = document.getElementById('char-list');
     box.innerHTML = (list||[]).map(n=>`<div class="mgr-item" data-n="${n}">${n}</div>`).join('');
     box.querySelectorAll('.mgr-item').forEach(el=>el.onclick=()=>loadChar(el.dataset.n));
   });
 }
+async function loadWorldOptions() {
+  const sel = document.getElementById('c-world');
+  let list = [];
+  try { list = await fetch('/api/worlds').then(r=>r.json()); } catch(e){ list = []; }
+  if (list && list.length) {
+    sel.disabled = false;
+    sel.innerHTML = '<option value="">— 请选择所属世界 —</option>'
+      + list.map(n=>`<option value="${escAttr(n)}">${escHtml(n)}</option>`).join('');
+  } else {
+    sel.disabled = true;
+    sel.innerHTML = '<option value="" selected>（无可用世界，请先在世界书面板创建）</option>';
+  }
+}
 function fillChar(c, name) {
   document.querySelectorAll('#char-list .mgr-item').forEach(el=>el.classList.toggle('active', !!name && el.dataset.n===name));
   document.getElementById('c-name').value = c.name||name||'';
-  document.getElementById('c-world').value = c.world||'home';
+  const sel = document.getElementById('c-world');
+  const w = c.world || '';
+  // 卡中现有世界若已不在世界列表（被删），仍作为可选项展示，便于重选/知晓
+  if (w && !Array.from(sel.options).some(o=>o.value===w) && !sel.disabled) {
+    sel.insertAdjacentHTML('beforeend', `<option value="${escAttr(w)}">${escHtml(w)}（卡中现有）</option>`);
+  }
+  sel.value = w;
   document.getElementById('c-desc').value = c.description||'';
   document.getElementById('c-pers').value = c.personality||'';
   document.getElementById('c-desire').value = c.core_desire||'';
@@ -1121,9 +1144,9 @@ async function loadChar(name) {
 document.getElementById('char-new').onclick = () => {
   _charOrig = {};
   document.querySelectorAll('#char-list .mgr-item').forEach(el=>el.classList.remove('active'));
-  ['c-name','c-world','c-desc','c-pers','c-desire','c-fear','c-goal','c-rel']
+  ['c-name','c-desc','c-pers','c-desire','c-fear','c-goal','c-rel']
     .forEach(id=>document.getElementById(id).value='');
-  document.getElementById('c-world').value='home';
+  document.getElementById('c-world').selectedIndex = 0;  // 回到占位项，强制选择所属世界
   charMsg.style.color='var(--muted)'; charMsg.textContent='新建模式：填好角色名后保存即创建。';
 };
 document.getElementById('char-import-btn').onclick = () => document.getElementById('char-import').click();
@@ -1146,6 +1169,11 @@ document.getElementById('char-import').onchange = (e) => {
 document.getElementById('char-save').onclick = async () => {
   const name = document.getElementById('c-name').value.trim();
   if (!name) { charMsg.style.color='var(--danger)'; charMsg.textContent='角色名不能为空'; return; }
+  // 所属世界必填校验：角色必须归属于某个已存在的世界书（下拉选择，不可手填）
+  const world = document.getElementById('c-world').value;
+  if (!world) {
+    charMsg.style.color='var(--danger)'; charMsg.textContent='请先选择「所属世界」：角色必须归属于某个世界书'; return;
+  }
   // 必填人设校验：不填无法完整发挥推演引擎
   const required = [['c-desc','description（身份/外貌/处境）'],['c-desire','核心渴望'],['c-fear','核心恐惧']];
   for (const [id, label] of required) {
@@ -1157,7 +1185,7 @@ document.getElementById('char-save').onclick = async () => {
   try { rel = JSON.parse(document.getElementById('c-rel').value || '{}'); }
   catch(e) { charMsg.style.color='var(--danger)'; charMsg.textContent='relations 不是合法 JSON'; return; }
   const payload = {
-    name, world: document.getElementById('c-world').value.trim()||'home',
+    name, world,
     description: document.getElementById('c-desc').value,
     personality: document.getElementById('c-pers').value,
     core_desire: document.getElementById('c-desire').value,
@@ -1806,13 +1834,16 @@ document.getElementById('si-apply').onclick = async () => {
   }
   msg.style.color = 'var(--muted)'; msg.textContent = '导入中……';
   let ok = 0, fail = 0;
+  // 先确保世界书存在：角色卡 world 必须指向已存在的世界，后端会校验（见 /api/character）
+  const wname = _siData.world?.name || (worlds && worlds[0]) || '';
+  if (wname) {
+    const res = await fetch('/api/world/' + encodeURIComponent(wname), {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({entries: _siData.world.entries || []})}).then(r=>r.json());
+    res.ok ? ok++ : (fail++, console.error(res));
+  }
   for (const c of (_siData.characters || [])) {
+    if (!c.world) c.world = wname;   // 兜底：保证每个角色都归属于某个世界，避免 world 校验失败
     const res = await fetch('/api/character', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(c)}).then(r=>r.json());
     res.ok ? ok++ : fail++;
-  }
-  if (_siData.world?.name) {
-    const res = await fetch('/api/world/' + encodeURIComponent(_siData.world.name), {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({entries: _siData.world.entries || []})}).then(r=>r.json());
-    res.ok ? ok++ : (fail++, console.error(res));
   }
   msg.style.color = fail ? 'var(--danger)' : 'var(--pos)';
   msg.textContent = '导入完成：成功 ' + ok + (fail ? '，失败 ' + fail : '');
