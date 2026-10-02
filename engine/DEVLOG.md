@@ -24,6 +24,15 @@
 ### 验证
 
 - `tests/test_director.py` 改写 release 测试（断言 known_by 保留、holders 驱动 state），新增 `test_record_exposure_adds_holder` / `test_known_but_not_holder_no_opportunity`；全套 **68 passed / 4 deselected**（tests/venv, pytest 9.1.1）。
+- 引擎重启加载 v0.6.1，10 轮压测复核对照 v0.6.0 基线（sid=a01f1f5e）：满机会 3/10（最长锁定 5→4 轮↓）、秘密翻转 1（老周 暴露→潜伏 回落，holders 驱动 state 机制证实）、误归档 0（present违例 0 / 结局候选 0）；10/10 成功、0 异常、0 空回复、0 违例。无回归。
+
+### 收口
+
+- 提交 `8869005`（6 文件，+95/-40，个人 `engine/data/config.json` 不提交）；tag `v0.6.1`。
+- 产物 `my-st-v0.6.1.zip`（23 条目 126.3 KB），删除旧 `my-st-v0.6.0.zip`。
+- 三条打包红线校验全过：`package.py` 排除项校验通过（无 venv/缓存/会话状态/`tests` 泄漏）；
+  `data/characters`、`data/worlds`、`player-cast` 不含；`config.json` 洗白为出厂默认
+  （base_url/api_key/model 空、providers=[]、nsfw_enabled=False、adult_confirmed=False）。
 
 ## 2026-10-02 v0.6.0（秘密机制改为记录员模式 + 把柄成对化 + 把柄消除）
 
