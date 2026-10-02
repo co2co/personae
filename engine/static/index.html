@@ -94,6 +94,7 @@
   .rail-left{ width:320px; flex:0 0 320px; border-right:1px solid var(--line); transition:width .18s ease, flex-basis .18s ease; }
   .rail-right{ width:380px; flex:0 0 380px; border-left:1px solid var(--line); position:relative; transition:width .18s ease, flex-basis .18s ease; }
   .rail-right.collapsed{ width:0; flex-basis:0; border-left:none; }
+  .rail-left.collapsed{ width:0; flex-basis:0; border-right:none; }
   .rail-head{ display:flex; align-items:center; justify-content:space-between; gap:8px;
     padding:11px 14px; border-bottom:1px solid var(--line); background:var(--surface-2); flex-shrink:0; }
   .rail-title{ font-weight:650; font-size:14px; letter-spacing:.02em; }
@@ -401,6 +402,7 @@
   <nav id="topnav" class="topnav">
     <button id="open-chars" class="btn btn-sm">角色库</button>
     <button id="open-worlds" class="btn btn-sm">世界书</button>
+    <button id="open-script-import" class="btn btn-sm">从剧本生成</button>
     <button id="open-left" class="btn btn-sm">世界状态</button>
     <button id="open-sessions" class="btn btn-sm">会话</button>
     <button id="open-system" class="btn btn-sm">系统设置</button>
@@ -516,7 +518,6 @@
         <button id="char-new" class="btn btn-sm">+ 新建角色</button>
         <button id="char-import-btn" class="btn btn-sm">导入 JSON</button>
         <input id="char-import" type="file" accept=".json,application/json" style="display:none">
-        <button id="open-script-import" class="btn btn-sm">从剧本生成</button>
         <div class="mgr-list" id="char-list"></div>
       </div>
       <div class="mgr-form">
@@ -711,6 +712,22 @@
 
 <!-- 日志窗口已并入 #right-rail（可收起，见 JS openLog/closeLog） -->
 
+<!-- 从剧本生成设定（S3 大工程） -->
+<div id="script-import-modal" class="modal hide">
+  <div class="modal-box wide">
+    <h3>从剧本生成设定</h3>
+    <div class="sub">把构思好的剧本粘贴进去，引擎用 LLM 提炼角色卡与世界书。确认后一键写入，无需手动填表；也可复制 JSON 手动微调。</div>
+    <textarea id="si-script" class="field" style="min-height:170px;" placeholder="在此粘贴你的剧本 / 构思，例如：末日来临，退役兵老秦带着养女小满躲进地下车库……"></textarea>
+    <div class="row" style="margin:10px 0;gap:10px;flex-wrap:wrap;">
+      <button id="si-refine" class="btn btn-primary">提炼</button>
+      <button id="si-copy" class="btn btn-sm">复制 JSON</button>
+      <button id="si-apply" class="btn btn-primary" style="display:none;">确认导入</button>
+      <button id="si-close" class="btn btn-sm">关闭</button>
+    </div>
+    <div id="si-msg" class="cfg-msg"></div>
+    <div id="si-preview" class="mgr" style="margin-top:8px;"></div>
+  </div>
+</div>
 <script>
 const log = document.getElementById('log');
 const input = document.getElementById('input');
@@ -1682,22 +1699,24 @@ document.getElementById('end-delete').onclick = async () => {
 loadCharacters();
 refreshState();
 
-// 左栏各子面板可独立收起/展开（长内容默认收起，决定权交给用户）；窄屏下左栏为抽屉，由顶栏「世界状态」按钮唤出
+// 左栏各子面板可独立收起/展开（长内容默认收起，决定权交给用户）
 document.querySelectorAll('#left-rail .panel').forEach(p => {
   p.querySelector('.panel-head').addEventListener('click', () => p.classList.toggle('collapsed'));
 });
 document.querySelectorAll('#left-rail .panel[data-collapse]').forEach(p => p.classList.add('collapsed'));
+// 顶栏「世界状态」按钮：展开/收起整条左栏（与右栏运行时日志机制对齐，任意屏宽生效）；窄屏下同步抽屉 open 态
 const openLeftBtn = document.getElementById('open-left');
 if (openLeftBtn) openLeftBtn.onclick = () => {
-  const open = leftRail.classList.toggle('open');
+  const collapsed = leftRail.classList.toggle('collapsed');
+  if (collapsed) leftRail.classList.remove('open'); else leftRail.classList.add('open');
   const s = document.getElementById('scrim');
-  if (open){ if (s) s.classList.remove('hide'); }
+  if (!collapsed){ if (s) s.classList.remove('hide'); }
   else if (rightRail.classList.contains('collapsed') && s) s.classList.add('hide');
 };
-// 遮罩点击：关闭所有抽屉与菜单
+// 遮罩点击：关闭所有抽屉与菜单（左栏收起保持 collapsed/open 反相关不变式）
 const scrimEl = document.getElementById('scrim');
 if (scrimEl) scrimEl.addEventListener('click', () => {
-  leftRail.classList.remove('open');
+  leftRail.classList.add('collapsed'); leftRail.classList.remove('open');
   if (!rightRail.classList.contains('collapsed')) closeLog();
   const tn = document.getElementById('topnav'); if (tn) tn.classList.remove('show');
   scrimEl.classList.add('hide');
@@ -1806,22 +1825,6 @@ document.getElementById('si-copy').onclick = () => {
 
 </script>
 
-<!-- 从剧本生成设定（S3 大工程） -->
-<div id="script-import-modal" class="modal hide">
-  <div class="modal-box wide">
-    <h3>从剧本生成设定</h3>
-    <div class="sub">把构思好的剧本粘贴进去，引擎用 LLM 提炼角色卡与世界书。确认后一键写入，无需手动填表；也可复制 JSON 手动微调。</div>
-    <textarea id="si-script" class="field" style="min-height:170px;" placeholder="在此粘贴你的剧本 / 构思，例如：末日来临，退役兵老秦带着养女小满躲进地下车库……"></textarea>
-    <div class="row" style="margin:10px 0;gap:10px;flex-wrap:wrap;">
-      <button id="si-refine" class="btn btn-primary">提炼</button>
-      <button id="si-copy" class="btn btn-sm">复制 JSON</button>
-      <button id="si-apply" class="btn btn-primary" style="display:none;">确认导入</button>
-      <button id="si-close" class="btn btn-sm">关闭</button>
-    </div>
-    <div id="si-msg" class="cfg-msg"></div>
-    <div id="si-preview" class="mgr" style="margin-top:8px;"></div>
-  </div>
-</div>
 
 </body>
 </html>

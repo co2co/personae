@@ -34,6 +34,7 @@ import prompter
 import store
 import world as world_mod
 import ending
+import script_refiner
 
 ROOT = Path(__file__).parent
 app = Flask(__name__, static_folder=None)
@@ -188,6 +189,25 @@ def save_world_route(name):
     except Exception as exc:
         return jsonify({"error": str(exc)}), 400
     return jsonify({"ok": True, "name": name})
+
+
+@app.post("/api/import/from-script")
+def import_from_script():
+    """剧本→设定 提炼预览（S3 大工程）。
+
+    玩家贴剧本 -> 后端固定 prompt 调 LLM -> 解析 + 白名单沙箱 -> 返回预览。
+    只预览、不写文件；确认导入由前端调现有 /api/character 与 /api/world/<name> 执行。
+    """
+    body = request.get_json(force=True) or {}
+    script = (body.get("script") or "").strip()
+    if not script:
+        return jsonify({"error": "剧本内容不能为空"}), 400
+    world_name = (body.get("world_name") or "").strip() or None
+    try:
+        result = script_refiner.refine_script(script, world_name=world_name)
+    except Exception as exc:
+        return jsonify({"error": f"提炼失败：{exc}"}), 400
+    return jsonify({"ok": True, **result})
 
 
 @app.post("/api/world/<name>/test")
