@@ -107,3 +107,34 @@ def test_force_hint_used_on_timeout_and_cooldown_after_failure(patched):
     assert "强制推进" in captured["prompt"], "超时触发未追加强制推进提示"
     assert changed is False
     assert snap["scene"]["same_scene"] == 0, "强制推进失败后应冷却归零，避免每轮调 LLM"
+
+
+def test_triggered_on_spatial_door_split():
+    """T2 根因修复：空间分隔指令（门内/门外/分开）应触发场景判定，而非静默跳过。
+
+    原 R16「苏曼挤进门内找女儿，老周被挡在门外，两边分开」不命中任一触发词，
+    _triggered 返回 (False, False) -> scene LLM 不调 -> present 恒为全员。
+    """
+    snap = _snap()
+    snap["scene"]["same_scene"] = 0
+    triggered, force = scene._triggered(
+        "苏曼挤进门内找女儿，老周被挡在门外，两边分开", snap)
+    assert triggered is True
+    assert force is False
+
+
+def test_leave_respected_on_door_split(patched):
+    """T2 根因修复：指令含「门外/挡在门外」时，scene LLM 返回的 leave 不被清空，
+    被挡在门外的角色应从在场名单移除（其余人随场景移动）。
+    """
+    def _fake_door(messages, **kw):
+        return json.dumps({"changed": True, "place": "避难所门内", "time": "",
+                           "weather": "（未设定）", "leave": ["老周"], "arrive": [],
+                           "reason": "老周被挡在门外，与苏曼分开"})
+    scene.llm.complete = _fake_door
+    snap = _snap()
+    changed, prop = scene.apply(
+        "sid", "苏曼挤进门内找女儿，老周被挡在门外，两边分开", snap)
+    assert changed is True
+    assert "老周" not in snap["present"]
+    assert len(snap["present"]) == 4
