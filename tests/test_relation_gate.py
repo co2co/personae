@@ -15,6 +15,39 @@ if str(ENGINE) not in sys.path:
     sys.path.insert(0, str(ENGINE))
 
 import director  # noqa: E402
+import memory  # noqa: E402
+
+
+# ---------------------------------------------------------------------------
+# 0. relations_base 必须由 memory.new 一并固化（v0.7.7 修复）
+# ---------------------------------------------------------------------------
+
+def test_memory_new_seeds_relations_base():
+    """真实会话（卡片自带 relations）必须固化 relations_base。
+
+    回归护城河：v0.7.4/v0.7.6 的「未在场冻结」「亲属身份冻结」都以 relations_base
+    为唯一可信源；若 memory.new 不固化，真实会话（卡片有 relations 时跳过 app.py
+    固化分支）会让 relations_base 为空，两道闸静默失效。
+    """
+    sid = memory.new(["陈锋", "夏雨"], scene_place="安全屋", world_name="丧尸末日")
+    try:
+        snap = memory.load(sid)
+        rel = snap.get("relations", {})
+        base = snap.get("relations_base", {})
+        assert rel, "relations 不应为空"
+        assert base, "relations_base 不应为空（v0.7.7 修复点）"
+        assert base == rel, "relations_base 应与 seeded relations 一致"
+        # 亲属身份键应在基线中
+        assert director._first_kinship(base.get("陈锋 → 夏雨", "")) == "妻子"
+    finally:
+        import shutil
+        from pathlib import Path
+        d = Path(memory.SESS_DIR) / sid if not str(memory.SESS_DIR).endswith(sid) else None
+        # 直接按 sid 定位会话目录并清理
+        root = Path(memory.SESS_DIR)
+        target = root / sid
+        if target.exists():
+            shutil.rmtree(target)
 
 
 # ---------------------------------------------------------------------------
@@ -162,4 +195,36 @@ def test_preserve_kinship_mother_sister_in_law_blocked():
     corrected = director._preserve_kinship("母亲", "嫂子，复杂情感萌芽")
     assert corrected.startswith("母亲"), corrected
     assert "复杂情感" in corrected, corrected
+
+
+def test_married_couple_affection_full():
+    """v0.7.7 修复：关系值写「妻子/丈夫」的已婚组合应触发满机会。
+
+    回归点：STRONG_AFFECTION 原先只含「夫妻」状态词，不含「妻子/丈夫」亲属词，
+    导致角色卡以「妻子/丈夫」描述夫妻时永远触发不了满机会，NSFW 机制形同虚设。
+    """
+    snap = {
+        "present": ["陈锋", "夏雨"],
+        "relations": {
+            "陈锋 → 夏雨": "妻子，彼此深爱，末日里唯一的柔软。",
+            "夏雨 → 陈锋": "丈夫，深爱的男人。",
+        },
+    }
+    # scope=None 且两端都在场 -> 应命中满机会
+    assert director._opp_from_affection(snap, None) == "满机会"
+    # scope 指向该夫妻子集 -> 仍命中
+    assert director._opp_from_affection(snap, ["陈锋", "夏雨"]) == "满机会"
+
+
+def test_offscreen_flashback_action_detected():
+    """背景人物在闪回里成为主动主语（老高笑/老高塞糖）应被判失责。
+
+    复现跨剧本对照验证中丧尸末日 R2/R4 的真实失责样本。
+    """
+    offs = ["老高"]
+    reply = ("李想望着墙角的旧照片。老高笑的样子浮上心头。"
+             "老高每次出完任务回来，都从兜里摸出一颗水果糖，塞进她手心里。")
+    viol, hits = director.detect_offscreen_activity(reply, offs)
+    assert viol is True, hits
+    assert any(h.startswith("老高") for h in hits)
 

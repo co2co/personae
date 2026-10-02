@@ -542,6 +542,17 @@ def act():
             present_violation = True
             logger.warn("model", "背景人物活动化自检失责：" + "；".join(off_hits[:3])
                         + ("…" if len(off_hits) > 3 else ""))
+            # 强制清洗：删除背景人物的活动化句子（对话块/主动叙事），仅保留在场角色视角，
+            # 落实「背景人物不得被写成活动角色」原则（simon）。只删命中句，不伤在场叙事；
+            # off_hits 保留原始命中随 done 回传前端，以报告本次失责。
+            cleaned = full
+            for hit in off_hits:
+                if hit:
+                    cleaned = cleaned.replace(hit, "")
+            if cleaned != full:
+                logger.warn("model", "已强制清洗背景人物活动化句子（"
+                            + str(len(off_hits)) + " 句）")
+                full = cleaned
         else:
             logger.info("model", "背景人物自检通过："
                         + ("、".join(offscreens) + " 保持背景" if offscreens else "无背景人物"))

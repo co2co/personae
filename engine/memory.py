@@ -62,6 +62,11 @@ def new(cast, scene_place="", world_name="home"):
         "present": present,
         "scene": {"place": scene_place, "time": "", "weather": "", "round": 0, "same_scene": 0},
         "relations": relations,
+        # 权威关系基线：与 relations 一同固化自角色卡 relations 字段。
+        # reflect 的「未在场冻结」与「亲属身份冻结」都以它为唯一可信源；
+        # 若此处不固化，真实会话（卡片自带 relations）会跳过 app.py 的固化分支，
+        # 导致 relations_base 为空、两道冻结闸静默失效（见 v0.7.7 修复说明）。
+        "relations_base": dict(relations),
         "actions": {},
         "secrets": secrets,
         "ledger": [],

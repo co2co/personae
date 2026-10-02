@@ -1,0 +1,92 @@
+{
+  "name": "丧尸末日",
+  "entries": [
+    {
+      "keys": [
+        "丧尸",
+        "病毒",
+        "爆发",
+        "末日",
+        "沦陷"
+      ],
+      "content": "一种未知病毒在数周内席卷城市，感染者失去理智、嗜食活人，被称为『丧尸』。社会秩序崩塌，幸存者各自抱团求生。陈锋带着妻子夏雨、义妹李想、队医苏明组成一支四人小队，在废土城市里辗转求生。副队长老高已在一次突围中牺牲，永远留在了队伍的记忆里。",
+      "priority": 100,
+      "enabled": true,
+      "constant": true,
+      "position": "before",
+      "depth": null,
+      "name": "[常量]背景设定",
+      "secret": false
+    },
+    {
+      "keys": [
+        "安全屋",
+        "据点",
+        "营地",
+        "地下室",
+        "超市"
+      ],
+      "content": "小队目前栖身在一间废弃超市的地下室，用货架和铁皮勉强封住入口，是这片街区还算稳固的临时安全屋。空间逼仄，四人挤在一起，彼此的气息与心事都无处藏匿。",
+      "priority": 95,
+      "enabled": true,
+      "constant": false,
+      "position": "before",
+      "depth": null,
+      "name": "安全屋",
+      "secret": false
+    },
+    {
+      "keys": [
+        "丧尸群",
+        "尸潮",
+        "咬",
+        "感染",
+        "听觉"
+      ],
+      "content": "丧尸视觉退化、靠听觉与血腥味锁定猎物；被咬伤若不及时处理会在数小时内变异。枪声与呼喊会迅速引来尸群，所以小队行动时多以冷兵器与静默为主。",
+      "priority": 90,
+      "enabled": true,
+      "constant": false,
+      "position": "before",
+      "depth": null,
+      "name": "威胁",
+      "secret": false
+    },
+    {
+      "keys": [
+        "物资",
+        "药品",
+        "弹药",
+        "食物",
+        "短缺"
+      ],
+      "content": "城市里的物资已被搜刮殆尽，药品与弹药尤其珍贵。每一支抗生素、每一发子弹都要用在刀刃上；苏明负责统筹医疗物资，陈锋负责外出搜寻。",
+      "priority": 85,
+      "enabled": true,
+      "constant": false,
+      "position": "after",
+      "depth": null,
+      "name": "物资",
+      "secret": false
+    },
+    {
+      "keys": [
+        "暗恋",
+        "心动",
+        "偷偷",
+        "看他",
+        "克制"
+      ],
+      "content": "她从灾变前就悄悄喜欢着队长陈锋，那是埋得很深、谁也没告诉过的心事。她清楚陈锋是夏雨的丈夫，也清楚这份心意不该存在，于是用近乎苛刻的理性把自己钉在原地，把所有温柔都化进每一次包扎与值守里。",
+      "priority": 80,
+      "enabled": true,
+      "constant": false,
+      "position": "before",
+      "depth": null,
+      "name": "[秘密]归属角色：苏明",
+      "secret": true,
+      "character": "苏明",
+      "bottom_line": "若被夏雨或陈锋察觉，她会无地自容，队伍里最珍视的信任也会裂开一道缝。"
+    }
+  ]
+}
