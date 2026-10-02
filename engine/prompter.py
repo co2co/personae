@@ -182,11 +182,27 @@ def build_session(cards_present, directive, world_hits, snap,
     sc = snap["scene"]
     weather = ("｜ 天气：" + sc["weather"]) if sc.get("weather") else ""
     rel = "\n".join(k + ": " + v for k, v in snap["relations"].items()) or "（初始）"
+    # 关联但无独立角色卡的"背景人物"（如林梦琪）：仅可作背景提及，
+    # 其关系定位为既定事实，严禁模型改写或升级（小姨子→妻子类漂移在此被提示约束）
+    card_names = set(cards_present.keys())
+    rel_names = set()
+    for k in snap.get("relations", {}):
+        for e in k.split("→"):
+            rel_names.add(e.strip())
+    offscreens = sorted(n for n in rel_names if n and n not in card_names)
+    offscreen_note = ""
+    if offscreens:
+        offscreen_note = (
+            "\n[背景人物·无角色卡] " + "、".join(offscreens)
+            + "：仅有关系定位、无独立角色卡，只能作为背景被提及，不得让其行动、对话或成为在场关系中心；"
+            "其关系定位（见上）为既定事实，不得改写为在场/夫妻/恋人等升级关系。"
+        )
     cons = "\n".join("- " + l["account"] for l in snap.get("ledger", [])) or "（暂无）"
     blocks.append(
-        "[关系与状态]\n关系：\n" + rel + "\n旧账：\n" + cons
+        "[关系与状态（不可违背）]\n关系：\n" + rel + offscreen_note + "\n旧账：\n" + cons
         + "\n回合：" + str(sc["round"])
         + "\n场景：" + sc.get("place", "") + "（" + (sc.get("time") or "时间未明") + "）" + weather
+        + "\n（以上关系为推演既定事实，写作时严格遵循，不得自行推断、改写或升级）"
     )
 
     scale = "[内容尺度]\n" + nsfw_prompt

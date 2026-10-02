@@ -344,8 +344,11 @@ def session_new():
         gen = director.init_relations(cards)
         if gen:
             snap["relations"] = gen
+            # 固化权威关系基线：后续 reflect 只允许镜头内角色演化关系，
+            # 未在场/无卡关联人物（如林梦琪）的关系冻结为此基线，杜绝漂移
+            snap["relations_base"] = dict(gen)
             memory.save(sid, snap)
-            logger.info("director", "自动生成初始关系网：" + str(len(gen)) + " 条")
+            logger.info("director", "自动生成初始关系网：" + str(len(gen)) + " 条（已固化 relations_base）")
         else:
             # 回退：同场角色两两互为“互相认识”，保证引擎有最小关系网可用
             fallback = {}
@@ -354,6 +357,7 @@ def session_new():
                     if a != b:
                         fallback[f"{a} → {b}"] = "同处一个场景，互相认识"
             snap["relations"] = fallback
+            snap["relations_base"] = dict(fallback)
             memory.save(sid, snap)
             logger.info("director", "关系自动生成失败，回退为全互相认识")
     logger.success("session", "会话就绪：" + sid)

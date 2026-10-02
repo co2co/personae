@@ -138,6 +138,23 @@ def _sexual_entry(text):
         return True
     return bool(re.search(r"进入[^，。；！？\n]{0,10}(身体|私处|下身|腿间|阴道|穴|里面)", t))
 
+
+# 「插入」极通用：插入空间 / 插入话题 / 插入U盘 / 插入钥匙 都是非性语境，若与
+# 「阴道 / 鸡巴」等其它 BODY_STRONG 同列会误判越线（会话 0ac57abf 第 2 轮
+# "强行插入他们之间的空间" 即触发假越线并误记旧账）。仅"插入 + 身体/性语境"
+# 才视为事实越线，与 _sexual_entry 同源（许可≠事实、通用词须加语境）。
+def _sexual_insert(text):
+    """「插入」只在伴随身体/性语境时算事实越线，否则（插入空间/话题/钥匙）不算。"""
+    t = text or ""
+    if "插入" not in t:
+        return False
+    # 注意 "插入他" 不能误匹配 "插入他们"（插入他们之间 = 空间隐喻），用负向先行排除"们"
+    if re.search(r"插入他(?!们)", t) or re.search(r"插入她(?!们)", t) or re.search(r"插入我(?!们)", t):
+        return True
+    return bool(re.search(
+        r"插入[^，。；！？\n]{0,12}(身体|体内|私处|下身|腿间|阴道|穴|后庭|菊|性器|"
+        r"肉棒|阴茎|阳具|肛门|里面|深处|小腹)", t))
+
 # 同形中性词：含 BODY_STRONG 里的单字「穴」但毫无性含义，末日/野外题材高频出现。
 # 判定前必须先剔除，否则「墓穴 / 洞穴 / 穴位」会被误判为性行为越线，
 # 进而误记关系后果旧账、误触发事后余韵压制。
@@ -394,7 +411,10 @@ def detect_intimacy(text):
     事实判定先剔除元层拒写句（_mask_refusal），避免拒写文本里的性词被当既成事实。
     """
     t = strip_neutral(_mask_refusal(text))
-    if any(k in t for k in BODY_STRONG):
+    # 「插入」极通用，需性语境才判越线（见 _sexual_insert）；其余 BODY_STRONG 照旧
+    if "插入" in t and _sexual_insert(t):
+        return "越线"
+    if any(k in t for k in BODY_STRONG if k != "插入"):
         return "越线"
     if any(k in t for k in BODY_MID):
         return "接触"
@@ -467,34 +487,59 @@ def validate_present(reply, present, known_names, allowed=None):
     return "\n".join(out), violated
 
 
-def init_relations(cards_present):
-    """角色卡未提供初始关系时，由 LLM 根据在场角色设定自动生成初始关系网。
+def seed_relations_from_cards(cards_present):
+    """从角色卡自带的 relations 字段确定性地构建初始关系表（"源 → 目标": 描述）。
 
-    返回 { "源 → 目标": "描述", ... }；失败或无需生成返回空字典。
+    这是 simon 在角色卡里**显式写下**的关系网，作为权威基线（relations_base），
+    优先级高于 LLM 自由生成——避免 LLM 把"小姨子"推成"妻子"之类漂移。
+    卡片 relations 字段形如 { "周牧野": "丈夫…", "林梦琪": "妹妹…" }，
+    逐条转成 "{卡名} → {目标}": 描述。
+    """
+    out = {}
+    for c, card in (cards_present or {}).items():
+        rels = card.get("relations") or {}
+        if not isinstance(rels, dict):
+            continue
+        for target, desc in rels.items():
+            if not target or not desc:
+                continue
+            out[f"{c} → {target}"] = desc
+    return out
+
+
+def init_relations(cards_present):
+    """构建初始关系网：以角色卡 relations 字段为权威基线，LLM 仅补卡片未覆盖的空缺。
+
+    返回 { "源 → 目标": "描述", ... }；全失败时返回空字典。
     """
     names = list(cards_present.keys())
     if not names:
         return {}
+    base = seed_relations_from_cards(cards_present)
     desc_text = "\n".join(
         f"【{n}】{(cards_present[n].get('description') or '')}｜核心渴望：{(cards_present[n].get('core_desire') or '')}"
         for n in names)
     prompt = [
         {"role": "system",
-         "content": "你是关系沙盘的纪官。根据给出的角色设定，生成他们之间的初始关系网。只输出一个 JSON 对象，不要任何解释或 Markdown。"},
+         "content": "你是关系沙盘的纪官。根据给出的角色设定，补充生成他们之间尚未写明的关系网。只输出一个 JSON 对象，不要任何解释或 Markdown。"},
         {"role": "user", "content": (
             f"在场角色：{', '.join(names)}\n设定：\n{desc_text}\n\n"
-            "请输出 JSON：{ \"relations\": { \"源 → 目标\": \"关系描述\" } }，"
-            "覆盖所有有意义的双向关系，键保持\"源 → 目标\"格式。"
+            "已确定的关系（不要重复，仅补充缺失的双向关系）：\n"
+            + ("\n".join(f"{k}: {v}" for k, v in base.items()) if base else "（无）")
+            + "\n\n请输出 JSON：{ \"relations\": { \"源 → 目标\": \"关系描述\" } }，"
+            "覆盖所有有意义的双向关系，键保持\"源 → 目标\"格式；已确定的关系不要再输出。"
         )},
     ]
     try:
         raw = llm.complete(prompt, max_tokens=700, temperature=0.4, timeout=60)
         data = _extract_json(raw)
         if data and isinstance(data.get("relations"), dict):
-            return {k: v for k, v in data["relations"].items() if v}
+            llm_rel = {k: v for k, v in data["relations"].items() if v}
+            # 卡片显式关系优先，LLM 仅补缺
+            return {**llm_rel, **base}
     except Exception:
         pass
-    return {}
+    return dict(base)
 
 
 def reflect(sid, reply):
@@ -555,9 +600,23 @@ def reflect(sid, reply):
         return snap
 
     if isinstance(data.get("relations"), dict):
+        base = snap.get("relations_base") or {}
+        present_set = set(present)
         for k, v in data["relations"].items():
-            if v:
+            if not v:
+                continue
+            # 关系键形如 "源 → 目标"；解析两端点
+            parts = [e.strip() for e in k.split("→")] if "→" in k else [k.strip()]
+            ends = [p for p in parts if p]
+            if len(ends) >= 2 and all(e in present_set for e in ends):
+                # 两端都在场（镜头内角色）：允许关系随剧情演化
                 snap["relations"][k] = v
+            else:
+                # 涉及未在场/无卡关联人物（如林梦琪）：冻结为初始关系定位，
+                # 禁止模型改写或升级（"小姨子"被写成"妻子"类漂移即在此拦截）。
+                # 初始表无此键则丢弃该越权关系，不引入新条目。
+                if k in base:
+                    snap["relations"][k] = base[k]
     if isinstance(data.get("actions"), dict):
         snap["actions"] = {k: v for k, v in data["actions"].items() if v}
     if isinstance(data.get("goals"), dict):
