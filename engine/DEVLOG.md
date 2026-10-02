@@ -2,6 +2,29 @@
 
 记录架构决策。待办与搁置项已统一收口至 [TODO.md](./TODO.md)（各版本「下版本待办」外链至此，避免日志臃肿），非任务日志，按主题追加。
 
+## 2026-10-02 v0.6.3（T2 在场拆分修复 + T3 BODY_MID 收窄 + T4 根因定位）
+
+- 升 v0.6.3：行为修正（PATCH 级，修复两处机会机制 bug + 收口待办）。
+- 自 v0.6.2 起累积：T3 BODY_MID 收窄（aad10c1）、T2 在场名单空间分隔触发修复（2ebb015）、T4 根因定位文档（e7fed0d）、TODO.md 外链（a96d46f）。
+
+### T2 在场名单空间分隔触发修复（行为修复）
+- 根因（实证）：`scene._triggered` 只认 MOVE/TIME/WEATHER 词，R16「苏曼挤进门内…老周被挡在门外」不命中 → scene LLM 不调；即便触发，`LEAVE_KEYS` 无「门外/分开」强制清空 `leave`。两道闸门叠加堵死拆分。
+- 修复：`MOVE_KEYS` 增 `挤进/门内/门外/隔开`；`LEAVE_KEYS` 增 `门外/挡在门外/留守/留在/隔开`；`_PROMPT` 约束2 补「被挡在门外/留在另一处/与队伍分开视为离场」。
+- 下游自洽：`scene.apply` 先改 `present` 移除门外者 → `compute_focus` 用新 `present` 收敛 focus → `validate_present(allowed=focus)` 剥离门外戏份。镜头与在场名单一致。
+- 测试：`test_triggered_on_spatial_door_split` + `test_leave_respected_on_door_split`；全套 **70 passed / 4 deselected**。
+
+### T3 BODY_MID 词表收窄（行为修复）
+- 移除 `按在/压在/衣服/贴/湿润/胸/腰` 等末日题材高频中性词，保留明确接触动作。
+- 修复裸词/单字无强动词即命中、误顶半步、`detect_intimacy` 误判「接触」的隐患（旧账逻辑只记越线不记接触不变）。
+- 测试：`test_body_mid_narrowed_avoids_neutral_false_positive`。
+
+### T4 根因定位（文档，并入 T1）
+- 定量实证：回复长度后期 -24% 衰减与 T1（history 全量注入无窗口）同源。prompt 字符随 history 0→60 条线性 1118→28718（×25.7）；ledger 增长可忽略（+54/10 条）；max_tokens 未触顶。
+- T4 不单修，随 T1 一并解决。活跃待办现仅剩 **T1**。
+
+### 待办归属
+> 活跃待办 T1（history 无窗口/预算/压缩）待下版本；搁置 S1–S2 见 [TODO.md](./TODO.md)。
+
 ## 2026-10-02 v0.6.2（删 relations 死代码路径 + 修 config/model 损坏 + BODY_MID 注释）
 
 - 升 v0.6.2：清理（PATCH 级，删除恒为「无」的死路径，行为不变）。
