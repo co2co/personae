@@ -8,6 +8,7 @@ import re
 
 import memory
 import llm
+import store
 
 ENV_PUSHER = "环境推手"
 
@@ -632,6 +633,36 @@ def init_relations(cards_present):
     except Exception:
         pass
     return dict(base)
+
+
+def fill_relation_gaps(snap):
+    """关系缺口补全：检测快照中是否有在场角色在关系基线里完全无任何边。
+
+    返回触发推断的角色列表（空列表 = 无需推断，手填齐全）。
+    若检测到缺口，调用纪官(init_relations)从同场角色描述推断缺失的双向关系，
+    推断结果写回 snap["relations"] 与 snap["relations_base"]（受 v0.7.6 亲属冻结保护）。
+
+    旧逻辑仅在「全部卡的 relations 合并为空」时才推断，导致「大部分有、个别缺」的剧本
+    （如周晓杰卡空且不被他人提及）漏网；本函数改为按「单个在场角色是否缺边」触发，
+    手填齐全的卡不触发任何 LLM 调用，零开销。
+    """
+    present = snap.get("present") or []
+    base_edges = snap.get("relations") or {}
+    covered = set()
+    for k in base_edges:
+        if "→" in k:
+            a, b = [p.strip() for p in k.split("→")]
+            covered.add(a)
+            covered.add(b)
+    gap_chars = [c for c in present if c not in covered]
+    if not gap_chars:
+        return gap_chars
+    cards = {c: store.load_card(c) for c in present}
+    gen = init_relations(cards)
+    if gen:
+        snap["relations"] = gen
+        snap["relations_base"] = dict(gen)
+    return gap_chars
 
 
 def reflect(sid, reply):
