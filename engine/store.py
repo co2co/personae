@@ -1,9 +1,10 @@
-"""数据层：角色卡、世界书、聊天记录。全部是本地 JSON / JSONL 文件，没有数据库。
+"""数据层：角色卡、世界书。全部是本地 JSON 文件，没有数据库。
 
-目录结构（对应 SillyTavern 的 data/default-user/）：
+目录结构：
     data/characters/<name>.json   角色卡
     data/worlds/<name>.json       世界书
-    data/chats/<角色>/<会话>.jsonl 每行一条消息，第一行是会话头
+
+注：会话（聊天记录）不在此模块，统一由 memory.py 管理（data/sessions/<sid>/chat.jsonl）。
 """
 
 import json
@@ -55,10 +56,17 @@ def list_worlds():
 
 
 def load_world_raw(name):
+    name = (name or "").strip()
+    if not name:
+        return None
     return _read_json(DATA_DIR / "worlds" / f"{name}.json")
 
 
-def load_world(name="demo"):
+def load_world(name=""):
+    """按名加载世界书条目。空名或无此世界时返回空列表（语义：没有世界书，不报错）。"""
+    name = (name or "").strip()
+    if not name:
+        return []
     data = _read_json(DATA_DIR / "worlds" / f"{name}.json")
     return (data or {}).get("entries", [])
 
@@ -91,43 +99,3 @@ def worlds_referencing(name):
     """返回 world 字段指向该世界的角色卡名列表（用于删除前的引用保护）。"""
     return [c for c in list_characters()
             if (load_card(c) or {}).get("world") == name]
-
-
-def chat_path(character, session="main"):
-    folder = DATA_DIR / "chats" / character
-    folder.mkdir(parents=True, exist_ok=True)
-    return folder / f"{session}.jsonl"
-
-
-def load_chat(character, session="main"):
-    """读取会话，跳过第一行会话头。"""
-    path = chat_path(character, session)
-    if not path.exists():
-        return []
-    messages = []
-    for i, line in enumerate(path.read_text(encoding="utf-8").splitlines()):
-        line = line.strip()
-        if not line:
-            continue
-        if i == 0:
-            continue
-        messages.append(json.loads(line))
-    return messages
-
-
-def append_message(character, message, session="main"):
-    """追加写一行。JSONL 的好处：崩溃最多丢最后一条，不会整文件损坏。"""
-    path = chat_path(character, session)
-    if not path.exists():
-        path.write_text(json.dumps({"character": character, "session": session},
-                                   ensure_ascii=False) + "\n", encoding="utf-8")
-    with path.open("a", encoding="utf-8") as f:
-        f.write(json.dumps(message, ensure_ascii=False) + "\n")
-
-
-def rewrite_chat(character, messages, session="main"):
-    """整体重写，用于删除消息或重新生成后同步。"""
-    path = chat_path(character, session)
-    lines = [json.dumps({"character": character, "session": session}, ensure_ascii=False)]
-    lines.extend(json.dumps(m, ensure_ascii=False) for m in messages)
-    path.write_text("\n".join(lines) + "\n", encoding="utf-8")

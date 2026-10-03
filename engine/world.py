@@ -4,7 +4,7 @@
     - constant：常量条目，不依赖关键词，每轮必注入（解决长文基础规则掉线）
     - depth：条目级扫描深度，只回看最近 N 条聊天匹配（默认取全局 default_depth）
     - position：插入位置 before（系统层）/ after（对话历史之后、导演指令之前）
-    - recursive：条目 content 内用 #条目名# 引用其他条目，命中后自动把被引条目拉入
+    - 引用展开：条目 content 内用 #条目名# 引用其他条目，命中后自动把被引条目拉入
       （BFS 展开 + visited 防环）。条目用可选 name 字段命名，供 #name# 引用。
 
 条目格式（data/worlds/*.json）：

@@ -26,9 +26,6 @@ EVIDENCE_MIN_LEN = 4
 
 # （机会等级/内容尺度机制已随 NSFW 整体废弃，v0.8.0：ALONE/DEFENSE_DOWN/OBSTACLE/OPP_NOTE 已移除）
 
-# 全曝光：暂无升级规则，作为保留状态，不写入（参见 DEVLOG）
-_FULL = "全曝光"
-
 
 def _secret_state(leverage):
     """in-world 暴露状态：只要有人握有该秘密作为把柄（leverage 非空）即为「暴露」；
@@ -669,8 +666,7 @@ def _update_silent_rounds(snap, present):
     acts = snap.get("actions") or {}
     focus_subjects = set((snap.get("focus") or {}).get("subjects") or [])
     silent = snap.setdefault("silent_rounds", {})
-    # 侧栏展示的「主动／无行动」此前按名字是否出现在正文判定，与本判定不同源；
-    # 此处一并对齐，使展示与静默计数一致（纪官失败时仍保留 app.py 的廉价兜底）。
+    # 侧栏展示的「主动／无行动」与静默计数同一源（纪官行为摘要），避免两套判据不一致。
     state = snap.setdefault("action_state", {})
     for c in present:
         if focus_subjects and c not in focus_subjects:

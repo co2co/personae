@@ -257,19 +257,6 @@ def delete_world_route(name):
     return jsonify({"ok": True, "name": name, "referenced": referenced})
 
 
-@app.get("/api/chat/<character>")
-def get_chat(character):
-    session = request.args.get("session", "main")
-    return jsonify(store.load_chat(character, session))
-
-
-@app.post("/api/chat/rewrite")
-def rewrite():
-    body = request.get_json(force=True)
-    store.rewrite_chat(body["character"], body["messages"], body.get("session", "main"))
-    return jsonify({"ok": True})
-
-
 @app.get("/api/config")
 def get_config():
     return jsonify(llm.config_view())
@@ -335,9 +322,9 @@ def session_new():
         logger.warn("session", "开局失败：未选择任何在场角色")
         return jsonify({"error": "至少需要选择一个在场角色"}), 400
     scene = body.get("scene", "")
-    # 世界名取首个在场角色的世界（与 /api/act 加载 lore 的逻辑保持一致），
-    # 否则秘密种子会永远从默认 "home" 生成，与 lore 世界错位
-    world_name = store.load_card(cast[0]).get("world", "home") if cast else "home"
+    # 世界名取首个在场角色的世界（与 /api/act 加载 lore 的逻辑保持一致）；
+    # 卡未声明 world 时为空名，语义为「无世界书」（不播种秘密、不注入 lore）。
+    world_name = store.load_card(cast[0]).get("world", "") if cast else ""
     try:
         sid = memory.new(cast, scene_place=scene, world_name=world_name)
     except Exception as exc:
@@ -455,7 +442,7 @@ def act():
                     logger.info("aux", "显式登记辅助群演：" + "、".join(added))
                     memory.save(sid, snap)
 
-        # 导演简报（含秘密状态更新、回合数、机会等级）
+        # 导演简报（含秘密状态更新、回合数）
         brief, snap = director.brief(sid, directive)
         logger.info("director", "导演简报：回合 R" + str(brief["round"])
                     + (" ｜ 新揭露秘密：" + "、".join(brief["revealed_secrets"]) if brief["revealed_secrets"] else "")
@@ -472,7 +459,7 @@ def act():
             logger.debug("scene", "场景无变化，沿用当前场景")
 
         # 世界书：剔除潜伏秘密条目（秘密不进 prompt，只在角色块里按已知状态提示）
-        world_name = cards_present[present[0]].get("world") if present else "home"
+        world_name = cards_present[present[0]].get("world", "") if present else ""
         entries = store.load_world(world_name)
         history = [m.get("content", "") for m in memory.load_chat(sid)[-RECENT_FOR_SCAN:]]
         hits_all = world_mod.scan(entries, history, directive=directive,
@@ -610,10 +597,8 @@ def act():
         memory.append_chat(sid, {"role": "user", "content": "【导演指令】" + directive})
         memory.append_chat(sid, {"role": "assistant", "content": full})
 
-        # 行动状态（廉价启发）：本轮正文里出现的角色 = 主动，未出现 = 无行动
-        for c in present:
-            memory.set_action_state(sid, c, "主动" if c in full else "无行动")
-        # 状态机回写：把本轮推演产生的后果（关系/目标/秘密揭露）落回快照
+        # 状态机回写：把本轮推演产生的后果（关系/目标/秘密揭露/行动状态）落回快照。
+        # 行动状态（主动/无行动）由纪官依据行为摘要判定，见 director._update_silent_rounds。
         director.reflect(sid, full)
         snap_now = memory.load(sid)
         exposed = [s for s in snap_now.get("secrets", []) if s.get("state") != "潜伏"]

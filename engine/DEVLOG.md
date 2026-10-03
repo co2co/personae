@@ -2,6 +2,18 @@
 
 记录架构决策。待办与搁置项已统一收口至 [TODO.md](./TODO.md)（各版本「下版本待办」外链至此，避免日志臃肿），非任务日志，按主题追加。
 
+## 2026-10-04 v0.10.1（全链路架构审计后的清理）
+
+- 升 v0.10.1：PATCH 档——修正审计发现的错误/清理死代码/统一文档口径，非新增能力，故 v0.10.0 → v0.10.1。
+- 架构审计（`audit_report_v0.10.0.md`）发现的问题按 P1→P2→P3 全修，均为「文档与实现漂移」与「历史迭代死代码」，无功能性缺陷：
+  - P1-① `INSTALL.md` 第 117 行「不内置任何剧本」改为「随附 DEMO 剧本」，与 README/package.py/实际 zip 对齐。
+  - P1-② 删除 `store.py` 旧单角色 chat 路径死代码（`chat_path/load_chat/append_message/rewrite_chat`）与 `app.py` 的 `GET /api/chat/<c>`、`POST /api/chat/rewrite` 两个死路由（沙盘已统一走 `memory.py` 的 sessions 路径，前端亦无调用）。
+  - P2-③ 世界名默认值魔法串统一为空串：`store.load_world(name="")` / `memory.new(world_name="")` / `app.py` 两处回退 `get("world", "")`；`load_world`/`load_world_raw` 对空名直接返回空（语义「无世界书」），消除 `demo`/`home`/`丧尸末日` 三串不一致的静默错位。
+  - P2-④ 删除 `app.py` 的廉价 action_state 写入循环与 `memory.set_action_state`（后者只被前者独占调用）；`action_state` 单一来源收敛到 `director._update_silent_rounds`（纪官行为摘要），消除双重记账。
+  - P3-⑤ `app.py` 注释「机会等级」过时措辞删除（NSFW 已废弃）；P3-⑥ `director._FULL` 死常量删除；P3-⑦ `hooks.py` docstring 签名（card→snap）对齐实际调用；P3-⑧ `world.py` docstring「recursive」字段名改为「引用展开」（实为 `#name#` 机制，无 recursive 字段）。
+- 验证：`py_compile` 通过；`pytest tests/` 117 passed / 4 failed（既有旧卡名失败，无新增）。
+- 属普通迭代（清理/文档口径，未动核心推演路径），按压测红线无需压测。
+
 ## 2026-10-04 v0.10.0（事实保全子系统 + 秘密发酵补丁 + 高压锁定镜头）
 
 - 升 v0.10.0：MINOR 档——新增可观测能力（事实保全「常量层 + 状态层」子系统、秘密发酵压力机制、高压锁定镜头），非单纯错误修正，故 v0.9.0 → v0.10.0。

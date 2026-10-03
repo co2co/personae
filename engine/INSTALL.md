@@ -110,11 +110,11 @@ pip install -r requirements.txt
 
 所有数据都是 `engine/` 下的本地文件，无数据库：
 
-- `data/characters/*.json` —— 角色卡（**文件名即角色显示名**，首次运行后由你自行添加）
-- `data/worlds/*.json` —— 世界书（首次运行后由你自行添加）
+- `data/characters/*.json` —— 角色卡（**文件名即角色显示名**，可自行添加）
+- `data/worlds/*.json` —— 世界书（可自行添加）
 - `data/config.json` —— 系统配置（出厂为空连接）
 
-**分发包为纯引擎，不内置任何剧本/角色/世界书**：`data/characters/`、`data/worlds/`、`player-cast/` 均不随包分发，首次运行后请在「角色库 / 世界书 / 玩家设定」中添加你自己的内容。
+**分发包随附一套 DEMO 剧本**（「丧尸末日」世界书 + 4 张示例角色卡），用于开箱即用地体验引擎；`data/characters/`、`data/worlds/` 下你自己创作的内容不会被打进分发包。`player-cast/`（玩家设定）也始终不随包分发。
 （运行时产生的会话记录在 `data/sessions/`，状态在 `data/state.json`——这些也不会被打进分发包。）
 
 ---

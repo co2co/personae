@@ -21,7 +21,7 @@ def _new_id():
     return uuid.uuid4().hex[:8]
 
 
-def new(cast, scene_place="", world_name="home"):
+def new(cast, scene_place="", world_name=""):
     """开启一个沙盘世界。cast 为在场角色卡列表（全部为 NPC，环境推手不作为角色入场）。
 
     环境推手在原生机制里是外部导演/观察者：不登场、不说话，只注入环境扰动（切换场景、
@@ -149,15 +149,6 @@ def append_chat(sid, message):
     p = chat_path(sid)
     with p.open("a", encoding="utf-8") as f:
         f.write(json.dumps(message, ensure_ascii=False) + "\n")
-
-
-def set_action_state(sid, name, state):
-    """更新某角色本轮的行动状态（主动/防御/无行动），供侧栏观察世界运转。"""
-    snap = load(sid)
-    if name in snap.get("action_state", {}):
-        snap["action_state"][name] = state
-        save(sid, snap)
-    return snap.get("action_state", {})
 
 
 def list_sessions():

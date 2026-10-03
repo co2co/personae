@@ -2,15 +2,15 @@
 
 只保留两个真正有用的时机：
     prompt_ready     提示词组装完成，即将发出
-                     参数：messages, card
+                     参数：messages, snap
                      返回值里带 messages 就替换，带别的键则合并进 payload
     message_received 收到完整回复
-                     参数：reply, card, history
+                     参数：reply, snap
                      返回值里带 reply 就改写最终文本（同时影响落盘）
 
 用法：
     import hooks
-    hooks.on("message_received", lambda reply, card, history: {"reply": reply.strip()})
+    hooks.on("message_received", lambda reply, snap: {"reply": reply.strip()})
 """
 
 _LISTENERS = {}
