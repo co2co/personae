@@ -49,6 +49,9 @@ def new(cast, scene_place="", world_name="home"):
                 "state": "潜伏",
                 "known_by": [],
                 "exposures": [],
+                # 起疑（线索逼近）记录：介于「潜伏」与「曝光」之间的中间态。
+                # 只存疑点与举证，不存秘密真相——起疑者尚未证实，引擎不得剧透。
+                "suspicions": [],
             })
 
     # 短期目标：优先用角色卡手填的 short_goal；未填则退回核心渴望作为初始意图
@@ -73,6 +76,10 @@ def new(cast, scene_place="", world_name="home"):
         "goals": goals,
         "action_state": action_state,
         "recent": {},
+        # 会话级辅助群演注册表：导演/叙事在推演中刻意引入的临时角色（如半路加入的配角）。
+        # 随会话存续，不进角色卡库、不进世界书、不进分发 zip；仅用于让引擎识别其为
+        # 合法叙事参与者、保障跨回合连续性，并在快照里留存便于复盘（见 v0.9.0）。
+        "aux": [],
     }
     save(sid, snap)
     return sid

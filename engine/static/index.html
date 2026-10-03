@@ -521,7 +521,7 @@
             <textarea id="c-pers" class="field"></textarea>
             <label>short_goal（短期目标：开局意图种子，进入推演后由系统自动演化）</label>
             <textarea id="c-goal" class="field"></textarea>
-            <label>relations（初始关系 JSON 种子，如 {"林泽宇":"表甥"}；留空系统自动生成）</label>
+            <label>relations（初始关系 JSON 种子，如 {"角色B":"表甥"}；留空系统自动生成）</label>
             <textarea id="c-rel" class="field"></textarea>
           </details>
 
@@ -557,7 +557,7 @@
       <div class="row" style="gap:8px;align-items:flex-end;">
         <div style="flex:1;">
           <label style="font-size:12.5px;color:var(--ink-2);">命中预览（粘贴一段场景/对话文本，看哪些条目会触发）</label>
-          <textarea id="w-test" class="field" placeholder="例如：周牧野家的老式自建房，二楼隔音差；林梦雅手机里还留着那段视频"></textarea>
+          <textarea id="w-test" class="field" placeholder="例如：一栋三层老式自建房，二楼隔音极差；她手机里还留着那段视频"></textarea>
         </div>
         <button id="w-test-btn" class="btn btn-sm">测试命中</button>
       </div>
@@ -655,7 +655,7 @@
     </div>
     <div id="bar">
       <div id="bar-inner">
-        <textarea id="input" placeholder="作为导演注入环境扰动，如 *让林梦雅去厨房*、*天色暗下来开始下雨*"></textarea>
+        <textarea id="input" placeholder="作为导演注入环境扰动，如 *让她去厨房*、*天色暗下来开始下雨*"></textarea>
         <button id="send" class="btn btn-primary">注入扰动</button>
       </div>
     </div>
@@ -698,7 +698,7 @@
   <div class="modal-box wide">
     <h3>从剧本生成设定</h3>
     <div class="sub">把构思好的剧本粘贴进去，引擎用 LLM 提炼角色卡与世界书。确认后一键写入，无需手动填表；也可复制 JSON 手动微调。</div>
-    <textarea id="si-script" class="field" style="min-height:170px;" placeholder="在此粘贴你的剧本 / 构思，例如：末日来临，退役兵老秦带着养女小满躲进地下车库……"></textarea>
+    <textarea id="si-script" class="field" style="min-height:170px;" placeholder="在此粘贴你的剧本 / 构思，例如：灾变降临，一名退役兵带着养女躲进地下车库……"></textarea>
     <div class="row" style="margin:10px 0;gap:10px;flex-wrap:wrap;">
       <button id="si-refine" class="btn btn-primary">提炼</button>
       <button id="si-copy" class="btn btn-sm">复制 JSON</button>
@@ -797,6 +797,9 @@ function renderSnapshot(snap) {
     const cls = s.state === '潜伏' ? 'latent' : (s.state === '全曝光' ? 'full' : 'exposed');
     let tag = knowers.length ? '（已知者：' + knowers.join('、') + '）'
             : (envKnows ? '（环境推手已知）' : '（未揭露）');
+    const susp = (s.suspicions || []).map(x => x.by)
+      .filter(b => b && b !== '环境推手' && b !== s.owner && !knowers.includes(b));
+    if (susp.length) tag += '（起疑：' + susp.join('、') + '）';
     return `<div class="sec-row">${s.owner}：<span class="sec-state ${cls}">${s.state}</span> ${tag}</div>`;
   }).join('') || '<div class="sec-row">（无）</div>';
 
@@ -1230,7 +1233,7 @@ function entryCard(e, i, expanded) {
       </div>
       <div class="secret-fields"${e.secret?'':' hidden'}>
         <label>秘密归属角色 character（开局 seed 进该角色秘密表）</label>
-        <input class="field sm e-char" value="${escAttr(e.character||'')}" placeholder="如 林梦雅">
+        <input class="field sm e-char" value="${escAttr(e.character||'')}" placeholder="如 角色A">
         <label>bottom_line（暴露底线，可选）</label>
         <textarea class="field e-bottom">${escHtml(e.bottom_line||'')}</textarea>
       </div>

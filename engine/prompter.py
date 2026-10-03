@@ -112,13 +112,16 @@ def parse_examples(raw):
 
 
 def build_session(cards_present, directive, world_hits, snap,
-                  history=None, after_hits=None, focus=None):
+                  history=None, after_hits=None, focus=None,
+                  active_consequences=None):
     """多角色沙盘模式（环境推手作为外部导演，不登场）：返回 messages 列表。
 
     cards_present: {名字: 角色卡}（全部为 NPC，环境推手不在其中）
     directive:     环境推手（外部导演）本回合注入的扰动指令
     world_hits:    已剔除潜伏秘密的世界书命中
     snap:          当前快照（来自 memory.load）
+    active_consequences: 本轮被触发词激活的旧账文案列表（导演简报 A2 产出，可为空）。
+                    此前该值只进日志、不进提示词，导致后果账本无法真正回响。
     """
     blocks = []
 
@@ -129,18 +132,55 @@ def build_session(cards_present, directive, world_hits, snap,
     for name, card in cards_present.items():
         goal = snap["goals"].get(name, "")
         hint = ""
-    for s in snap["secrets"]:
-        owner = s["owner"]
-        knowers = [k for k in s.get("known_by", []) if k != ENV_PUSHER and k != owner]
-        holders = [k for k in (s.get("holders") or s.get("known_by", []))
-                   if k != ENV_PUSHER and k != owner]
-        if not knowers:
-            continue
-        names = "、".join(knowers)
-        if name == owner:
-            hint += "\n  （你的秘密「" + s["content"][:60] + "」已被 " + names + " 知晓，须应对其反应）"
-        elif name in holders:
-            hint += "\n  （你握有 " + owner + " 的把柄：" + s["content"][:80] + "，可据此行动）"
+        # 秘密提示：逐条检查本角色相关的秘密状态，注入对应提示（须嵌套在 per-character 循环内）
+        for s in snap["secrets"]:
+            owner = s["owner"]
+            knowers = [k for k in s.get("known_by", []) if k != ENV_PUSHER and k != owner]
+            holders = [k for k in (s.get("holders") or s.get("known_by", []))
+                       if k != ENV_PUSHER and k != owner]
+            # 暴露底线（bottom_line）：秘密一旦被揭开的后果。此前该字段存进快照却从未
+            # 被引擎消费，导致曝光后没有代价压力、张力落空。仅归属者与握把柄者可见——
+            # 不知情者不剧透（信息边界不变）。
+            bottom = (s.get("bottom_line") or "").strip()
+            # 起疑者（线索逼近但尚未证实）：与知情者严格区分——他们只拿到疑点，
+            # 拿不到秘密真相，否则等于凭空剧透（信息边界须与潜伏期一致）。
+            susp = [x for x in (s.get("suspicions") or [])
+                    if x.get("by") and x.get("by") != ENV_PUSHER and x.get("by") != owner]
+            if name == owner:
+                # 私有底牌：仅归属者本人可见，被触及/追问时由他决定是否吐露；
+                # 一旦吐露须忠于世界书真相，不得歪曲事实或嫁祸他人（根治「甩锅」式自由创作）。
+                # 这是 v0.9.0 修复：此前秘密潜伏时文本不进 prompt，导致「暴露」必然是
+                # 模型自由填空、极易违背设定（如把灾祸因果甩给无辜角色）。
+                hint += "\n  （只有你自己知道的底牌：「" + s["content"] + "」。"
+                hint += "被触及或追问时由你决定是否吐露；若吐露须忠于以上真相，"
+                hint += "不得歪曲事实、不得把过错推给他人。）"
+                if bottom:
+                    hint += " ｜ 一旦被揭开，后果是：" + bottom + "——这是你死守它的理由。"
+                if knowers:
+                    hint += " ｜ 该秘密现已被 " + "、".join(knowers) + " 知晓，须应对其反应。"
+                if susp:
+                    # 逼近警告：有人已经在摸到边了，但还没证实。给归属者可演的应对空间
+                    # （掩饰、转移视线、反制、抢先开口），把曝光前的过程变成戏。
+                    names = "、".join(x["by"] for x in susp)
+                    clue = (susp[0].get("clue") or "").strip()[:60]
+                    hint += " ｜ 已经有人在逼近它：" + names
+                    if clue:
+                        hint += "（其疑点：\"" + clue + "\"）"
+                    hint += "。他们尚未证实，你可掩饰、转移视线或反制，但不得主动交出底牌。"
+            elif name in holders:
+                # 握把柄者已知情，故拿到完整事实（此前截断到 80 字会造成信息缺口，
+                # 与归属者拿全文不一致）；同时告知揭开的后果，使其能权衡是否使用这张牌。
+                hint += "\n  （你握有 " + owner + " 的把柄：" + s["content"] + "，可据此行动"
+                if bottom:
+                    hint += " ｜ 一旦揭开的后果：" + bottom
+                hint += "。）"
+            elif any(x["by"] == name for x in susp):
+                # 起疑者只拿到自己那一处疑点，不知道真相全貌：可以试探、观察、追问，
+                # 但不得当作既成事实断言（防「起疑即坐实」把张力提前耗尽）。
+                clue = next((x.get("clue") or "").strip()[:60]
+                            for x in susp if x["by"] == name)
+                hint += "\n  （你对 " + owner + " 起了疑：" + (clue or "有说不通的地方")
+                hint += "。这只是疑点、尚未证实，可试探、观察、追问，但不得当作事实断言。）"
         # 人设块：描述 + 性格 + 核心渴望（驱动力）+ 核心恐惧（底线），分层明确
         block = "【" + name + "】\n" + card.get("description", "")
         if card.get("personality"):
@@ -168,6 +208,10 @@ def build_session(cards_present, directive, world_hits, snap,
         "禁止次日无痕重置。⑤ 关系机会必须兑现：角色关系（好感/对立/和解）的推进须由剧情自然落到具体互动上，"
         "不得只铺垫不推进。"
         "⑥ 环境推手（导演）不登场、不说话，只通过下方指令扰动世界；环境推手指令优先。"
+        "⑦ 人设底线不可违背：角色块的「核心渴望」与「核心恐惧」是该角色的根本动机与红线，"
+        "任何叙事不得让角色做出与之直接相反的选择（例如护子心切的母亲不会主动配合伤害孩子、"
+        "以救人为天职的护士不会见死不救）。确有更强动机时，必须先写出其内心挣扎与被迫让步的过程，"
+        "不得毫无铺垫地翻转。"
     )
     # 提取指令点名的在场角色，作为本轮硬性叙事焦点
     named = [n for n in cards_present if n in (directive or "")]
@@ -186,7 +230,7 @@ def build_session(cards_present, directive, world_hits, snap,
     sc = snap["scene"]
     weather = ("｜ 天气：" + sc["weather"]) if sc.get("weather") else ""
     rel = "\n".join(k + ": " + v for k, v in snap["relations"].items()) or "（初始）"
-    # 关联但无独立角色卡的"背景人物"（如林梦琪）：仅可作背景提及，
+    # 关联但无独立角色卡的"背景人物"（如某位仅被提及的亲属）：仅可作背景提及，
     # 其关系定位为既定事实，严禁模型改写或升级（小姨子→妻子类漂移在此被提示约束）
     card_names = set(cards_present.keys())
     rel_names = set()
@@ -208,8 +252,15 @@ def build_session(cards_present, directive, world_hits, snap,
             "即视为越界（引擎会强制清洗并报警），务必避免。"
         )
     cons = "\n".join("- " + l["account"] for l in snap.get("ledger", [])) or "（暂无）"
+    state_block = "[关系与状态（不可违背）]\n关系：\n" + rel + offscreen_note + "\n旧账：\n" + cons
+    if active_consequences:
+        # 被本轮情境触动的旧账：要求体现在叙事里，否则写账毫无意义。
+        state_block += ("\n【本轮被触动的旧账】\n"
+                        + "\n".join("- " + a for a in active_consequences)
+                        + "\n以上旧账与本轮情境相关，人物的提防、为难、报复、和解或回避"
+                          "都须在叙事中体现，不得装作无事发生。")
     blocks.append(
-        "[关系与状态（不可违背）]\n关系：\n" + rel + offscreen_note + "\n旧账：\n" + cons
+        state_block
         + "\n回合：" + str(sc["round"])
         + "\n场景：" + sc.get("place", "") + "（" + (sc.get("time") or "时间未明") + "）" + weather
         + "\n（以上关系为推演既定事实，写作时严格遵循，不得自行推断、改写或升级）"

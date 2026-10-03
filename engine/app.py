@@ -414,6 +414,17 @@ def act():
         present = snap["present"]                  # 全部为 NPC，环境推手不在场
         cards_present = {c: store.load_card(c) for c in present}
 
+        # 会话级辅助群演：解析导演显式【引入角色】指令并登记（早于生成，使本轮即被识别为合法参与者）
+        if directive:
+            intro = director.parse_aux_introductions(directive)
+            if intro:
+                intro_names = [n for n, _ in intro]
+                intro_notes = {n: r for n, r in intro if r}
+                added = director.register_aux(snap, intro_names, snap["scene"]["round"], intro_notes)
+                if added:
+                    logger.info("aux", "显式登记辅助群演：" + "、".join(added))
+                    memory.save(sid, snap)
+
         # 导演简报（含秘密状态更新、回合数、机会等级）
         brief, snap = director.brief(sid, directive)
         logger.info("director", "导演简报：回合 R" + str(brief["round"])
@@ -456,6 +467,7 @@ def act():
             history=history,
             after_hits=after_hits,
             focus=focus,
+            active_consequences=brief.get("active_consequences") or [],
         )
         messages = hooks.emit("prompt_ready", messages=messages, snap=snap)["messages"]
         tok = sum(prompter.count_tokens(m.get("content", "")) for m in messages)
@@ -518,10 +530,13 @@ def act():
         full = narrative_clean.clean_narrative(full)
         # present 名单校验/后处理：剥离非在场角色（含已离场者、环境推手）的台词块；
         # 若本轮有镜头焦点，则按焦点子集裁剪，使镜头真正跟随被引向的角色，其余在场者不展开
-        known = store.list_characters()
-        focus_subjects = focus["subjects"] if focus else None
+        # 会话级辅助群演（导演/叙事引入的临时角色，如半路加入的配角）：并入已知名与保留集，
+        # 使其在叙事里的台词/动作被识别为合法参与者，不被误剥离或误判为背景活动化。
+        aux_names = [a["name"] for a in snap.get("aux", [])]
+        known = store.list_characters() + aux_names
+        keep_set = (set(focus["subjects"]) if focus else set(present)) | set(aux_names)
         full, present_violation = director.validate_present(
-            full, present, known, allowed=focus_subjects)
+            full, present, known, allowed=list(keep_set))
         if present_violation:
             logger.warn("model", "在场校验：剥离了非在场角色的台词块（已自动清洗）")
         else:
@@ -548,6 +563,17 @@ def act():
         else:
             logger.info("model", "背景人物自检通过："
                         + ("、".join(offscreens) + " 保持背景" if offscreens else "无背景人物"))
+        # 自动登记本轮新出现的辅助群演（导演/叙事引入的临时角色），保障跨回合连续性；
+        # 不污染角色卡库/世界书/分发，仅存于本会话快照，会话结束即销毁。
+        bg_names = director.background_names_from_relations(snap, present)
+        aux_exclude = (set(present) | set(store.list_characters())
+                       | set(aux_names) | set(bg_names) | {director.ENV_PUSHER})
+        new_aux = director.discover_aux_speakers(full, aux_exclude)
+        if new_aux:
+            added = director.register_aux(snap, new_aux, snap["scene"]["round"], None)
+            if added:
+                memory.save(sid, snap)
+                logger.info("aux", "自动登记辅助群演：" + "、".join(added))
         # 注：原始 token 已实时流式回传，此处不再回吐整段以免重复；
         # 校验后的 canonical 文本经末尾 done.reply 回传，前端据此对齐（极少剥离时无缝修正）。
 

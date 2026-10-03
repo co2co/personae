@@ -8,6 +8,7 @@ import re
 
 import memory
 import llm
+import logger
 import store
 
 ENV_PUSHER = "环境推手"
@@ -45,7 +46,81 @@ def _record_exposure(s, by, via, round_no):
     if by not in s["holders"]:
         s["holders"].append(by)
     s.setdefault("exposures", []).append({"by": by, "via": via, "round": round_no})
+    # 确知情即结算其起疑记录：起疑是逼近过程，曝光是终点，二者不并存
+    _clear_suspicion(s, by)
     s["state"] = _secret_state(s["holders"])
+
+
+def _ledger_entry(snap, secret, by, round_no):
+    """秘密曝光即记一笔后果账——让「被揭开的代价」能跨轮回响。
+
+    账目由导演简报 A2 按触发词激活后注入提示词（此前 active_consequences 只进日志）。
+    trigger_keys 复用世界书秘密条目的 keys 字段：该字段在旧词表判定方案废弃后一度成为
+    死字段，此处复活为「回响触发词」；keys 为空时退回归属者名字。
+    一条秘密对同一知情者只记一次（由 reflect 的 by not in holders 保证）。
+    """
+    owner = secret.get("owner", "")
+    content = (secret.get("content") or "").strip()
+    bottom = (secret.get("bottom_line") or "").strip()
+    account = f"{owner} 的秘密已被 {by} 知晓（R{round_no}）：{content}"
+    if bottom:
+        account += f" ｜ 后果底线：{bottom}"
+    keys = [k for k in (secret.get("keys") or []) if k]
+    if not keys:
+        keys = [owner] if owner else []
+    entry = {
+        "account": account,
+        "trigger_keys": keys,
+        "round": round_no,
+        "source": "secret",
+        "owner": owner,
+        "by": by,
+    }
+    snap.setdefault("ledger", []).append(entry)
+    return entry
+
+
+# 每条秘密最多保留的起疑条数：叙事注意力有限，久远的疑点不该一直压着人物。
+_SUSPICION_CAP = 4
+
+
+def _record_suspicion(s, by, clue, round_no):
+    """记录一次「起疑」——线索逼近但尚未坐实，是潜伏与曝光之间的中间态。
+
+    曝光是二值且不可逆的，而戏剧张力最足的恰恰是曝光之前那段逼近过程。
+    起疑只记「谁、因为什么疑点、在哪一轮」，**绝不存秘密真相**：起疑者尚未证实，
+    引擎不得因起疑而剧透全文（信息边界与潜伏期一致）。
+
+    同一人对同一秘密只保留最新一条疑点；一旦他确已知情（曝光），其起疑记录
+    由 _record_exposure 结算移除，避免「已知情」与「起疑」两种提示同时注入。
+    返回 True 表示确有变更。
+    """
+    susp = s.setdefault("suspicions", [])
+    entry = {"by": by, "clue": (clue or "").strip()[:120], "round": round_no}
+    for i, old in enumerate(susp):
+        if old.get("by") == by:
+            if old.get("clue") == entry["clue"] and old.get("round") == round_no:
+                return False
+            susp[i] = entry
+            return True
+    susp.append(entry)
+    if len(susp) > _SUSPICION_CAP:
+        del susp[:len(susp) - _SUSPICION_CAP]
+    return True
+
+
+def _clear_suspicion(s, by):
+    """某人确已知情后结算其起疑记录。
+
+    知情是起疑的终态，两者并存会同时注入「你在怀疑他」与「你握有他的把柄」
+    两种提示，自相矛盾。
+    """
+    susp = s.get("suspicions") or []
+    rest = [x for x in susp if x.get("by") != by]
+    if len(rest) == len(susp):
+        return False
+    s["suspicions"] = rest
+    return True
 
 
 def _release_handle(s, frm, to, round_no):
@@ -70,6 +145,16 @@ def _release_handle(s, frm, to, round_no):
     return True
 
 
+def _norm_text(s):
+    """归一化：折叠所有空白字符。
+
+    纪官引用的原文常带换行/缩进差异（正文里是空行分段，引用时挤成一行），
+    逐字比对会被这类纯排版差异误杀，故比对前统一折叠空白。
+    注意：只消排版差异，**不消字面差异**——把「她」改写成角色名这类篡改仍会被拒绝。
+    """
+    return re.sub(r"\s+", "", s or "")
+
+
 def _evidence_ok(evidence, reply):
     """结构校验：LLM 的举证必须是本轮正文的原文片段。
 
@@ -79,10 +164,10 @@ def _evidence_ok(evidence, reply):
     举证缺失或不匹配时丢弃该条目：宁可漏记（状态滞后），不可误记
     （秘密提前暴露 -> 张力提前消耗、机会等级被顶格）。
     """
-    e = (evidence or "").strip()
+    e = _norm_text(evidence)
     if len(e) < EVIDENCE_MIN_LEN:
         return False
-    return e in (reply or "")
+    return e in _norm_text(reply)
 
 
 # ---- 身体接触词表 / 机会等级触发源已随 NSFW 整体废弃（v0.8.0）----
@@ -152,6 +237,9 @@ def brief(sid, directive):
     for l in snap["ledger"]:
         if not l.get("last_called") and any(k in text for k in l.get("trigger_keys", [])):
             active.append(l["account"])
+            # 激活即结算：一条旧账只回响一次。此前从不写 last_called，命中后会每轮
+            # 重复激活、把旧账变成常驻噪音（因账本本就无写入者，该问题从未暴露）。
+            l["last_called"] = snap["scene"]["round"] + 1
 
     # A4 场景计数
     snap["scene"]["round"] += 1
@@ -198,7 +286,7 @@ def validate_present(reply, present, known_names, allowed=None):
     if not reply or not known_names or not keep:
         # 保留集合为空（异常态）时无法校验，原样返回，绝不把整段回复剥空
         return reply, False
-    # 长名优先，避免短名误匹配长名前缀（如"老周" vs "老周的朋友"）
+    # 长名优先，避免短名误匹配长名前缀（如 "X" vs "X的朋友"）
     names_sorted = sorted(set(known_names), key=len, reverse=True)
     pat = re.compile(r"^(?:" + "|".join(re.escape(n) for n in names_sorted) + r")\s*[:：]")
     out, dropping, violated = [], False, False
@@ -216,6 +304,89 @@ def validate_present(reply, present, known_names, allowed=None):
                 continue
             out.append(ln)
     return "\n".join(out), violated
+
+
+# ---- 会话级辅助群演注册表（aux registry）----
+# 导演/叙事在推演中刻意引入的临时辅助角色（如半路加入的配角）：随会话存续，不进角色卡库、
+# 不进世界书、不进分发 zip。作用：① 被引擎识别（不误判为模型幻觉或背景人物活动化）；
+# ② 跨回合名字与身份一致（continuity）；③ 存活于快照、便于复盘，但不污染 DEMO 红线。
+_AUX_BEAT_WORDS = {
+    "小声", "低声", "轻声", "大声", "旁白", "此时", "片刻", "突然", "接着", "随后",
+    "于是", "然而", "可是", "但是", "原来", "现在", "之后", "之前", "不久", "很快",
+    "终于", "其实", "显然", "看来", "似乎", "突然间", "那一刻", "与此同时", "过了一会",
+    "半晌", "良久", "少顷", "俄而", "须臾", "片刻后", "不多时", "话音未落",
+    # 元信息/说明前缀（非人名）：避免被误登记为辅助群演
+    "提示", "注", "注释", "说明", "规则", "注意", "备注", "解说", "字幕", "画外音",
+    "系统", "导演", "PS", "Ps", "ps", "此处", "这时", "这时", "至此", "总之",
+    "换言之", "话说", "且说", "却说", "须知", "概言之",
+}
+_AUX_SPEAKER_RE = re.compile(r"^([\u4e00-\u9fffA-Za-z·•]{1,8})\s*[:：]")
+
+
+def discover_aux_speakers(reply, exclude):
+    """从本轮叙事里发现尚未登记的「说话人式」名字，作为候选辅助群演。
+
+    exclude：已知名字集合（在场角色 + 角色卡库 + 已登记 aux + 背景人物 + 环境推手），
+    这些不算新群演。返回去重后的新名字列表（已排除常见叙事节拍词/元信息前缀，
+    仅保留 2~6 字、疑似人名的片段）。
+    """
+    if not reply:
+        return []
+    out, seen = [], set(exclude or [])
+    for ln in reply.split("\n"):
+        m = _AUX_SPEAKER_RE.match(ln.strip())
+        if not m:
+            continue
+        name = m.group(1).strip()
+        if not name or name in seen or name in _AUX_BEAT_WORDS:
+            continue
+        if len(name) > 6 or len(name) < 2:
+            continue
+        out.append(name)
+        seen.add(name)
+    return out
+
+
+def register_aux(snap, names, round_no, notes=None):
+    """把若干名字登记进快照 aux 注册表（去重，避免重复登记）。
+
+    notes：可选 {名字: 身份说明}，来自导演显式【引入角色】指令。
+    返回新增的名字列表（便于日志与前端呈现）。
+    """
+    aux = snap.setdefault("aux", [])
+    existing = {a.get("name") for a in aux}
+    added = []
+    notes = notes or {}
+    for n in names:
+        if not n or n in existing:
+            continue
+        existing.add(n)
+        aux.append({
+            "name": n,
+            "role": notes.get(n) or "会话群演（导演/叙事引入）",
+            "intro_round": round_no,
+            "note": "",
+            "status": "活跃",
+        })
+        added.append(n)
+    return added
+
+
+def parse_aux_introductions(directive):
+    """解析导演指令里的显式引入标记：【引入角色】名字｜身份：说明。
+
+    返回 [(名字, 身份说明), ...]，供 register_aux 登记。无则空列表。
+    该标记仅作服务端登记用途；导演也可直接在叙事里写「名字：」让引擎自动发现。
+    """
+    if not directive:
+        return []
+    pat = re.compile(r"【引入角色】\s*([^｜\n]+)\s*(?:｜\s*身份[：:]\s*([^\n]+))?")
+    out = []
+    for m in pat.finditer(directive):
+        name = m.group(1).strip()
+        if name:
+            out.append((name, (m.group(2) or "").strip()))
+    return out
 
 
 def background_names_from_relations(snap, present):
@@ -238,7 +409,7 @@ def detect_offscreen_activity(reply, background_names):
     仅检测、不删正文（背景被在场角色提及本身是允许的，误删风险高）。返回 (是否失责, 命中行列表)。
     命中两类：
       ① 背景人物获得独立台词块（'背景名：' 起头）——被写了对白/独白；
-      ② 第三人称段落以背景人物为主语并含动作/出场信号（如「林梦琪从门后走出」）——被写成主角行动。
+      ② 第三人称段落以背景人物为主语并含动作/出场信号（如「X从门后走出」）——被写成主角行动。
     """
     if not reply or not background_names:
         return False, []
@@ -270,7 +441,7 @@ def seed_relations_from_cards(cards_present):
 
     这是 simon 在角色卡里**显式写下**的关系网，作为权威基线（relations_base），
     优先级高于 LLM 自由生成——避免 LLM 把"小姨子"推成"妻子"之类漂移。
-    卡片 relations 字段形如 { "周牧野": "丈夫…", "林梦琪": "妹妹…" }，
+    卡片 relations 字段形如 { "角色A": "丈夫…", "角色B": "妹妹…" }，
     逐条转成 "{卡名} → {目标}": 描述。
     """
     out = {}
@@ -370,7 +541,7 @@ def fill_relation_gaps(snap):
     推断结果写回 snap["relations"] 与 snap["relations_base"]（受 v0.7.6 亲属冻结保护）。
 
     旧逻辑仅在「全部卡的 relations 合并为空」时才推断，导致「大部分有、个别缺」的剧本
-    （如周晓杰卡空且不被他人提及）漏网；本函数改为按「单个在场角色是否缺边」触发，
+    （如某张卡 relations 为空、且不被他人提及）漏网；本函数改为按「单个在场角色是否缺边」触发，
     手填齐全的卡不触发任何 LLM 调用，零开销。
     """
     present = snap.get("present") or []
@@ -411,8 +582,12 @@ def reflect(sid, reply):
     sec_lines = []
     for s in snap.get("secrets", []):
         kb = [k for k in (s.get("holders") or s.get("known_by", [])) if k != ENV_PUSHER]
-        sec_lines.append(f"{s.get('owner')}（{s.get('state')}｜握有把柄者："
-                         f"{'、'.join(kb) if kb else '无'}）")
+        sp = [x.get("by") for x in (s.get("suspicions") or []) if x.get("by") != ENV_PUSHER]
+        line = (f"{s.get('owner')}（{s.get('state')}｜握有把柄者："
+                f"{'、'.join(kb) if kb else '无'}")
+        if sp:
+            line += f"｜已起疑者：{'、'.join(sp)}"
+        sec_lines.append(line + "）")
     secret_text = "\n".join(sec_lines) or "（无秘密）"
 
     prompt = [
@@ -430,6 +605,7 @@ def reflect(sid, reply):
             '  "actions": { "角色名": "本轮该角色做的一句具体行为（不含关系定性，只写这回合发生了什么）" },\n'
             '  "goals": { "角色名": "新的短期目标" },\n'
             '  "secret_exposures": [{"owner": "秘密归属者", "by": "本轮得知该秘密的角色名", "evidence": "本轮叙事原文片段"}],\n'
+            '  "secret_suspicions": [{"owner": "秘密归属者", "by": "本轮起了疑心的角色名", "evidence": "本轮叙事原文片段（引发怀疑的那句话/那个细节）"}],\n'
             '  "handle_releases": [{"owner": "秘密归属者", "from": "失去把柄的人", "to": "接过把柄的人（彻底失去则填空字符串）", "evidence": "本轮叙事原文片段"}]\n'
             "}\n"
             "规则：\n"
@@ -437,8 +613,11 @@ def reflect(sid, reply):
             "- 亲属身份是固定事实：父子/母子/夫妻/兄弟姐妹等血缘与姻亲身份由作者设定，只能演化其情感状态（如加「关系紧张」「疏离」），绝对不得改写为另一种亲属身份（例如不得把「父亲」写成「姐夫」、把「母亲」写成「嫂子」）。\n"
             "- actions 覆盖本轮所有在场角色的一句行为摘要，用于展示\'这回合谁做了什么\'；这是回合级信息，可每轮整体覆盖。\n"
             "- secret_exposures 只填本轮叙事里**确实发生**了「某人得知了某秘密」的条目；仅凭角色起了疑心、或只是提到相关物品，都不算。\n"
+            "- secret_suspicions 填**线索逼近但尚未坐实**的条目：某人察觉对方言行反常、追问只得到含糊其辞的回答、发现了与旧事相关的物品或痕迹、或对某人的说法明显不信。只有当事人已经确知真相才算 secret_exposures，不算起疑。\n"
+            "- secret_suspicions 的 by 不能是秘密归属者本人，也不能是已确知该秘密的人；同一处细节不要同时填进 secret_exposures 与 secret_suspicions，拿不准就填起疑（较轻），宁可让秘密晚一点被揭开。\n"
             "- handle_releases 只填本轮叙事里**确实发生**了「把柄消失或转手」的条目：例如药物/证据/信件被丢弃、被夺走、交给第三方、或当众说开后不再构成胁迫。to 为空字符串表示彻底消失。\n"
-            "- evidence **必须逐字照抄**本轮叙事中的一段连续原文（不要改写、不要概括），引擎会核验它是否真的出现在叙事里；照抄不到原文就不要填该条目。\n"
+            "- evidence **必须逐字照抄**本轮叙事中的一段连续原文（不要改写、不要概括、不要润色），引擎会逐字核验它是否真的出现在叙事里；照抄不到原文就不要填该条目。\n"
+            "- 照抄时**不得改动任何一个字**：正文写「她看得很清楚」就照抄「她看得很清楚」，不得把代词替换成角色名写成「林清看得很清楚」，也不得增删标点——改了字就核验不过，该条目会被丢弃。\n"
             "- 宁可少填也不要误填：填错会让秘密提前暴露或让把柄凭空失效。"
         )},
     ]
@@ -466,7 +645,7 @@ def reflect(sid, reply):
                     v = _preserve_kinship(base[k], v)
                 snap["relations"][k] = v
             else:
-                # 涉及未在场/无卡关联人物（如林梦琪）：冻结为初始关系定位，
+                # 涉及未在场/无卡关联人物（如某位仅被提及的亲属）：冻结为初始关系定位，
                 # 禁止模型改写或升级（"小姨子"被写成"妻子"类漂移即在此拦截）。
                 # 初始表无此键则丢弃该越权关系，不引入新条目。
                 if k in base:
@@ -486,12 +665,39 @@ def reflect(sid, reply):
         if by != ENV_PUSHER and by not in present:
             continue
         if not _evidence_ok(exp.get("evidence"), reply):
+            # 举证不通过＝纪官上报了正文里没有的字面内容（多为改写/润色）。
+            # 此前会静默丢弃，压测中表现为「线索明明出现却没归档」，难以定位；此处留痕。
+            logger.warn("secret", "曝光举证未通过，已丢弃：%s 得知 %s 的秘密"
+                        % (by, owner))
             continue
         for s in snap.get("secrets", []):
             holders = s.setdefault("holders", list(s.get("known_by", [])))
             if s.get("owner") == owner and by not in holders:
                 _record_exposure(s, by, "叙事揭露", snap["scene"]["round"])
+                _ledger_entry(snap, s, by, snap["scene"]["round"])
                 break
+
+    # 起疑（线索逼近）：同样按举证归档。只记疑点、不记真相，起疑者不得因此剧透。
+    # 这是「潜伏／曝光」二态之外的中间态——曝光前的逼近过程才是张力最足的一段。
+    for sus in (data.get("secret_suspicions") or []):
+        owner = sus.get("owner")
+        by = sus.get("by")
+        if not owner or not by or by == owner:
+            continue
+        if by != ENV_PUSHER and by not in present:
+            continue
+        if not _evidence_ok(sus.get("evidence"), reply):
+            logger.warn("secret", "起疑举证未通过，已丢弃：%s 对 %s 起疑"
+                        % (by, owner))
+            continue
+        for s in snap.get("secrets", []):
+            if s.get("owner") != owner:
+                continue
+            # 已确知真相者不再记起疑（知情是起疑的终态）
+            if by in (s.get("known_by") or []) or by in (s.get("holders") or []):
+                continue
+            _record_suspicion(s, by, sus.get("evidence"), snap["scene"]["round"])
+            break
 
     # 把柄消除：同样按举证归档。仅操作 holders（握把柄者），known_by 保持不变；
     # holders 清空时 _secret_state 自动回落「潜伏」（状态回落路径）。
