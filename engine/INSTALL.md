@@ -114,7 +114,7 @@ pip install -r requirements.txt
 - `data/worlds/*.json` —— 世界书（可自行添加）
 - `data/config.json` —— 系统配置（出厂为空连接）
 
-**分发包随附一套 DEMO 剧本**（「丧尸末日」世界书 + 4 张示例角色卡），用于开箱即用地体验引擎；`data/characters/`、`data/worlds/` 下你自己创作的内容不会被打进分发包。`player-cast/`（玩家设定）也始终不随包分发。
+**分发包随附一套 DEMO 剧本**（「客服部之夜」世界书 + 4 张示例角色卡），用于开箱即用地体验引擎；`data/characters/`、`data/worlds/` 下你自己创作的内容不会被打进分发包。`player-cast/`（玩家设定）也始终不随包分发。
 （运行时产生的会话记录在 `data/sessions/`，状态在 `data/state.json`——这些也不会被打进分发包。）
 
 ---
