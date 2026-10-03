@@ -27,7 +27,7 @@ engine/
 ├── data/
 │   ├── characters/ 角色卡（开放格式 JSON，含核心渴望/恐惧/关系种子等）
 │   ├── worlds/     世界书（条目数组：keys/content/constant/position/depth/name/secret）
-│   └── config.json 系统配置（出厂为空连接；角色卡/世界书/玩家设定目录不随分发包提供，首次运行后自行添加）
+│   └── config.json 系统配置（出厂为空连接）；角色卡/世界书随分发包附赠「丧尸末日」DEMO 剧本，玩家设定（player-cast）不随分发提供
 ├── static/index.html  单页前端
 ├── run.bat         启动（默认端口 5051；先 install.bat）
 ├── install.bat     建 venv + pip 装 requirements.txt
