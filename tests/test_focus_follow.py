@@ -26,6 +26,21 @@ import store      # noqa: E402
 import prompter  # noqa: E402
 
 
+@pytest.fixture(autouse=True)
+def _fake_cards(monkeypatch):
+    """让 store.load_card 不依赖磁盘上的具体角色卡文件（旧剧本已删）。
+
+    本文件用例只关心「镜头焦点」机制，卡片仅需 name 字段即可构造人设块；
+    用内存通用卡片替代磁盘加载，消除「换剧本即红」的既有失败。
+    """
+    def fake_load_card(name):
+        return {"name": name, "relations": {}, "core_desire": "",
+                "core_fear": "", "short_goal": "", "personality": "",
+                "description": ""}
+    monkeypatch.setattr(store, "load_card", fake_load_card)
+    yield
+
+
 def _snap(present, place="下水道", focus=None):
     """构造最小快照（compute_focus / build_session 所需的键）。"""
     return {
@@ -97,7 +112,7 @@ def test_prompter_injects_camera_block():
     snap = _snap(["林晚", "苏曼", "阿杰", "老周", "高洋"], "下水道")
     focus = {"subjects": ["老周", "高洋"], "place": "下水道", "sticky": False}
     msgs = prompter.build_session(
-        cards, "老周带领高洋下去下水道查看", [], snap, "GUARD", "无", focus=focus)
+        cards, "老周带领高洋下去下水道查看", [], snap, [], [], focus=focus)
     text = "\n".join(m["content"] for m in msgs)
     assert "【镜头跟随】" in text
     assert "老周、高洋" in text
@@ -111,7 +126,7 @@ def test_prompter_no_focus_keeps_all_present():
     cards = {n: store.load_card(n) for n in ["老周", "高洋", "林晚"]}
     snap = _snap(["老周", "高洋", "林晚"], "下水道")
     msgs = prompter.build_session(
-        cards, "夜色渐深", [], snap, "GUARD", "无", focus=None)
+        cards, "夜色渐深", [], snap, [], [], focus=None)
     text = "\n".join(m["content"] for m in msgs)
     assert "【镜头跟随】" not in text
     assert "本轮在场角色：" in text
@@ -127,6 +142,12 @@ def client_focus(monkeypatch):
     import app as app_mod
     import llm as llm_mod
     import prompter as prompter_mod
+    import store as store_mod
+
+    # 让 /api/session/new 识别本测试的角色名（磁盘上无这些旧剧本卡），
+    # 避免 cast 被过滤为空导致 400。卡片由 autouse 的 _fake_cards 提供。
+    cast_names = ["林晚", "苏曼", "阿杰", "老周", "高洋"]
+    monkeypatch.setattr(store_mod, "list_characters", lambda: cast_names)
 
     def fake_setting(name):
         defaults = {

@@ -21,13 +21,23 @@ import memory  # noqa: E402
 # 0. relations_base 必须由 memory.new 一并固化（v0.7.7 修复）
 # ---------------------------------------------------------------------------
 
-def test_memory_new_seeds_relations_base():
+def test_memory_new_seeds_relations_base(monkeypatch):
     """真实会话（卡片自带 relations）必须固化 relations_base。
 
     回归护城河：v0.7.4/v0.7.6 的「未在场冻结」「亲属身份冻结」都以 relations_base
     为唯一可信源；若 memory.new 不固化，真实会话（卡片有 relations 时跳过 app.py
     固化分支）会让 relations_base 为空，两道闸静默失效。
+
+    卡片与世界书用内存 mock 提供（旧剧本「丧尸末日」已删），不依赖磁盘文件。
     """
+    cards = {
+        "陈锋": {"name": "陈锋", "relations": {"夏雨": "妻子"},
+                "core_desire": "", "core_fear": "", "short_goal": ""},
+        "夏雨": {"name": "夏雨", "relations": {"陈锋": "丈夫"},
+                "core_desire": "", "core_fear": "", "short_goal": ""},
+    }
+    monkeypatch.setattr(memory.store, "load_card", lambda name: cards[name])
+    monkeypatch.setattr(memory.store, "load_world", lambda name: [])
     sid = memory.new(["陈锋", "夏雨"], scene_place="安全屋", world_name="丧尸末日")
     try:
         snap = memory.load(sid)
