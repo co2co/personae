@@ -599,6 +599,9 @@ def act():
 
         # 状态机回写：把本轮推演产生的后果（关系/目标/秘密揭露/行动状态）落回快照。
         # 行动状态（主动/无行动）由纪官依据行为摘要判定，见 director._update_silent_rounds。
+        # 纪官是非流式 LLM 调用，耗时与正文相当；在进入前先回一条「同步中」状态，
+        # 让前端把输入框显式切到「后台同步」提示，避免玩家误以为可输入下一回合。
+        yield "data: " + json.dumps({"status": "正在同步本回合状态…"}, ensure_ascii=False) + "\n\n"
         director.reflect(sid, full)
         snap_now = memory.load(sid)
         exposed = [s for s in snap_now.get("secrets", []) if s.get("state") != "潜伏"]

@@ -62,8 +62,6 @@ def new(cast, scene_place="", world_name=""):
     # （两者皆无则留空，由推演引擎在首轮后自动补写）
     goals = {c: (cards[c].get("short_goal") or cards[c].get("core_desire") or "")
              for c in present}
-    # 行动状态：铁律里的“主动/防御/无行动”，由每轮谁在正文里出现来廉价判定
-    action_state = {c: "主动" for c in present}
 
     snap = {
         "present": present,
@@ -78,7 +76,6 @@ def new(cast, scene_place="", world_name=""):
         "secrets": secrets,
         "ledger": [],
         "goals": goals,
-        "action_state": action_state,
         # 连续静默轮数：由纪官输出的 actions 判定（某角色本轮无任何行为摘要则 +1）。
         # 用于「在场即须留痕」——连续沉默到阈值即注入硬性焦点，避免角色在长弧里被遗忘。
         "silent_rounds": {c: 0 for c in present},

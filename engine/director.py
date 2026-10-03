@@ -666,17 +666,13 @@ def _update_silent_rounds(snap, present):
     acts = snap.get("actions") or {}
     focus_subjects = set((snap.get("focus") or {}).get("subjects") or [])
     silent = snap.setdefault("silent_rounds", {})
-    # 侧栏展示的「主动／无行动」与静默计数同一源（纪官行为摘要），避免两套判据不一致。
-    state = snap.setdefault("action_state", {})
     for c in present:
         if focus_subjects and c not in focus_subjects:
             continue
         if (acts.get(c) or "").strip():
             silent[c] = 0
-            state[c] = "主动"
         else:
             silent[c] = silent.get(c, 0) + 1
-            state[c] = "无行动"
 
 
 def _update_secret_pressure(snap, touches):
