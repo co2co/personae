@@ -644,6 +644,16 @@
         <div class="panel-head"><h3>秘密</h3><span class="panel-toggle">▾</span></div>
         <div class="panel-body"><div id="secrets"></div></div>
       </div>
+      <div class="panel" data-collapse>
+        <div class="panel-head"><h3>既定事实（不可逆转）</h3><span class="panel-toggle">▾</span></div>
+        <div class="panel-body"><div id="facts"></div>
+          <div style="margin-top:6px;font-size:11px;color:var(--muted)">仅收录改不回来的事实；抽错可点「作废」，引擎不会自动改写。</div>
+        </div>
+      </div>
+      <div class="panel" data-collapse>
+        <div class="panel-head"><h3>当前状态（可被改写）</h3><span class="panel-toggle">▾</span></div>
+        <div class="panel-body"><div id="states"></div></div>
+      </div>
     </div>
   </aside>
 
@@ -803,6 +813,46 @@ function renderSnapshot(snap) {
     return `<div class="sec-row">${s.owner}：<span class="sec-state ${cls}">${s.state}</span> ${tag}</div>`;
   }).join('') || '<div class="sec-row">（无）</div>';
 
+  // 既定事实（常量层）：只增不改，作者可手动作废
+  document.getElementById('facts').innerHTML = (snap.facts || []).map(f => {
+    const txt = f.text || '';
+    const rd = `<span style="color:var(--muted);font-size:11px">R${f.round == null ? '' : f.round}</span>`;
+    if (f.invalid) {
+      return `<div class="rel-row"><s style="opacity:.55">${txt}</s> ${rd}
+        <span style="font-size:11px;opacity:.6">已作废</span></div>`;
+    }
+    return `<div class="rel-row">${txt} ${rd}
+      <a href="javascript:void(0)" class="fact-drop" data-text="${encodeURIComponent(txt)}"
+         style="font-size:11px;color:var(--muted)">作废</a></div>`;
+  }).join('') || '<div class="rel-row">（无）</div>';
+  document.querySelectorAll('#facts .fact-drop').forEach(a => {
+    a.onclick = async (e) => {
+      e.preventDefault();
+      const text = decodeURIComponent(a.dataset.text || '');
+      if (!confirm('作废这条既定事实？作废后不再约束后续叙事，但会留痕保存。')) return;
+      await fetch('/api/fact/invalidate', {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({session: SID, text, reason: '作者手动作废'}),
+      });
+      refreshSnapshot();
+    };
+  });
+
+  // 当前状态（状态层）：一键一当前值，后写覆盖前写
+  document.getElementById('states').innerHTML = Object.entries(snap.states || {})
+    .map(([k, v]) => `<div class="rel-row">${k}：${(v && v.value) || ''}
+      <span style="color:var(--muted);font-size:11px">R${(v && v.round) == null ? '' : v.round}</span></div>`)
+    .join('') || '<div class="rel-row">（无）</div>';
+
+}
+
+// 重新拉取快照并刷新左栏（用于手动作废事实后就地更新）
+async function refreshSnapshot() {
+  try {
+    const r = await fetch('/api/snapshot?session=' + encodeURIComponent(SID));
+    const snap = await r.json();
+    if (snap && snap.scene) renderSnapshot(snap);
+  } catch (e) { /* 刷新失败不影响主流程 */ }
 }
 
 async function send() {

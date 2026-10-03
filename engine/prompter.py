@@ -14,7 +14,7 @@ build_session 的分层：
 
 import re
 
-from director import ENV_PUSHER
+from director import ENV_PUSHER, SILENT_THRESHOLD, pressure_targets
 
 _START = re.compile(r"<START>", re.I)
 _LINE = re.compile(r"^\s*(?:\{\{user\}\}|<USER>|[Uu]ser)\s*[:：]\s*(.*)$")
@@ -111,6 +111,59 @@ def parse_examples(raw):
     return pairs
 
 
+def _ferment_hint(secret, forced=False):
+    """秘密发酵压力的分档文案。
+
+    数字（pressure）只存在于快照，模型永远看不到——这里只按档位给出递进的具体指令：
+    沉寂久了先要求「露出痕迹」，再久则要求「实质碰撞」。这样既保住原技能
+    「不把计数交给模型」的精神，又补上了换架构后丢失的推进压力。
+
+    forced：本条是否为本轮被提级到[本轮必须发生的事]的那一条。同时只提级一条
+    （PRESSURE_FORCE_LIMIT），其余高压条目不得指向该段——否则会留下找不到出处的指引。
+    """
+    p = secret.get("pressure") or 0
+    if p >= 5:
+        if forced:
+            # 高压档已提级为全局强制段（见 _global_pressure_block），此处只留一句指引，
+            # 避免两段措辞打架、也避免角色块内的长文案被导演指令压掉后无人兜底。
+            return "这条秘密沉得太久了：本轮必须撞出结果，具体要求见[本轮必须发生的事]。"
+        return ("这条秘密也沉寂太久了：本轮必须让它露出痕迹——一次失态、一句说漏嘴、"
+                "一个回避动作，且必须被在场某人注意到。")
+    if p >= 3:
+        return ("这条秘密已经沉寂太久：本轮必须让它在行为层面露出痕迹——一次失态、"
+                "一句说漏嘴、一个回避动作，且必须被在场某人注意到。")
+    return ""
+
+
+def _global_pressure_block(snap, cards_present):
+    """高压秘密的全局强制段：与导演指令同级，位于输出格式之后（近因最强）。
+
+    角色块内的分档文案只是「该角色诸多提示中的一句」，会被导演指令与镜头约束压掉——
+    压测实证：pressure 连续 7 轮封顶仍无碰撞。故高压档单独提级为全局强制段：
+    点名双方、指定碰撞形式；镜头层另由 _merge_pressure_into_focus 保证二人在场内，
+    两段配合才能把「压力」真正撞成戏。
+    """
+    targets = pressure_targets(snap, list(cards_present))
+    if not targets:
+        return ""
+    lines = []
+    for owner, rival in targets:
+        if rival:
+            lines.append(
+                "- " + owner + " 那条秘密已经沉得太久：本轮 " + owner + " 与 " + rival
+                + " 必须发生实质碰撞——当面追问、发现物证、被逼到半招供，三选一。"
+                  "两人须在同一场景内互相在场，不得写成各在一处、也不得由第三人转述。")
+        else:
+            lines.append(
+                "- " + owner + " 那条秘密已经沉得太久，而眼前无人逼近：本轮必须由 "
+                + owner + " 自己露出来——失态、说漏嘴、或留下可被发现的物证，"
+                  "且必须被在场某人注意到。")
+    return ("[本轮必须发生的事]\n以下秘密已经沉寂太久，本轮必须撞出进展：\n"
+            + "\n".join(lines)
+            + "\n本段与导演指令同级：不得以镜头分配、他人戏份或叙事节奏为由略过，"
+              "也不得让当事人本轮依旧毫无相关举动。")
+
+
 def build_session(cards_present, directive, world_hits, snap,
                   history=None, after_hits=None, focus=None,
                   active_consequences=None):
@@ -129,6 +182,9 @@ def build_session(cards_present, directive, world_hits, snap,
         blocks.append("[世界设定]\n" + "\n".join("- " + e["content"] for e in world_hits))
 
     char_blocks = []
+    # 本轮被提级到[本轮必须发生的事]的秘密（同时最多一条）：角色块内的指引要与它对齐，
+    # 否则非提级条目也会指向一个不存在的段落。
+    forced_owners = {o for o, _ in pressure_targets(snap, list(cards_present))}
     for name, card in cards_present.items():
         goal = snap["goals"].get(name, "")
         hint = ""
@@ -167,6 +223,10 @@ def build_session(cards_present, directive, world_hits, snap,
                     if clue:
                         hint += "（其疑点：\"" + clue + "\"）"
                     hint += "。他们尚未证实，你可掩饰、转移视线或反制，但不得主动交出底牌。"
+                # 发酵压力：沉寂过久则从「可掩饰」升级为「必须露出痕迹 / 必须碰撞」。
+                ferm = _ferment_hint(s, forced=(s.get("owner") in forced_owners))
+                if ferm:
+                    hint += " ｜ " + ferm
             elif name in holders:
                 # 握把柄者已知情，故拿到完整事实（此前截断到 80 字会造成信息缺口，
                 # 与归属者拿全文不一致）；同时告知揭开的后果，使其能权衡是否使用这张牌。
@@ -181,6 +241,11 @@ def build_session(cards_present, directive, world_hits, snap,
                             for x in susp if x["by"] == name)
                 hint += "\n  （你对 " + owner + " 起了疑：" + (clue or "有说不通的地方")
                 hint += "。这只是疑点、尚未证实，可试探、观察、追问，但不得当作事实断言。）"
+                # 起疑者与归属者双向加压：只压一边会变成「一直掩饰」或「无凭据乱猜」，
+                # 两边同时施压才会撞出戏。搪塞也算推进，但必须留下没被说服的痕迹。
+                if (s.get("pressure") or 0) >= 3:
+                    hint += (" 这份怀疑本轮必须推进一格：试探、找到新佐证，"
+                             "或被对方搪塞——搪塞也算推进，但要留下你并未被说服的痕迹。")
         # 人设块：描述 + 性格 + 核心渴望（驱动力）+ 核心恐惧（底线），分层明确
         block = "【" + name + "】\n" + card.get("description", "")
         if card.get("personality"):
@@ -192,6 +257,18 @@ def build_session(cards_present, directive, world_hits, snap,
         block += "\n当前意图：" + (goal or "（待生成）") + hint
         char_blocks.append(block)
     blocks.append("[在场角色]\n" + "\n\n".join(char_blocks))
+
+    # 称呼速查：关系定性只说明「是什么关系」，称呼才决定正文里怎么叫。
+    # 缺了它，人设里的「讨好领队」「顶撞权威」这类设定无处落地（压测实证：应有的称呼 0 次，
+    # 反倒是模型即兴发明的叫法乱冒）。故此表为硬约束，不得自创混用。
+    addr_lines = []
+    for k, v in (snap.get("address") or {}).items():
+        if v and str(v).strip():
+            addr_lines.append(k + " 叫对方：" + str(v).strip())
+    if addr_lines:
+        blocks.append("[称呼速查（不可违背）]\n" + "\n".join("- " + l for l in addr_lines)
+                      + "\n正文里角色之间的当面称呼严格按此表使用；不得自创、混用，"
+                        "也不得改用本表之外的叫法。")
 
     # 导演指令 + 铁律（环境推手不登场，只作外部扰动）
     # 关键：把「你是导演引擎」改写为「你是叙事者，须遵循以下约束」——
@@ -221,6 +298,17 @@ def build_session(cards_present, directive, world_hits, snap,
             "\n本回合导演指令点名的角色：" + "、".join(named)
             + "。这些角色必须在本轮出场并推动对应剧情；不得将其写成已离场或移出叙事焦点，"
               "除非指令明确命令其离开。若指令描述某角色前往某地/做某事，必须呈现该角色的相关段落。"
+        )
+    # 在场即须留痕：连续多轮毫无行为的角色（由纪官的行为摘要判定）本轮必须重新进入戏里。
+    # 这是原技能铁律①「每回合每角色必须有动作」在新架构下的落地方式——判定权交给纪官，
+    # 代码只负责累计与提醒，因此不会把有意的沉默（躲避、负气）误判成遗忘。
+    silent = snap.get("silent_rounds") or {}
+    overdue = [n for n in cards_present if (silent.get(n) or 0) >= SILENT_THRESHOLD]
+    if overdue:
+        focus_note += (
+            "\n在场即须留痕：" + "、".join(overdue)
+            + " 已经连续数轮没有任何行为。本轮他们必须各自做出一个指向他人的动作，"
+              "且须被在场某人回应或注意到，不得再无声略过。"
         )
     blocks.append(
         "[导演指令]\n" + laws + "\n\n本回合环境推手注入的扰动：\n"
@@ -259,6 +347,25 @@ def build_session(cards_present, directive, world_hits, snap,
                         + "\n".join("- " + a for a in active_consequences)
                         + "\n以上旧账与本轮情境相关，人物的提防、为难、报复、和解或回避"
                           "都须在叙事中体现，不得装作无事发生。")
+    # 事实保全：常量层（不可逆、不可违背）与状态层（当前值、可被改写）。
+    # 历史被压缩成骨架后，早期确立的世界事实会整段蒸发；这两块常驻提示词、不参与压缩。
+    fact_lines = ["- " + (f.get("text") or "").strip()
+                  for f in (snap.get("facts") or []) if not f.get("invalid")]
+    if fact_lines:
+        blocks.append(
+            "[既定事实（不可违背）]\n" + "\n".join(fact_lines)
+            + "\n以上为推演中已经确立、且在本世界观下不可逆转的事实，严禁写出与之矛盾的内容。"
+              "已登记死亡者不得再有台词、动作或内心活动，只能被他人提及或回忆。"
+        )
+    st_lines = ["- " + k + "：" + (v.get("value") or "")
+                for k, v in (snap.get("states") or {}).items() if v]
+    if st_lines:
+        blocks.append(
+            "[当前状态（可被改写）]\n" + "\n".join(st_lines)
+            + "\n以上为当前状态的最新值；在无新进展前须按此描写，不得写成相反"
+              "（例如门已封死就不得写成通行无阻）。这些状态可被后续剧情改变，"
+              "一旦改变以本轮指令与叙事为准。"
+        )
     blocks.append(
         state_block
         + "\n回合：" + str(sc["round"])
@@ -316,6 +423,10 @@ def build_session(cards_present, directive, world_hits, snap,
     )
     if focus_block:
         blocks.append(focus_block)
+    # 高压秘密的全局强制段（置最后，近因最强；与导演指令同级）
+    pressure_block = _global_pressure_block(snap, cards_present)
+    if pressure_block:
+        blocks.append(pressure_block)
 
     fixed = "\n\n".join(blocks)
     messages = [{"role": "system", "content": fixed}]

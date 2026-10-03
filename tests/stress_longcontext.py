@@ -177,6 +177,25 @@ def run(base_url, rounds, timeout):
                     for s in (snap.get("secrets") or [])
                 },
                 "ledger": len(snap.get("ledger") or []),
+                # v0.9.1 三项改造的采集：发酵压力与连续静默轮数
+                "pressure": {
+                    s.get("owner", "?"): s.get("pressure", 0)
+                    for s in (snap.get("secrets") or [])
+                },
+                "silent": dict(snap.get("silent_rounds") or {}),
+                "address": dict(snap.get("address") or {}),
+                # v0.9.1 发酵补丁：镜头是否因高压秘密被强制并入（forced）
+                "focus_forced": bool((snap.get("focus") or {}).get("forced")),
+                "focus_subjects": list((snap.get("focus") or {}).get("subjects") or []),
+                # 事实保全：常量层（不可逆）与状态层（可刷新）
+                "facts": [{"kind": f.get("kind"), "subject": f.get("subject"),
+                           "text": f.get("text"), "round": f.get("round")}
+                          for f in (snap.get("facts") or []) if not f.get("invalid")],
+                "facts_invalid": [f.get("text") for f in (snap.get("facts") or [])
+                                  if f.get("invalid")],
+                "facts_folded": sum(1 for f in (snap.get("facts") or [])
+                                    if f.get("folded")),
+                "states": dict(snap.get("states") or {}),
                 "relations": snap.get("relations", {}),
                 "present_violation": done.get("present_violation"),
                 "ending": bool(done.get("ending_candidate")),
@@ -257,6 +276,57 @@ def analyze(records, errors):
                 confirmed.add((owner, nm))
     susp_last = sum(len(v) for v in (last.get("suspicions") or {}).values())
 
+    # v0.9.1：在场即须留痕——最长连续沉默轮数、触发过焦点提醒的人次
+    max_silent, silent_alerts = 0, 0
+    for r in ok:
+        sl = r.get("silent") or {}
+        if sl:
+            max_silent = max(max_silent, max(sl.values()))
+        silent_alerts += sum(1 for v in sl.values() if v >= 2)
+    # v0.9.1：秘密发酵压力——是否长期沉寂不推进（峰值）以及是否被叙事触及而回落
+    press_peak = 0
+    press_reset = 0
+    prev_press = None
+    for r in ok:
+        pr = r.get("pressure") or {}
+        if not pr:
+            continue
+        press_peak = max(press_peak, max(pr.values()))
+        if prev_press is not None:
+            press_reset += sum(1 for k, v in pr.items()
+                               if prev_press.get(k, 0) > 0 and v == 0)
+        prev_press = pr
+
+    # 发酵补丁①②的实测效果：高压档（>=5）是否仍长期滞留不碰撞、镜头是否被强制并入
+    high_rounds, max_high_streak, high_collisions = 0, 0, 0
+    streak, prev_high = {}, None
+    for r in ok:
+        pr = r.get("pressure") or {}
+        if not pr:
+            continue
+        if any(v >= 5 for v in pr.values()):
+            high_rounds += 1
+        for k, v in pr.items():
+            if v >= 5:
+                streak[k] = streak.get(k, 0) + 1
+                max_high_streak = max(max_high_streak, streak[k])
+            elif v == 0:
+                streak[k] = 0
+        # 从封顶回落至 0 = 这一轮终于撞出戏（被触及）
+        if prev_high is not None:
+            high_collisions += sum(1 for k, v in pr.items()
+                                   if prev_high.get(k, 0) >= 5 and v == 0)
+        prev_high = pr
+    forced_rounds = sum(1 for r in ok if r.get("focus_forced"))
+
+    # 事实保全：常量层（只增、应稳定不膨胀）与状态层（覆盖式、键数应有界）
+    facts_last = (ok[-1].get("facts") or []) if ok else []
+    fact_kinds = {}
+    for f in facts_last:
+        fact_kinds[f.get("kind") or "?"] = fact_kinds.get(f.get("kind") or "?", 0) + 1
+    first_fact_round = next((r["round"] for r in ok if r.get("facts")), "-")
+    state_sizes = [len(r.get("states") or {}) for r in ok]
+
     return {
         "轮数": n,
         "成功轮数": len(ok),
@@ -281,6 +351,19 @@ def analyze(records, errors):
         "曾起疑的组合数": len(ever_suspects),
         "起疑后确知数": len(confirmed),
         "末轮后果账本条数": last.get("ledger", 0),
+        "最长连续沉默轮数": max_silent,
+        "沉默触发焦点人次": silent_alerts,
+        "秘密发酵压力峰值": press_peak,
+        "发酵压力归零次数": press_reset,
+        "高压档轮数(存在pressure>=5)": high_rounds,
+        "高压最长连续滞留轮数": max_high_streak,
+        "高压档碰撞成功次数(5→0)": high_collisions,
+        "镜头因高压强制并入轮数": forced_rounds,
+        "常量层末轮条数": len(facts_last),
+        "常量层分类分布": "、".join(f"{k}×{v}" for k, v in sorted(fact_kinds.items())) or "无",
+        "常量层首次入表轮次": first_fact_round,
+        "状态层键数(末轮/峰值)": (f"{state_sizes[-1]}/{max(state_sizes)}"
+                                  if state_sizes else "-"),
     }
 
 
@@ -335,6 +418,42 @@ def build_report(meta, records, summary, errors):
             if a == "-" and b == "-":
                 continue
             out.append(f"| {r['round']} | {o} | {a} | {b} | {r.get('ledger','-')} |")
+    # 发酵补丁实测：每轮压力、是否触发高压档、镜头是否被强制并入
+    out.append("## 发酵压力与镜头并入")
+    out.append("")
+    out.append("| 轮 | 各秘密压力 | 高压档 | 镜头强制并入 | 焦点成员 |")
+    out.append("|---|---|---|---|---|")
+    for r in records:
+        if r.get("error"):
+            continue
+        pr = r.get("pressure") or {}
+        if not pr:
+            continue
+        out.append(f"| {r['round']} | " + "、".join(f"{k}={v}" for k, v in pr.items())
+                   + f" | {'是' if any(v >= 5 for v in pr.values()) else '否'}"
+                   + f" | {'是' if r.get('focus_forced') else '否'}"
+                   + f" | {'、'.join(r.get('focus_subjects') or []) or '-'} |")
+    out.append("")
+
+    # 事实保全实测：常量层是否稳定增长、状态层键数是否有界
+    out.append("## 事实保全（常量层 / 状态层）")
+    out.append("")
+    out.append("| 轮 | 常量条数 | 本轮新增 | 状态键数 | 状态内容 |")
+    out.append("|---|---|---|---|---|")
+    prev_texts = set()
+    for r in records:
+        if r.get("error"):
+            continue
+        texts = [f.get("text") or "" for f in (r.get("facts") or [])]
+        new = [t for t in texts if t not in prev_texts]
+        st = r.get("states") or {}
+        if not texts and not st:
+            continue
+        st_items = "；".join("%s：%s" % (k, (v.get("value") if isinstance(v, dict) else v))
+                             for k, v in st.items())
+        out.append(f"| {r['round']} | {len(texts)} | {('；'.join(new) or '—')[:60]}"
+                   f" | {len(st)} | {(st_items or '—')[:80]} |")
+        prev_texts = set(texts)
     out.append("")
     out.append("---")
     out.append("")

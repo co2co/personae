@@ -36,3 +36,6 @@ nul
 
 # Engine runtime logs（可能含会话/调试内容，不入库）
 *.log
+
+# 审计文件（含历史剧本信息，仅留工作树，不入库）
+audit_*.md

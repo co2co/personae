@@ -356,6 +356,14 @@ def session_new():
             "缺口推断补全关系网（" + "、".join(gap_chars) + " 缺边）：已固化 relations_base")
     else:
         logger.info("director", "关系基线已齐全，跳过 LLM 推断")
+    # 称呼速查：关系只说明「是什么关系」，称呼才决定正文里怎么开口叫人。
+    # 开新会话时推导一次即固化（称呼比关系稳定，随演化反复改写反而出戏）。
+    addr = director.init_address(snap)
+    if addr:
+        memory.save(sid, snap)
+        logger.info("director", "已生成称呼速查表（" + str(len(addr)) + " 条）")
+    else:
+        logger.info("director", "称呼推导未产出，本轮推演不启用称呼约束")
     logger.success("session", "会话就绪：" + sid)
     return jsonify({"session": sid, "snapshot": memory.load(sid)})
 
@@ -365,6 +373,26 @@ def get_snapshot():
     sid = request.args.get("session")
     snap = memory.load(sid) if sid else None
     return jsonify(snap or {})
+
+
+@app.post("/api/fact/invalidate")
+def invalidate_fact_route():
+    """作者手动作废一条既定事实（纠错通道）。
+
+    常量只废不改：引擎绝不因剧情推翻常量、也不自动纠正。作废后停止注入提示词，
+    但条目保留在快照里（留痕，避免下一轮被纪官重新抽回）。
+    """
+    body = request.get_json(force=True)
+    sid = body.get("session")
+    snap = memory.load(sid) if sid else None
+    if not snap:
+        return jsonify({"error": "会话不存在"}), 404
+    key = (body.get("text") or "").strip()
+    if not director.invalidate_fact(snap, key, body.get("reason") or ""):
+        return jsonify({"error": "未匹配到该事实"}), 404
+    memory.save(sid, snap)
+    logger.info("fact", "作者作废既定事实：" + key)
+    return jsonify({"ok": True, "snapshot": snap})
 
 
 @app.get("/api/sessions")
@@ -411,6 +439,8 @@ def act():
         focus = director.compute_focus(directive, snap)
         snap["focus"] = focus
         memory.save(sid, snap)
+        if focus and focus.get("forced"):
+            logger.info("director", "镜头让位于高压秘密：强制并入 " + "、".join(focus["subjects"]))
         present = snap["present"]                  # 全部为 NPC，环境推手不在场
         cards_present = {c: store.load_card(c) for c in present}
 
