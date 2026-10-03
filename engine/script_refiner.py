@@ -18,12 +18,12 @@ MAX_SCRIPT_CHARS = 6000
 # 白名单：后端只取这些字段，丢弃 schema 外一切内容（防注入）。
 CHARACTER_FIELDS = (
     "name", "world", "description", "personality", "short_goal",
-    "relations", "nsfw", "core_desire", "core_fear",
+    "relations", "core_desire", "core_fear",
 )
 # 前端渲染顺序（含分组提示）
 CHARACTER_FIELDS_ORDER = [
     "name", "world", "description", "personality", "short_goal",
-    "relations", "nsfw", "core_desire", "core_fear",
+    "relations", "core_desire", "core_fear",
 ]
 
 # ---- 世界书条目字段契约 ----
@@ -71,7 +71,6 @@ REFINER_SYSTEM_PROMPT = """\
    - personality: 字符串，性格
    - short_goal: 字符串，当前小目标
    - relations: 对象，角色名→关系描述（与其他所有角色互建，A 对 B、B 对 A 都要写）
-   - nsfw: 对象，{ "mode": "on" 或 "off", "threshold": 整数, "sticky": 布尔 }
    - core_desire: 字符串，核心渴望
    - core_fear: 字符串，核心恐惧
 5. 从剧本里识别所有有名字或明确身份的人物，每人一张角色卡；互相建立 relations。
@@ -177,15 +176,6 @@ def _sanitize_card(card: dict) -> dict:
         raise ValueError("角色卡缺少 name")
     rel = out.get("relations")
     out["relations"] = rel if isinstance(rel, dict) else {}
-    nsfw = out.get("nsfw")
-    if isinstance(nsfw, dict):
-        out["nsfw"] = {
-            "mode": nsfw.get("mode", "off"),
-            "threshold": int(nsfw.get("threshold", 0) or 0),
-            "sticky": bool(nsfw.get("sticky", False)),
-        }
-    else:
-        out["nsfw"] = {"mode": "off", "threshold": 0, "sticky": False}
     return out
 
 

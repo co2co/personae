@@ -73,8 +73,6 @@ def new(cast, scene_place="", world_name="home"):
         "goals": goals,
         "action_state": action_state,
         "recent": {},
-        "intimacy_phase": "normal",
-        "phase_rounds": 0,
     }
     save(sid, snap)
     return sid
@@ -94,8 +92,6 @@ def load(sid):
         kb = s.get("known_by")
         if isinstance(kb, list) and "玩家" in kb:
             s["known_by"] = ["环境推手" if k == "玩家" else k for k in kb]
-    snap.setdefault("intimacy_phase", "normal")
-    snap.setdefault("phase_rounds", 0)
     return snap
 
 
@@ -157,7 +153,6 @@ def list_sessions():
             "present": snap.get("present", []),
             "scene": sc.get("place", ""),
             "round": sc.get("round", 0),
-            "intimacy_phase": snap.get("intimacy_phase", "normal"),
             "updated": int(folder.stat().st_mtime),
         })
     # 最近更新的排在最前

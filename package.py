@@ -70,8 +70,6 @@ def build(out_name=None):
                         cfg["base_url"] = ""
                         cfg["api_key"] = ""
                         cfg["model"] = ""
-                        cfg["nsfw_enabled"] = False
-                        cfg["adult_confirmed"] = False
                         cfg["providers"] = []
                         z.writestr(arcname, json.dumps(cfg, ensure_ascii=False, indent=2))
                     except Exception:

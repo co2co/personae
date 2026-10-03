@@ -74,13 +74,13 @@ def test_refine_with_mock(monkeypatch):
             '"constant":true,"position":"before"}]},'
             '"characters":[{"name":"甲","world":"W","description":"d","personality":"p",'
             '"short_goal":"g","relations":{"乙":"友"},'
-            '"nsfw":{"mode":"on","threshold":5,"sticky":true},"core_desire":"有","core_fear":"怕"}]}')
+            '"core_desire":"有","core_fear":"怕"}]}')
     monkeypatch.setattr(llm, "complete", lambda *a, **k: fake)
     out = r.refine_script("任意剧本文本")
     assert out["world"]["name"] == "W"
     assert out["characters"][0]["name"] == "甲"
     assert set(out["characters"][0].keys()) <= set(r.CHARACTER_FIELDS)
-    assert out["characters"][0]["nsfw"] == {"mode": "on", "threshold": 5, "sticky": True}
+    assert "nsfw" not in out["characters"][0]
 
 
 def test_refine_injection_dropped(monkeypatch):

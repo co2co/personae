@@ -129,9 +129,6 @@ def client_focus(monkeypatch):
     import prompter as prompter_mod
 
     def fake_setting(name):
-        forced = {"adult_confirmed": True, "nsfw_enabled": False}
-        if name in forced:
-            return forced[name]
         defaults = {
             "base_url": "http://127.0.0.1:1234/v1", "api_key": "sk-test",
             "model": "test-model", "budget": 4096, "max_tokens": 512,

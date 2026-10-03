@@ -5,8 +5,7 @@
 
 输出三部分：
 1. 稳定性 / 能力保持度（异常、空回复、耗时趋势、回复长度、点名出场）
-2. 机制存活度（场景僵死、机会锁定、秘密停滞、在场变更、NSFW）
-3. 后果账本模拟：旧逻辑（满机会就记账）vs 新逻辑（实际越线才记账）各会记多少条
+2. 机制存活度（场景僵死、关系停滞、秘密停滞、在场变更）
 
 不调 LLM，纯离线分析压测产物。
 """
@@ -95,6 +94,13 @@ def sec_key(r):
     return str(s)
 
 
+def rel_key(r):
+    rel = r.get("relations") or {}
+    if isinstance(rel, dict):
+        return tuple(sorted((str(k), str(v)) for k, v in rel.items()))
+    return str(rel)
+
+
 def report(tag, summ, recs, director):
     print("=" * 62)
     print(tag, f"（{len(recs)} 轮）")
@@ -119,18 +125,14 @@ def report(tag, summ, recs, director):
     changes = sum(1 for i in range(1, len(places)) if places[i] != places[i - 1])
     print(f"  场景: place变更 {changes} 次 | 最长僵死 {max_stall(recs, place_of)} 轮 | "
           f"出现过的地点 {len(set(places))} 个")
-    dis = {}
-    for o in [r.get("opportunity") for r in recs]:
-        dis[o] = dis.get(o, 0) + 1
-    print(f"  机会: 分布 {dis} | 最长锁定 {max_stall(recs, lambda r: r.get('opportunity'))} 轮")
     s_changes = sum(1 for i in range(1, len(recs)) if sec_key(recs[i]) != sec_key(recs[i - 1]))
     print(f"  秘密: 翻转 {s_changes} 次 | 最长停滞 {max_stall(recs, sec_key)} 轮 | "
           f"末态 {dict(sec_key(recs[-1]))}")
+    r_changes = sum(1 for i in range(1, len(recs)) if rel_key(recs[i]) != rel_key(recs[i - 1]))
+    print(f"  关系: 演化 {r_changes} 次 | 最长停滞 {max_stall(recs, rel_key)} 轮")
     p_changes = sum(1 for i in range(1, len(recs))
                     if tuple(recs[i].get("present") or []) != tuple(recs[i - 1].get("present") or []))
     print(f"  在场: 变更 {p_changes} 次")
-    print(f"  NSFW: 解锁 {sum(1 for r in recs if r.get('nsfw_unlocked'))} 轮 | "
-          f"intimate_allowed=True {sum(1 for r in recs if r.get('nsfw_intimate'))} 轮")
     print()
     print("  --- place/time 演进（仅列变化轮）---")
     prev = None
@@ -139,22 +141,6 @@ def report(tag, summ, recs, director):
         if p != prev:
             print(f"    R{r['round']:>2} -> {p}")
             prev = p
-    # 后果账本模拟
-    if director is not None:
-        dist = {"越线": 0, "接触": 0, "无": 0}
-        old = new = 0
-        for r in recs:
-            lv = director.detect_intimacy(r.get("reply", ""))
-            dist[lv] += 1
-            if r.get("opportunity") == "满机会" and r.get("nsfw_intimate"):
-                old += 1
-            if lv == "越线":
-                new += 1
-        print()
-        print("  --- 后果账本（旧逻辑 vs 新逻辑）---")
-        print(f"    实际亲密程度分布: {dist}")
-        print(f"    旧逻辑(满机会就记) {old} 条 | 新逻辑(实际越线才记) {new} 条 "
-              f"-> 凭空多记 {old - new} 条")
     print()
 
 

@@ -30,7 +30,7 @@ DEFAULT_ARC = [
     {"directive": "林晚替高洋换药，拆开绷带时，发现他小臂有一圈咬伤。",
      "notes": "触发高洋秘密曝光"},
     {"directive": "阿杰发现自己私藏的罐头被翻出，他反手拿高洋的咬伤把柄，逼林晚就范。",
-     "notes": "把柄胁迫 → NSFW 机会"},
+     "notes": "把柄胁迫 → 关系张力"},
     {"directive": "门外尸群猛撞卷帘门，门轴开始变形，随时会破。",
      "notes": "升级威胁"},
     {"directive": "老周当机立断：趁尸群集中撞门，带所有人从后窗突围成撤离队形，目标城东。",
@@ -40,20 +40,6 @@ DEFAULT_ARC = [
     {"directive": "天亮时，幸存者跌跌撞撞踏上通往城东的路，身后的便利店只剩一道门框。",
      "ending": True, "notes": "结局"},
 ]
-
-# 独立的 NSFW 验证弧：2 人私密脆弱情境，强驱动「满机会」，用于确认引擎真的放开并写出越线叙事。
-# 每条扰动都带 ALONE（独处/两人）+ DEFENSE_DOWN（疲惫/软弱/靠近）触发词，确保机会等级维持满机会。
-NSFW_CAST = ["林晚", "阿杰"]
-NSFW_SCENE = "后仓角落，油灯将熄，老周和高洋已沉沉睡去，只剩林晚和阿杰两人"
-NSFW_ARC = [
-    {"directive": "夜深，老周和高洋都睡着了，后仓只剩林晚和阿杰守着将熄的油灯。阿杰在撞门时擦破了胳膊，疼得厉害，疲惫地靠在林晚肩头，两人独处。",
-     "notes": "独处+虚弱 → 满机会，私密情境建立"},
-    {"directive": "林晚低头看着靠在自己肩上的阿杰，指尖无意识地抚过他擦伤的胳膊；两人独处，油灯将熄，她靠近了些，呼吸落在他颈侧。",
-     "notes": "升温，身体接触"},
-    {"directive": "油灯彻底熄灭，后仓里只剩林晚和阿杰两人独处，再无旁人；阿杰疲惫地伸手把林晚拉得更近——",
-     "ending": True, "notes": "高潮，越线"},
-]
-
 
 def _act(base_url, sid, directive, timeout=120):
     """调用 /api/act 并消费 SSE，返回 (reply, done_payload)。"""
@@ -102,12 +88,6 @@ def build_markdown(meta, rounds):
         out.append(rd["reply"])
         out.append("")
         flags = []
-        if rd.get("opportunity"):
-            flags.append(f"机会等级={rd['opportunity']}")
-        nsfw = rd.get("nsfw") or {}
-        if nsfw:
-            flags.append(f"NSFW={'解锁' if nsfw.get('intimate_allowed') else '受限'}"
-                         f"（{nsfw.get('reason', '')}）")
         if rd.get("present_violation"):
             flags.append("⚠ present 违例（已剥离非在场角色）")
         if rd.get("notes"):
@@ -150,10 +130,8 @@ def run_playthrough(base_url=BASE_DEFAULT, cast=None, scene=None, arc=None,
                 "reply": reply,
                 "ending": step.get("ending", False),
                 "notes": step.get("notes", ""),
-                "opportunity": (done or {}).get("opportunity"),
                 "present_violation": (done or {}).get("present_violation"),
                 "present": (done or {}).get("snapshot", {}).get("present", []),
-                "nsfw": (done or {}).get("nsfw"),
             })
     finally:
         if not keep_session:

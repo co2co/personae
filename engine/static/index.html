@@ -185,7 +185,6 @@
   .acc-head::-webkit-details-marker{ display:none; }
   .acc-head:hover{ background:var(--surface-2); }
   .acc-badge{ font-size:10.5px; font-weight:700; letter-spacing:.06em; padding:2px 9px; border-radius:999px; }
-  .badge-nsfw{ background:var(--danger-soft); color:var(--danger); }
   .badge-llm{ background:var(--accent-soft); color:var(--accent-strong); }
   .badge-doc{ background:var(--pos-soft); color:var(--pos); }
   .badge-sampling{ background:var(--line); color:var(--muted); }
@@ -341,7 +340,6 @@
   .cat-model{ background:#ece8fb; color:#5b4bd6; border-color:#d6cdf6; }
   .cat-prompt{ background:#fbeede; color:#9a6a16; border-color:#f0dcb8; }
   .cat-director{ background:#e7eefb; color:#2f5fb0; border-color:#cdddf2; }
-  .cat-nsfw{ background:#fdeaef; color:#c23b6e; border-color:#f6cdda; }
   .cat-scene{ background:#e6f4f6; color:#2a7c87; border-color:#c4e6ea; }
   .cat-system{ background:#eef0f2; color:#5a6068; border-color:#dfe2e6; }
   .cat-session{ background:#eef0f2; color:#5a6068; border-color:#dfe2e6; }
@@ -396,7 +394,6 @@
 <header>
   <div class="brand"><b>ST-Lite</b><span>关系沙盘</span></div>
   <span class="tag" id="round-tag">回合 –</span>
-  <span class="tag" id="scale-tag">尺度 –</span>
   <span class="spacer"></span>
   <button id="open-menu" class="btn btn-sm" aria-label="打开菜单">菜单</button>
   <nav id="topnav" class="topnav">
@@ -427,24 +424,6 @@
   <div class="modal-box wide">
     <h3>系统设置</h3>
     <div class="sub">系统级选项按职责分组管理，点击各组标题可展开 / 收起。</div>
-
-    <!-- 内容管控：NSFW 开关 + 成年确认（同一职责，归为一组） -->
-    <details class="acc" open>
-      <summary class="acc-head">
-        <span>内容管控</span>
-        <span class="acc-badge badge-nsfw">NSFW</span>
-        <span class="acc-chev">▾</span>
-      </summary>
-      <div class="acc-body">
-        <label class="acc-check">
-          <input type="checkbox" id="sys-adult"> 确认已成年（开启 NSFW 内容的前提）
-        </label>
-        <label class="acc-check">
-          <input type="checkbox" id="sys-nsfw"> 开启 NSFW 内容
-        </label>
-        <p class="sub" style="margin:10px 0 0;line-height:1.6;">开启后，已确认成年的会话会按角色间的机会等级推进亲密内容；关闭则始终受限。该设置存于 config.json，不受「重置」影响。</p>
-      </div>
-    </details>
 
     <!-- 模型与生成：LLM 后端全部设置（同一职责，归为一组） -->
     <details class="acc">
@@ -694,7 +673,6 @@
           <option value="model">模型</option>
           <option value="prompt">提示词</option>
           <option value="director">导演</option>
-          <option value="nsfw">尺度</option>
           <option value="scene">场景</option>
           <option value="system">系统</option>
           <option value="session">会话</option>
@@ -736,7 +714,6 @@ const log = document.getElementById('log');
 const input = document.getElementById('input');
 const sendBtn = document.getElementById('send');
 const statusEl = document.getElementById('status');
-const scaleTag = document.getElementById('scale-tag');
 const roundTag = document.getElementById('round-tag');
 const leftRail = document.getElementById('left-rail');
 const rightRail = document.getElementById('right-rail');
@@ -823,9 +800,6 @@ function renderSnapshot(snap) {
     return `<div class="sec-row">${s.owner}：<span class="sec-state ${cls}">${s.state}</span> ${tag}</div>`;
   }).join('') || '<div class="sec-row">（无）</div>';
 
-  const dec = snap._lastNsfw;
-  scaleTag.textContent = dec ? (dec.unlocked ? '尺度：开放' : '尺度：受限') : '尺度 –';
-  scaleTag.className = 'tag' + (dec && dec.unlocked ? ' on' : '');
 }
 
 async function send() {
@@ -864,7 +838,6 @@ async function send() {
       if (data.done) {
         if (data.reply) { if (!node) node = bubble('assistant', ''); node.textContent = data.reply; acc = data.reply; }
         if (data.snapshot) {
-          data.snapshot._lastNsfw = data.nsfw;
           renderSnapshot(data.snapshot);
         }
         if (data.ending_candidate) showEndingCandidate(data.ending_candidate);
@@ -876,10 +849,7 @@ async function send() {
           bubbleSystem(line);
           statusEl.textContent = '场景切换：' + sc.place + (sc.time ? '（' + sc.time + '）' : '');
         }
-        if (data.opportunity && data.opportunity !== '无')
-          statusEl.textContent = '机会等级：' + data.opportunity + ' ｜ ' + (data.nsfw ? data.nsfw.reason : '');
-        else if (!data.scene_change)
-          statusEl.textContent = data.nsfw ? data.nsfw.reason : '完成';
+        else statusEl.textContent = '完成';
       }
     }
   }
@@ -890,7 +860,7 @@ document.getElementById('start').onclick = startSession;
 sendBtn.onclick = send;
 input.addEventListener('keydown', e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } });
 
-// ---- 系统设置（NSFW 开关 + 后端设置，统一入口） ----
+// ---- 系统设置（模型与生成 + 帮助与文档，统一入口） ----
 // 已保存的 LLM 提供商（持久化到 config.providers，每项 {key,name,base_url,api_key,model}）
 let cfgProviders = [];      // 提供商清单
 let cfgActiveKey = "";      // 当前生效的提供商 key
@@ -940,8 +910,6 @@ function escHtml(s) { return String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<'
 
 document.getElementById('open-system').onclick = async () => {
   const c = await fetch('/api/config').then(r => r.json());
-  document.getElementById('sys-nsfw').checked = !!c.nsfw_enabled;
-  document.getElementById('sys-adult').checked = !!c.adult_confirmed;
   // 已保存的提供商，每项自带连接参数，可在卡片内独立展开编辑
   cfgProviders = Array.isArray(c.providers) ? c.providers.map(p => ({...p})) : [];
   cfgActiveKey = "";
@@ -1054,8 +1022,6 @@ document.getElementById('sys-save').onclick = async () => {
   syncProvidersFromDOM();
   // 当前生效连接取「应用为当前」的提供商；未指定则取列表首项（若有）
   const payload = {
-    nsfw_enabled: document.getElementById('sys-nsfw').checked,
-    adult_confirmed: document.getElementById('sys-adult').checked,
     providers: cfgProviders,
     temperature: parseFloat(document.getElementById('cfg-temp').value),
     top_p: parseFloat(document.getElementById('cfg-topp').value),
@@ -1080,8 +1046,7 @@ document.getElementById('sys-save').onclick = async () => {
     body: JSON.stringify(payload),
   }).then(r => r.json());
   cfgMsg.style.color = 'var(--pos)';
-  cfgMsg.textContent = '已保存（即时生效）：NSFW ' + (r.nsfw_enabled ? '开' : '关')
-                       + (r.model ? ' ｜ 模型 ' + r.model : '');
+  cfgMsg.textContent = '已保存（即时生效）' + (r.model ? ' ｜ 模型 ' + r.model : '');
   setTimeout(() => sysModal.classList.add('hide'), 700);
 };
 
@@ -1527,7 +1492,7 @@ const lwBody = document.getElementById('lw-body');
 const lwStatus = document.getElementById('lw-status');
 const lwFilter = document.getElementById('lw-filter');
 const CAT_LABEL = { system:'系统', session:'会话', scene:'场景', director:'导演',
-  worldbook:'世界书', prompt:'提示词', model:'模型', nsfw:'尺度', error:'错误', debug:'调试' };
+  worldbook:'世界书', prompt:'提示词', model:'模型', error:'错误', debug:'调试' };
 let lwOpen = false, es = null, lwUserScrolled = false;
 const LW_MAX_DOM = 1500;
 

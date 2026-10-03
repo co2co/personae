@@ -8,11 +8,9 @@
 
 注：旧版单角色生成接口（/api/generate、/api/message、/api/state、/api/persona、
 /api/nsfw/confirm、/api/state/reset）已于 2026-09-30 移除，「玩家」机制一并下线，
-成年确认迁为系统设置 adult_confirmed。详见 DEVLOG.md。
+NSFW 支持已于 v0.8.0 整体废弃（见 DEVLOG）。
 
-生成流程里 NSFW 的位置：
-    读角色卡 -> nsfw.resolve* 决定尺度 -> prompter 把尺度说明插进固定段
-    -> 发请求 -> 回写快照（关系 / 目标 / 秘密揭露）-> 必要时记旧账
+生成流程：读角色卡 -> 组装提示词（prompter）-> 发请求 -> 回写快照（关系 / 目标 / 秘密揭露）。
 """
 
 import json
@@ -30,7 +28,6 @@ import llm
 import narrative_clean
 import logger
 import memory
-import nsfw
 import prompter
 import store
 import world as world_mod
@@ -419,7 +416,7 @@ def act():
 
         # 导演简报（含秘密状态更新、回合数、机会等级）
         brief, snap = director.brief(sid, directive)
-        logger.info("director", "导演简报：回合 R" + str(brief["round"]) + " ｜ 机会等级 " + brief["opportunity"]
+        logger.info("director", "导演简报：回合 R" + str(brief["round"])
                     + (" ｜ 新揭露秘密：" + "、".join(brief["revealed_secrets"]) if brief["revealed_secrets"] else "")
                     + (" ｜ 激活旧账 " + str(len(brief["active_consequences"])) + " 条" if brief["active_consequences"] else ""))
 
@@ -453,18 +450,10 @@ def act():
                     + " ｜ 排除秘密 " + str(len(wb_meta["secret_excluded"])) + "（不注入 prompt）",
                     meta=wb_meta)
 
-        # NSFW：尺度由“成年确认 + 本轮机会等级”驱动（回归原版机制，不再用好感度阈值）
-        # 服务端门控：override 由设置决定，客户端 body 里的 nsfw 仅在 nsfw_enabled 时生效；
-        # 未确认成年 / 未开启 NSFW 即便伪造 nsfw="on" 也无法突破（见 tests/test_nsfw_defense.py）
-        adult = llm.setting("adult_confirmed")
-        decision = nsfw.resolve_for_request(
-            snap, adult, llm.setting("nsfw_enabled"), body.get("nsfw"), brief["opportunity"])
-        logger.info("nsfw", "尺度：" + ("开放" if decision["unlocked"] else "受限") + "（" + decision["reason"] + "）")
-
         history = memory.load_chat(sid)
         messages = prompter.build_session(
             cards_present, directive, before_hits, snap,
-            decision["prompt"], brief["opportunity"], history=history,
+            history=history,
             after_hits=after_hits,
             focus=focus,
         )
@@ -568,7 +557,6 @@ def act():
         # 行动状态（廉价启发）：本轮正文里出现的角色 = 主动，未出现 = 无行动
         for c in present:
             memory.set_action_state(sid, c, "主动" if c in full else "无行动")
-        director.after_reply(sid, full)
         # 状态机回写：把本轮推演产生的后果（关系/目标/秘密揭露）落回快照
         director.reflect(sid, full)
         snap_now = memory.load(sid)
@@ -592,8 +580,6 @@ def act():
             "reply": full,
             "present_violation": present_violation,
             "offscreen_violation": off_hits,
-            "opportunity": brief["opportunity"],
-            "nsfw": decision,
             "scene_change": _scene_change_payload(scene_changed, scene_prop, snap)
                             if scene_changed else None,
             "ending_candidate": candidate,

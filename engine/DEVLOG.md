@@ -2,6 +2,41 @@
 
 记录架构决策。待办与搁置项已统一收口至 [TODO.md](./TODO.md)（各版本「下版本待办」外链至此，避免日志臃肿），非任务日志，按主题追加。
 
+## 2026-10-03 v0.8.0（彻底废弃 NSFW 支持，回归中性关系沙盘）
+
+- 升 v0.8.0：MINOR 档——**整体移除 NSFW 支持**（这是一个对外可见的能力删除，非错误修正，故走 MINOR：v0.7.8 → v0.8.0）。属大架构改动，收口前跑 30 轮长上下文压测对照（指标见下）。
+- 决策：simon 指定"从下一个版本起彻底废弃对 NSFW 的支持"。已全面了解运行机制后，判定整套 NSFW 与机会等级系统**无独立中性用途**，故整体删除而非降级保留。
+
+### 删除清单
+
+- 模块：`engine/nsfw.py` 整文件删除。
+- `director.py`：`brief()` 删除 A5 机会等级计算块（含 `intimacy_phase` 余韵状态机），return 字典去掉 `opportunity` 键；删除 `ALONE/DEFENSE_DOWN/OBSTACLE/OPP_NOTE`、`BODY_STRONG/BODY_MID/STRONG_AFFECTION/SOFT_AFFECTION/DIRECT_ASSAULT/COERCION_FORCE/COERCION_SEXUAL`、`_sexual_entry/_sexual_insert/NEUTRAL_HOMONYMS/strip_neutral`、`_opp_from_secrets/_opp_from_history/_opp_from_affection/_opp_from_coercion`、`REFUSAL_MARKERS/_mask_refusal/detect_intimacy/after_reply`（均替换为"已随 NSFW 废弃 v0.8.0"注释）。
+- `prompter.py`：`build_session` 去掉 `nsfw_prompt, opp_level` 参数；删除 `[内容尺度]` 段、铁律⑤⑥中尺度表述；输出纪律⑥移除。
+- `app.py`：删除 `import nsfw`、`adult_confirmed/nsfw` 决策块、`director.after_reply` 调用；`done` 事件不再带 `opportunity`/`nsfw`。
+- `llm.py`：`DEFAULTS`/`_WRITABLE` 移除 `nsfw_enabled`/`adult_confirmed`。
+- `memory.py`：`new/load/list_sessions` 移除 `intimacy_phase`/`phase_rounds`。
+- `narrative_clean.py` / `script_refiner.py` / `hooks.py`：去掉"内容尺度限制 / 未真正进入 / nsfw 字段"相关处理。
+- 角色卡：8 张角色卡的 `nsfw` 字段批量删除（备份 `backups/char_nsfw_bak_20261003/`）。
+- 前端 `static/index.html`：删除"内容管控"折叠面板、`sys-adult`/`sys-nsfw` 勾选框、顶栏"尺度"标签、`badge-nsfw`/`cat-nsfw` CSS、状态栏机会等级显示、`_lastNsfw` 回填、`config` payload 与保存文案中的 NSFW 字段、日志分类 `nsfw:'尺度'`。
+- 测试：删除 `test_nsfw.py`/`test_nsfw_defense.py`/`test_directive_focus.py`；`test_director.py`/`test_relation_gate.py`/`test_prompter.py`/`test_script_refiner.py`/`test_focus_follow.py` 移除引用已删符号的用例与字段；`playthrough.py`/`run_playthrough.py`/`compare_stress.py`/`stress_longcontext.py`/`probe_history_degradation.py` 指标改为中性（关系演化 / 称呼 / 登场 / 秘密，不再看机会等级与 NSFW）。`pytest -m "not integration"`：74 PASS，3 失败为既有环境性失败（`test_focus_follow` 引用的末日卡 老周/林晚/阿杰/苏曼/高洋 当前 `characters/` 不存在，与本次改动无关）。
+
+### 这个改动是否提升叙事质量？
+
+**结论：对纯关系沙盘，是提升；代价是失去露骨生成能力（用户主动放弃，非质量倒退）。** 四点机制层面原因：
+
+1. **解除"关系 = 性尺度"的绑定**。原引擎把关系张力的最高表达形式固化为"机会等级 → 露骨"，关系好感/把柄/胁迫最终都收敛到"是否写性"。废弃后，关系张力改由中性机制承载——秘密把柄（`_release_handle`/`_record_exposure`）、关系演化（`reflect`）、镜头跟随（`compute_focus`）、在场校验，关系强度不再需要靠性内容来证明。
+2. **消除在线安全模型的"规避—残缺"叙事**。原架构在满机会时强令模型写出露骨，但在线安全模型会自我审查式规避（`我将以…规避`），产出半截、元信息污染的残缺叙事。去掉内容尺度提示后，模型不再被要求写越线内容，自然产出完整、连贯、由关系驱动的中性叙事，规避检测战消失。
+3. **去掉机械余韵状态机**。原 `after_reply` 的 `intimacy_phase` 是"满机会→下轮强制回落半步"的机械化状态机，并非剧情驱动；删除后机会随剧情自由演化，不再被机械规则绑架。
+4. **后果留痕回归中性**。原 `ledger` 旧账依赖 `detect_intimacy` 的"事实"判定，而 `BODY_MID` 词表偏宽（含 衣服/腰/贴/胸）会凭空堆出大量轻账、命中触发词时整批激活撑爆提示词。废弃后后果账本由实际剧情事件（ledger + A2 激活）驱动，不再绑定性行为判定，轻账/误激活问题随之消失。
+
+中性保留不受影响：关系推演、秘密曝光与把柄转手、镜头跟随、present 校验、结局判定、叙事净身均完整保留。
+
+### 压测对照（30 轮长上下文）
+
+- 指标改为中性：关系状态演化次数 / 称呼出场率 / 在场变更 / 秘密翻转 / 镜头跟随生效 / 场景切换 / present 违例 / 结局候选；**不再看"满机会轮次"**。
+- 判定口径：长上下文下引擎仍稳定（无空回复、无异常、present 永不为空）、能力不退化（后期点名仍出场、长度不崩）、机制不熄火（关系/秘密仍有演化、镜头跟随仍生效）。
+- 注：完整 30 轮需在运行引擎 + 真实 LLM 下执行（`tests/stress_longcontext.py --rounds 30` + `compare_stress.py`），产物见 `tests/runs/`。
+
 ## 2026-10-03 v0.7.8（关系自动推断补全 + world 必填 + 叙事净身 + NSFW 不规避）
 
 - 升 v0.7.8：PATCH 档，前台真机测试暴露的 5 处连环缺陷（修正 + 防御 + 净身），普通迭代，无需压测。

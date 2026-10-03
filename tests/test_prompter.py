@@ -20,7 +20,7 @@ def _hist(rounds):
 MIN_SNAP = {
     "scene": {"round": 1, "place": "城东道路", "time": "夜", "weather": ""},
     "relations": {}, "ledger": [], "secrets": [],
-    "intimacy_phase": None, "goals": {}, "present": ["老周", "苏曼"],
+    "goals": {}, "present": ["老周", "苏曼"],
 }
 CARDS = {n: {"name": n} for n in ["老周", "苏曼"]}
 
@@ -66,7 +66,7 @@ def test_build_session_long_history_stable():
     """60 轮历史下，压缩后 prompt tok 应显著低于无窗口（探针无窗口≈18425）。"""
     h = _hist(60)
     msgs = prompter.build_session(
-        CARDS, "苏曼拦下军车", [], MIN_SNAP, "NSFW 已解锁", "半步",
+        CARDS, "苏曼拦下军车", [], MIN_SNAP,
         history=h, focus={"subjects": []})
     tok = sum(prompter.count_tokens(m.get("content", "")) for m in msgs)
     # 压缩后窗口外仅在摘要块，应远低于无窗口的线性膨胀

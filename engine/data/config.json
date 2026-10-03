@@ -8,7 +8,5 @@
   "top_p": 0.95,
   "top_k": 40,
   "enable_thinking": false,
-  "nsfw_enabled": false,
-  "adult_confirmed": false,
   "providers": []
 }

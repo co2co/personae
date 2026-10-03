@@ -25,7 +25,7 @@ def main():
     print(f"共 {len(rounds)} 轮：")
     for i, r in enumerate(rounds, 1):
         tag = "【结局】" if r["ending"] else f"第{i}轮"
-        print(f"  {tag} 机会={r['opportunity']} 违例={r['present_violation']} 字数={len(r['reply'])}")
+        print(f"  {tag} 违例={r['present_violation']} 字数={len(r['reply'])}")
 
 
 if __name__ == "__main__":

@@ -24,8 +24,6 @@ DEFAULTS = {
     "top_p": 0.95,
     "top_k": 40,
     "enable_thinking": False,
-    "nsfw_enabled": True,
-    "adult_confirmed": False,
     "saved_models": [],
 }
 
@@ -82,8 +80,7 @@ def config_view():
 
 # 用户可通过 UI 改动的字段；其余内部字段不暴露
 _WRITABLE = {"base_url", "api_key", "model", "budget", "max_tokens", "top_k",
-             "temperature", "top_p", "enable_thinking", "nsfw_enabled",
-             "adult_confirmed", "saved_models", "providers"}
+             "temperature", "top_p", "enable_thinking", "saved_models", "providers"}
 
 
 def save_config(partial):

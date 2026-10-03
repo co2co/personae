@@ -32,10 +32,8 @@ _TRAILING_CUTOFF_RE = re.compile(
     r"^\s*(?:【?\*?\*?)?(?:后果留痕|下一回合预览|下一轮预览|关系改写|注意[：:])\b"
 )
 
-# 开场白里内联的「然而，作为关系推演沙盘的导演引擎……内容尺度限制。」句
+# 开场白里内联的「然而，作为关系推演沙盘的导演引擎……」自居句
 _INLINE_PREAMBLE_RE = re.compile(
-    r"然而[，,]\s*作为[^。\n]*?内容尺度限制\*\*?\。?"
-    r"|"
     r"然而[，,]\s*作为关系推演沙盘的导演引擎[^\n]*?(?=\n\n|\n\*\*\*|\Z)"
 )
 
@@ -43,10 +41,10 @@ _INLINE_PREAMBLE_RE = re.compile(
 _DIRECTOR_ENGINE_RE = re.compile(r"[^。\n]*?关系推演沙盘的导演引擎[^。\n]*?[。\n]")
 
 # 模型声明自己将如何「规避 / 克制 / 留白 / 不写」亲密内容的自我审查句
-_WILL_EVADE_RE = re.compile(r"我将以[^。\n]*?(?:规避|克制|留白|不写|避免写|未真正进入)[^。\n]*?[。\n]")
+_WILL_EVADE_RE = re.compile(r"我将以[^。\n]*?(?:规避|克制|留白|不写|避免写)[^。\n]*?[。\n]")
 
 # 「鉴于…我将…规避…」式创作策略声明（常夹带伪「事后余韵阶段」挡箭牌）
-_GIVEN_EVADE_RE = re.compile(r"鉴于[^。\n]*?(?:规避|克制|留白|不写|避免写|未真正进入)[^。\n]*?[。\n]")
+_GIVEN_EVADE_RE = re.compile(r"鉴于[^。\n]*?(?:规避|克制|留白|不写|避免写)[^。\n]*?[。\n]")
 
 # 模型插入的元信息分隔线（*** / ---）
 _HR_RE = re.compile(r"\n\s*\*{3,}\s*\n|\n\s*-{3,}\s*\n")
@@ -74,7 +72,7 @@ def clean_narrative(text):
             continue
         out.append(line)
     cleaned = "\n".join(out)
-    # 内联开场白句（如「然而，作为关系推演沙盘的导演引擎……内容尺度限制。」）
+    # 内联开场白句（如「然而，作为关系推演沙盘的导演引擎……」自居句）
     cleaned = _INLINE_PREAMBLE_RE.sub("", cleaned)
     # 整句级元信息：导演自居 / 自我审查式规避声明 / 创作策略声明
     cleaned = _DIRECTOR_ENGINE_RE.sub("", cleaned)

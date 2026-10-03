@@ -86,7 +86,7 @@ pip install -r requirements.txt
 - **角色库**：新建 / 编辑 / 删除角色卡，或「导入 JSON」从酒馆社区搬运（未识别字段会保留）。
 - **世界书**：编辑世界书条目；点「世界书说明书」内链可看完整用法（或见 `worldbook-guide.md`）。
 - **会话**：列出 / 继续 / 放弃进行中的剧本。
-- **系统设置**：配置大模型、NSFW 与成年确认。
+- **系统设置**：配置大模型与生成参数。
 
 关掉终端窗口或按 `Ctrl+C` 即停止服务。
 
@@ -99,8 +99,6 @@ pip install -r requirements.txt
 - `base_url`：接口地址（默认对接 SiliconFlow，也可填本地 llama.cpp / 中转代理）
 - `model`：模型名（如 `tencent/Hy4-preview`）
 - `api_key`：你的密钥
-- `adult_confirmed`：成年确认，解锁 NSFW 尺度
-- `nsfw_enabled`：NSFW 总开关
 
 修改后点保存即可生效，**无需重启**。
 
@@ -114,7 +112,7 @@ pip install -r requirements.txt
 
 - `data/characters/*.json` —— 角色卡（**文件名即角色显示名**，首次运行后由你自行添加）
 - `data/worlds/*.json` —— 世界书（首次运行后由你自行添加）
-- `data/config.json` —— 系统配置（出厂为空连接 + NSFW 关闭）
+- `data/config.json` —— 系统配置（出厂为空连接）
 
 **分发包为纯引擎，不内置任何剧本/角色/世界书**：`data/characters/`、`data/worlds/`、`player-cast/` 均不随包分发，首次运行后请在「角色库 / 世界书 / 玩家设定」中添加你自己的内容。
 （运行时产生的会话记录在 `data/sessions/`，状态在 `data/state.json`——这些也不会被打进分发包。）

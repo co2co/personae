@@ -21,7 +21,6 @@ CAT_DIRECTOR = "director"
 CAT_WORLDBOOK = "worldbook"
 CAT_PROMPT = "prompt"
 CAT_MODEL = "model"
-CAT_NSFW = "nsfw"
 CAT_ERROR = "error"
 
 _LEVELS = ("debug", "info", "warn", "error", "success")

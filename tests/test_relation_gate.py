@@ -1,9 +1,8 @@
-"""关系表与「插入」语境判定测试（会话 0ac57abf 审计驱动的修复）。
+"""关系表与关系冻结测试（会话 0ac57abf 审计驱动的修复）。
 
 覆盖：
-  1. 「插入」极通用，需性语境才判事实越线（插入空间/话题/U盘 => 无；插入她/体内 => 越线）。
-  2. 角色卡 relations 字段可确定性地构建权威关系基线（seed_relations_from_cards）。
-  3. reflect 冻结未在场/无卡关联人物的关系，禁止模型改写或升级（小姨子->妻子类漂移拦截）。
+  1. 角色卡 relations 字段可确定性地构建权威关系基线（seed_relations_from_cards）。
+  2. reflect 冻结未在场/无卡关联人物的关系，禁止模型改写或升级（小姨子->妻子类漂移拦截）。
 """
 
 import json
@@ -51,33 +50,7 @@ def test_memory_new_seeds_relations_base():
 
 
 # ---------------------------------------------------------------------------
-# 1. 「插入」需性语境
-# ---------------------------------------------------------------------------
-
-def test_insert_metaphor_space_not_crossing():
-    """会话 0ac57abf 第 2 轮「强行插入他们之间的空间」——空间隐喻，不得判越线。"""
-    assert director.detect_intimacy("林泽宇强行插入他们之间的空间") == "无"
-
-
-def test_insert_topic_not_crossing():
-    assert director.detect_intimacy("他在讨论里插入一个话题") == "无"
-
-
-def test_insert_usb_not_crossing():
-    assert director.detect_intimacy("把U盘插入接口") == "无"
-
-
-def test_insert_her_still_crossing():
-    """插入 + 她：仍判越线（真实性行为）。"""
-    assert director.detect_intimacy("他插入了她，抽送起来") == "越线"
-
-
-def test_insert_body_still_crossing():
-    assert director.detect_intimacy("手指插入体内，她颤了一下") == "越线"
-
-
-# ---------------------------------------------------------------------------
-# 2. 卡片 relations -> 权威基线
+# 1. 卡片 relations -> 权威基线
 # ---------------------------------------------------------------------------
 
 def test_seed_relations_from_cards():
@@ -195,25 +168,6 @@ def test_preserve_kinship_mother_sister_in_law_blocked():
     corrected = director._preserve_kinship("母亲", "嫂子，复杂情感萌芽")
     assert corrected.startswith("母亲"), corrected
     assert "复杂情感" in corrected, corrected
-
-
-def test_married_couple_affection_full():
-    """v0.7.7 修复：关系值写「妻子/丈夫」的已婚组合应触发满机会。
-
-    回归点：STRONG_AFFECTION 原先只含「夫妻」状态词，不含「妻子/丈夫」亲属词，
-    导致角色卡以「妻子/丈夫」描述夫妻时永远触发不了满机会，NSFW 机制形同虚设。
-    """
-    snap = {
-        "present": ["陈锋", "夏雨"],
-        "relations": {
-            "陈锋 → 夏雨": "妻子，彼此深爱，末日里唯一的柔软。",
-            "夏雨 → 陈锋": "丈夫，深爱的男人。",
-        },
-    }
-    # scope=None 且两端都在场 -> 应命中满机会
-    assert director._opp_from_affection(snap, None) == "满机会"
-    # scope 指向该夫妻子集 -> 仍命中
-    assert director._opp_from_affection(snap, ["陈锋", "夏雨"]) == "满机会"
 
 
 def test_offscreen_flashback_action_detected():

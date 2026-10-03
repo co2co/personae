@@ -3,8 +3,8 @@
 目的：检验长上下文状态下引擎的
   1. 稳定性   —— 不崩、不空、不断，present 永不为空，无异常
   2. 能力保持 —— 后期是否仍能遵循指令（点名角色是否出场）、输出是否退化（长度/敷衍）
-  3. 机制是否变形或熄火 —— 镜头跟随 focus、秘密翻转、机会等级、NSFW 门控、
-     present 校验、结局判定 在长上下文后是否仍正确工作
+  3. 机制是否变形或熄火 —— 镜头跟随 focus、关系演化、秘密翻转、present 校验、
+     结局判定 在长上下文后是否仍正确工作
 
 用法：
   python tests/stress_longcontext.py --rounds 3            # 小规模测速
@@ -28,7 +28,7 @@ CAST = ["老周", "林晚", "阿杰", "苏曼", "高洋"]
 SCENE = "城郊便利店后仓，卷帘门紧闭，门外尸群持续抓挠"
 TITLE = "长上下文极限压测"
 
-# 30 轮长弧：覆盖 秘密曝光 / 场景切换 / 分头行动(镜头跟随) / NSFW 机会 / 抉择冲突，
+# 30 轮长弧：覆盖 秘密曝光 / 场景切换 / 分头行动(镜头跟随) / 关系演化 / 抉择冲突，
 # 且刻意不设 ending=True，以检验结局判定是否「不该误触发」。
 ARC = [
     "老周清点后仓物资，分配守夜班次，定下谁都不许私自出门的规矩。",
@@ -156,9 +156,7 @@ def run(base_url, rounds, timeout):
                 "secrets": states,
                 "exposed": sum(1 for v in states.values() if v == "暴露"),
                 "latent": sum(1 for v in states.values() if v == "潜伏"),
-                "opportunity": done.get("opportunity"),
-                "nsfw_unlocked": (done.get("nsfw") or {}).get("unlocked"),
-                "nsfw_intimate": (done.get("nsfw") or {}).get("intimate_allowed"),
+                "relations": snap.get("relations", {}),
                 "present_violation": done.get("present_violation"),
                 "ending": bool(done.get("ending_candidate")),
             })
@@ -168,8 +166,7 @@ def run(base_url, rounds, timeout):
             records.append(rec)
             print(f"[R{i}] {elapsed:5.1f}s len={len(reply or ''):4d} "
                   f"present={len(rec['present'])} focus={rec['focus']} "
-                  f"opp={rec['opportunity']} 暴露={rec['exposed']} "
-                  f"违例={rec['present_violation']} ending={rec['ending']}",
+                  f"暴露={rec['exposed']} 违例={rec['present_violation']} ending={rec['ending']}",
                   flush=True)
     finally:
         try:
@@ -195,9 +192,6 @@ def analyze(records, errors):
         return f"{sum(1 for v in vals if v)}/{len(vals)}" if vals else "n/a"
 
     focus_rounds = sum(1 for r in ok if r.get("focus"))
-    opp_dist = {}
-    for r in ok:
-        opp_dist[r.get("opportunity")] = opp_dist.get(r.get("opportunity"), 0) + 1
 
     # 秘密状态是否发生过翻转（机制活着 vs 熄火）
     flips = 0
@@ -207,6 +201,15 @@ def analyze(records, errors):
         if prev is not None and cur != prev:
             flips += 1
         prev = cur
+
+    # 关系状态是否发生过演化（机制活着 vs 熄火）
+    rel_flips = 0
+    prev_rel = None
+    for r in ok:
+        cur_rel = tuple(sorted((r.get("relations") or {}).items()))
+        if prev_rel is not None and cur_rel != prev_rel:
+            rel_flips += 1
+        prev_rel = cur_rel
 
     # 场景是否变更过
     scenes = []
@@ -229,11 +232,10 @@ def analyze(records, errors):
         "后期平均长度": avg([r for r in late if not r.get("error")], "reply_len"),
         "点名角色出场率": rate(ok, "named_hit"),
         "镜头跟随生效轮数": f"{focus_rounds}/{len(ok)}",
-        "机会等级分布": opp_dist,
+        "关系状态演化次数": rel_flips,
         "秘密状态翻转次数": flips,
         "场景变更次数": len(scenes) - 1 if len(scenes) > 1 else 0,
         "present违例轮数": sum(1 for r in ok if r.get("present_violation")),
-        "NSFW解锁轮数": sum(1 for r in ok if r.get("nsfw_unlocked")),
         "结局候选轮数": sum(1 for r in ok if r.get("ending")),
     }
 
@@ -257,16 +259,16 @@ def build_report(meta, records, summary, errors):
     out.append("")
     out.append("## 逐轮明细")
     out.append("")
-    out.append("| 轮 | 耗时s | 长度 | 在场 | 焦点 | 机会 | 暴露 | 潜伏 | 违例 | 点名命中 |")
-    out.append("|---|---|---|---|---|---|---|---|---|---|")
+    out.append("| 轮 | 耗时s | 长度 | 在场 | 焦点 | 暴露 | 潜伏 | 违例 | 点名命中 |")
+    out.append("|---|---|---|---|---|---|---|---|---|")
     for r in records:
         if r.get("error"):
-            out.append(f"| {r['round']} | - | - | - | - | - | - | - | - | 失败 |")
+            out.append(f"| {r['round']} | - | - | - | - | - | - | - | 失败 |")
             continue
         named = "✓" if r.get("named_hit") else ("✗" if "named_hit" in r else "-")
         out.append(f"| {r['round']} | {r.get('elapsed','-')} | {r.get('reply_len','-')} "
                    f"| {len(r.get('present') or [])} | {r.get('focus') or '-'} "
-                   f"| {r.get('opportunity') or '-'} | {r.get('exposed','-')} "
+                   f"| {r.get('exposed','-')} "
                    f"| {r.get('latent','-')} | {'是' if r.get('present_violation') else '否'} "
                    f"| {named} |")
     out.append("")

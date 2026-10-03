@@ -11,7 +11,6 @@ tests/
 ├── pytest.ini          testpaths=tests；默认 -m "not integration"（只跑快测）
 ├── test_world_scan.py  world.scan 确定性单测（不调 LLM）
 ├── test_director.py    director 确定性单测（不调 LLM）
-├── test_nsfw_defense.py NSFW 门控「突破防守」测试（确定性 + Flask /api/act 端点，mock LLM）
 ├── test_focus_follow.py 镜头跟随（焦点）机制测试：compute_focus 焦点识别 + prompter 注入 + 端点层裁剪（确定性，mock LLM）
 ├── test_ending.py       结局判定（软指引）测试：evaluate 三类分支 + dismissed 抑制 + /api/end 总结存档 + /api/ending/dismiss（确定性 + Flask 端点，mock LLM）
 ├── playthrough.py      走查驱动库：按"环境扰动弧"调引擎 API 逐轮推进，
@@ -57,4 +56,4 @@ tests/venv/Scripts/python.exe run_playthrough.py --keep  # 走查落盘
 
 - **环境扰动（导演 / 你）**：本次注入的扰动指令
 - **引擎生成**：对应回合并发的叙事
-- 结尾以 `## 结局` 标记剧本 ending，并附机会等级 / present 违例 / 备注等观察信息。
+- 结尾以 `## 结局` 标记剧本 ending，并附 present 违例 / 备注等观察信息。

@@ -18,8 +18,6 @@ CHARS = ["老周", "苏曼", "阿杰", "林晚", "高洋"]
 cards_present = {n: {"name": n} for n in CHARS}
 directive = "苏曼在路边拦下一辆军车，试图打听女儿下落，老周上前劝阻"
 world_hits = []
-nsfw_prompt = "NSFW 已解锁，按尺度自然推进。"
-opp_level = "半步"
 focus = {"subjects": ["苏曼", "老周"]}
 snap = {
     "scene": {"round": 1, "place": "城东道路", "time": "夜", "weather": ""},
@@ -29,7 +27,6 @@ snap = {
         {"owner": "高洋", "state": "暴露", "holders": ["阿杰", "林晚"], "content": "高洋挪用货款并咬伤林晚"},
         {"owner": "苏曼", "state": "潜伏", "holders": [], "content": "苏曼女儿已死于避难所外"},
     ],
-    "intimacy_phase": None,
     "goals": {n: "" for n in CHARS},
     "present": CHARS,
 }
@@ -83,7 +80,7 @@ def run():
             hist.append({"role": "user", "content": "【导演指令】" + gen_directive(i)})
             hist.append({"role": "assistant", "content": gen_reply(i)})
         msgs = prompter.build_session(
-            cards_present, directive, world_hits, snap, nsfw_prompt, opp_level,
+            cards_present, directive, world_hits, snap,
             history=hist, focus=focus)
         tok = sum(prompter.count_tokens(m.get("content", "")) for m in msgs)
         t0 = time.time()

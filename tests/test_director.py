@@ -1,7 +1,7 @@
 """director 的确定性单元测试（不调 LLM，快速）。
 
 覆盖：validate_present 四类场景 + 举证式归档（_evidence_ok）+ 把柄消除
-（_release_handle）+ 机会等级成对作用域。
+（_release_handle）。NSFW 机会等级机制已于 v0.8.0 整体废弃，相关用例已移除。
 """
 
 import director
@@ -75,33 +75,6 @@ def test_validate_present_empty_present_returns_as_is():
     assert v is False and out == r
 
 
-# ---- 机会等级辅助判定（确定性，不调 LLM）----
-
-def test_opp_from_secrets_full_when_holder_present():
-    """把柄胁迫 → 满机会：已暴露秘密且持有者在场。"""
-    snap = {"secrets": [{"owner": "高洋", "state": "暴露", "known_by": ["林晚", "阿杰"]}]}
-    assert director._opp_from_secrets(snap, ["林晚", "阿杰"]) == "满机会"
-    # 持有者不在场则无机会
-    assert director._opp_from_secrets(snap, ["苏曼"]) == "无"
-    # 仍潜伏则不触发
-    snap2 = {"secrets": [{"owner": "高洋", "state": "潜伏", "known_by": []}]}
-    assert director._opp_from_secrets(snap2, ["林晚"]) == "无"
-
-
-def test_opp_from_secrets_is_pair_scoped():
-    """把柄是成对的：只对「持有者 ↔ 归属者」同在镜头内时生效，不波及全场。"""
-    snap = {"secrets": [{"owner": "高洋", "state": "暴露", "known_by": ["阿杰"]}]}
-    present = ["阿杰", "高洋", "苏曼", "老周"]
-    # 镜头正对这一对 -> 满机会
-    assert director._opp_from_secrets(snap, present, ["阿杰", "高洋"]) == "满机会"
-    # 镜头在另一对身上，与阿杰的把柄无关 -> 不得顶格（这是本次修复的核心）
-    assert director._opp_from_secrets(snap, present, ["苏曼", "老周"]) == "无"
-    # 镜头只有持有者、归属者不在 -> 胁迫对象不在场，不构成当轮机会
-    assert director._opp_from_secrets(snap, present, ["阿杰"]) == "无"
-    # 无镜头（自然推演、全员皆可写）-> 退回全场判定
-    assert director._opp_from_secrets(snap, present, None) == "满机会"
-
-
 def test_release_handle_drops_and_transfers():
     """全版把柄消除：仅改 holders、known_by 不变；holders 清空时状态回落潜伏。"""
     s = {"owner": "高洋", "state": "暴露",
@@ -130,47 +103,3 @@ def test_record_exposure_adds_holder():
     director._record_exposure(s, "阿杰", "叙事揭露", 3)
     assert "阿杰" in s["known_by"] and "阿杰" in s["holders"]
     assert s["state"] == "暴露"
-
-
-def test_known_but_not_holder_no_opportunity():
-    """全版区分：known_by 有人但 holders 为空（知道却无把柄）-> 不顶格。"""
-    s = {"owner": "高洋", "state": "潜伏", "known_by": ["阿杰"], "holders": []}
-    snap = {"secrets": [s]}
-    assert director._opp_from_secrets(snap, ["阿杰", "高洋"]) == "无"
-
-
-def test_opp_from_history_capped_at_half():
-    """近期身体接触推进只作升温（半步上限），不永久锁满机会。"""
-    hist = [{"role": "assistant", "content": "林晚吻了阿杰，贴近他胸口"}]
-    assert director._opp_from_history(hist) == "半步"
-    hist2 = [{"role": "assistant", "content": "老周清点物资"}]
-    assert director._opp_from_history(hist2) == "无"
-
-
-# ---- 同形中性词保护（「穴」在末日/野外题材高频且无性含义）----
-
-def test_neutral_homonyms_not_treated_as_intimacy():
-    """墓穴/洞穴/穴位 不得判为越线——否则会误记关系后果旧账、误触发余韵。"""
-    for t in ["这可能成为五个人共同的墓穴", "他们躲进山洞的洞穴里",
-              "老周按压太阳穴缓解头痛", "这是一处尸群巢穴"]:
-        assert director.detect_intimacy(t) == "无", t
-
-
-def test_real_intimacy_still_detected():
-    """真实越线用词仍须判为越线（不能被中性剔除误伤）。"""
-    assert director.detect_intimacy("他进入她，两人在仓库里做爱") == "越线"
-
-
-def test_opp_from_history_ignores_neutral_homonyms():
-    """历史里出现「墓穴」不应把机会等级抬到半步。"""
-    hist = [{"role": "assistant", "content": "这地方可能成为五个人共同的墓穴"}]
-    assert director._opp_from_history(hist) == "无"
-
-
-def test_body_mid_narrowed_avoids_neutral_false_positive():
-    """T3 收窄后：末日题材中性词不再误抬半步 / 误判接触。"""
-    for t in ["他按在墙上检查装备", "地面湿润，空气里全是铁锈味",
-              "她低头检查衣服有没有破损", "王浩的腰撞上了货架", "贴着标签的罐头"]:
-        assert director.detect_intimacy(t) == "无", t
-    hist = [{"role": "assistant", "content": "他按在墙上检查装备"}]
-    assert director._opp_from_history(hist) == "无"
