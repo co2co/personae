@@ -30,6 +30,16 @@ EXCLUDE_SUBPATHS = {
     "player-cast",       # 用户剧本：玩家设定
 }
 
+# Windows 保留设备名（CON/PRN/AUX/NUL/COM1-9/LPT1-9）。
+# 误把命令输出重定向到这些名（如 `... > nul`）时，会在工作树里生成同名垃圾文件：
+# 既不该入库、也不该进分发包，且会让 os.path.relpath 抛
+# "path is on mount '\\\\.\\nul'" 异常而中断打包。此处一律跳过。
+RESERVED_WIN_NAMES = (
+    {"CON", "PRN", "AUX", "NUL"}
+    | {f"COM{i}" for i in range(1, 10)}
+    | {f"LPT{i}" for i in range(1, 10)}
+)
+
 
 def _version():
     p = ENGINE / "VERSION"
@@ -57,12 +67,17 @@ def build(out_name=None):
         for base, dirs, files in os.walk(ENGINE):
             dirs[:] = [d for d in dirs if d not in EXCLUDE_DIRS]
             for f in files:
+                if os.path.splitext(f)[0].upper() in RESERVED_WIN_NAMES:
+                    continue  # 误重定向产生的保留名残留，跳过
                 full = os.path.join(base, f)
                 rel_engine = os.path.relpath(full, ENGINE)
                 if _excluded(rel_engine):
                     continue
-                if f.endswith(".log"):
-                    continue  # 引擎运行日志不进分发 zip（可能含会话/调试内容）
+                if f.endswith((".log", ".bak")):
+                    # 引擎运行日志不进分发 zip（可能含会话/调试内容）；
+                    # .bak  likewise——data/config.local.bak 等本地配置备份含私人
+                    # 模型绝对路径与 provider key，属分发红线，一律排除。
+                    continue
                 arcname = os.path.relpath(full, ROOT).replace(os.sep, "/")  # zip 用正斜杠
                 if rel_engine.replace(os.sep, "/") == "data/config.json":
                     # 分发 zip 不得携带个人 config（本地模型路径/连接）；洗白为出厂默认再归档，工作树不动

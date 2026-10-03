@@ -65,7 +65,17 @@
 
 - 人设与世界书结论：世界书运作正常（治愈/疫苗、官方救援、手机通讯 0 命中；「枪声」仅 2 轮且均在旧队回忆里，不违背「行动避枪声」）；四条人设均稳定出现。残留一处：陆衡坦白旧队时把世界书强调的「因他一次关键抉择失误」稀释为「为了活下来」而独自逃生——比 v0.8.0 前的「甩锅王晨」好很多，但未完全落到字面，属模型在有人设提示下的戏剧化取舍，非机制中断。
 
-### 七、遗留项（已挂 TODO，本次未动）
+### 七、分发红线修复（`package.py`）
+
+收口打包时发现并修复两处分发问题（均为此前未被发现的既有缺陷）：
+
+1. **`engine/data/config.local.bak` 泄漏进分发 zip**：该本地配置备份含私人模型绝对路径、本地 LLM 地址与 provider key，且带已废弃的 `nsfw_enabled`/`adult_confirmed` 字段。`.gitignore` 早已保证它不入库，但 `package.py` 未排除，故过去每次打包都把它塞进了 zip（v0.8.0 zip 亦含此文件）。修复：打包时排除 `*.bak`，与既有的 `*.log` 同处理。
+2. **Windows 保留名残留 `nul` 中断打包**：`engine/` 下存在误把命令输出重定向到 `nul` 而生成的垃圾文件（573 B，requests 依赖警告），`os.path.relpath` 对它抛 `ValueError: path is on mount '\\.\nul'`，直接让打包失败退出。修复：打包时跳过 Windows 保留设备名（CON/PRN/AUX/NUL/COM1-9/LPT1-9）。
+
+- 校验产物：`my-st-v0.9.0.zip` = 30 条目 / 171.5 KB。红线复扫 `sessions/` `tests/` `venv/` `__pycache__/` `.log` `.bak` `state.json` `player-cast` **全部 0 命中**；`config.json` 洗白（base_url/api_key/model 空、providers=[]、无 nsfw 系键）；DEMO 4 张角色卡 + 1 部世界书随附。
+- 工作树残留：根目录与 `engine/` 各有一个 `nul`（另一份 64 B，为 taskkill 报错重定向残留）。二者均未入库、不进分发包，但受环境安全策略限制本次未能删除（保留设备名无法进回收站），需手动清理：`del /f /q "\\?\D:\codes\my-st\nul"`（两处路径同理）。
+
+### 八、遗留项（已挂 TODO，本次未动）
 
 - 测试层仍绑定具体角色名：10 个测试文件硬编码角色名，其中 `test_focus_follow`、`test_relation_gate` 直接 `store.load_card()` 依赖 `characters/` 真实数据，换剧本即全红（既有的 4 个失败即源于此）。建议改为自建 fixture（角色A/B/C），纯测试重构、不动引擎。
 - 文档 `worldbook-guide.md` / `static/worldbook-guide.html` 仍用旧剧本名举例约 40 处 × 2 文件，属文档举例、不影响运行时。
