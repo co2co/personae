@@ -126,6 +126,12 @@ def worldbook_doc():
     return send_from_directory(ROOT / "static", "worldbook-guide.html")
 
 
+@app.get("/docs/script-example")
+def script_example_doc():
+    """返回「剧本范例指南」静态页：教创作者如何写一份能被提炼器高质量识别的剧本。"""
+    return send_from_directory(ROOT / "static", "script-example-guide.html")
+
+
 
 # ----------------------------------------------------------------------------
 # 创作管理：角色卡 / 世界书 / 聊天 / 配置

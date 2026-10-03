@@ -1,0 +1,118 @@
+<!DOCTYPE html><html lang="zh"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>剧本范例指南 · ST-Lite</title><style>
+:root{
+  --bg:#f5f6f8; --panel:#ffffff; --ink:#222833; --muted:#66707e;
+  --accent:#3b6ef0; --line:#e3e7ee; --code-bg:#eef1f6; --code-ink:#c0341d;
+}
+*{box-sizing:border-box;}
+body{margin:0;background:var(--bg);color:var(--ink);
+  font-family:-apple-system,"Segoe UI","PingFang SC","Microsoft YaHei","Hiragino Sans GB",sans-serif;
+  line-height:1.75;font-size:15px;}
+.wrap{max-width:900px;margin:0 auto;padding:22px 20px 90px;}
+header{display:flex;align-items:center;justify-content:space-between;
+  padding-bottom:14px;margin-bottom:6px;border-bottom:1px solid var(--line);}
+header strong{font-size:16px;color:var(--ink);}
+.close{font-size:13px;padding:6px 14px;border:1px solid var(--line);background:#fff;
+  border-radius:6px;cursor:pointer;color:var(--muted);}
+.close:hover{color:var(--ink);border-color:#c7cdd8;}
+.content h1:first-of-type{display:none;}
+.content h1{font-size:25px;margin:.2em 0 .4em;}
+.content h2{font-size:20px;margin:1.9em 0 .6em;padding-top:.6em;border-top:1px solid var(--line);}
+.content h3{font-size:16.5px;margin:1.5em 0 .5em;color:#2b3340;}
+.content p{margin:.7em 0;}
+.content ul,.content ol{padding-left:1.5em;margin:.6em 0;}
+.content li{margin:.3em 0;}
+.content a{color:var(--accent);text-decoration:none;}
+.content a:hover{text-decoration:underline;}
+.content code{background:var(--code-bg);color:var(--code-ink);padding:1.5px 5px;
+  border-radius:4px;font-size:.88em;font-family:ui-monospace,Menlo,Consolas,"Courier New",monospace;}
+.content pre{background:#f4f6f8;border:1px solid var(--line);border-radius:8px;
+  padding:14px 16px;overflow:auto;font-size:13px;line-height:1.55;}
+.content pre code{background:none;color:#2b3340;padding:0;}
+.content table{border-collapse:collapse;width:100%;margin:1.1em 0;font-size:14px;
+  display:block;overflow-x:auto;-webkit-overflow-scrolling:touch;}
+.content th,.content td{border:1px solid var(--line);padding:8px 11px;text-align:left;}
+.content th{background:#f0f3f8;font-weight:600;}
+.content blockquote{border-left:3px solid var(--accent);margin:1.1em 0;padding:.3em 1em;
+  color:var(--muted);background:#f0f3f8;border-radius:0 6px 6px 0;}
+.content hr{border:none;border-top:1px solid var(--line);margin:2em 0;}
+.content img{max-width:100%;}
+@media (max-width:640px){
+  .wrap{padding:16px 14px 70px;}
+  .content{font-size:14.5px;}
+  .content h2{font-size:18px;}
+}
+</style></head><body><div class="wrap"><header><strong>剧本范例指南 · ST-Lite</strong><button class="close" onclick="window.close()">关闭</button></header><main class="content"><h1>剧本范例指南（从剧本生成设定）</h1>
+<blockquote>
+<p>适用版本：<code>my-st</code> 精简版沙盘。本文档面向<strong>想快速上手的创作者</strong>：告诉你一份「能交给引擎自动提炼出角色卡与世界书」的剧本该怎么写，并附一份可直接照抄的完整范例。</p>
+</blockquote>
+<hr>
+<h2>一、这个功能做什么</h2>
+<p>在「从剧本生成设定」里贴入一段文字剧本，引擎会用 LLM 自动提炼出：</p>
+<ul>
+<li><strong>角色卡</strong>：每个有名字/明确身份的人物一张，含性格、渴望、恐惧、关系等。</li>
+<li><strong>世界书条目</strong>：世界观法则、地点、时间线、以及各角色的<strong>秘密</strong>。</li>
+</ul>
+<p>提炼结果会先给你预览，确认后才写入引擎。你无需手动逐字段填表，但<strong>剧本写得越规整，提炼越准</strong>。下文告诉你「规整」长什么样。</p>
+<hr>
+<h2>二、一份好剧本的结构</h2>
+<p>引擎能理解自由文本，但强烈建议按下面三段式组织，提炼质量最高：</p>
+<table>
+<thead><tr><th>段落</th><th>内容</th><th>是否必填</th></tr></thead>
+<tbody>
+<tr><td><code>剧本</code></td><td>一句话题材/背景定位</td><td>建议</td></tr>
+<tr><td><code>舞台</code></td><td>故事发生的时间地点</td><td>可选</td></tr>
+<tr><td><code>人物角色</code></td><td>每个角色一段，含性格/缺点/渴望/恐惧/秘密</td><td><strong>必填</strong></td></tr>
+<tr><td><code>世界书</code></td><td>世界观法则、地点、秘密的条目清单</td><td>建议</td></tr>
+</tbody>
+</table>
+<hr>
+<h2>三、角色怎么写（关键）</h2>
+<p>每个角色独立成段，以<strong>角色名开头</strong>，后面写清这几个要素：</p>
+<ul>
+<li><strong>身份</strong>：性别、年龄、职业/定位，一句话交代。</li>
+<li><strong>性格</strong>：正面的特点。</li>
+<li><strong>缺点</strong>：负面的短板——这是让角色「会犯错」的关键，也是秘密滋生的土壤。</li>
+<li><strong>核心渴望</strong>：他/她最想要什么（驱动行为的引擎）。</li>
+<li><strong>核心恐惧</strong>：他/她最怕什么（越线底线）。</li>
+<li><strong>秘密</strong>：一件不愿被人知道的往事（会变成世界书里的「秘密」条目）。</li>
+</ul>
+<blockquote><p>要点：<strong>一定要给角色起真名</strong>（不要用「角色A」「角色B」这类代号）。代号会被当成角色真名，让游戏里出现名叫「角色A」的 NPC，很违和。</p></blockquote>
+<hr>
+<h2>四、世界书怎么写</h2>
+<p>世界书用方括号标注每条条目的<strong>类型</strong>，引擎据此判断它是「恒定设定」还是「随剧情变化的情境」：</p>
+<table>
+<thead><tr><th>标注</th><th>含义</th><th>示例</th></tr></thead>
+<tbody>
+<tr><td><code>【常量-xxx】</code></td><td>恒定不变的世界观法则</td><td>【常量-丧尸病毒】病毒通过血液传播……</td></tr>
+<tr><td><code>【xxx-before】</code></td><td>当前情境（放前文）</td><td>【临时庇护所-before】众人停留在一间公寓……</td></tr>
+<tr><td><code>【xxx-after】</code></td><td>后续情境（放后文）</td><td>【幸存者营地-after】有传言东南方有个营地……</td></tr>
+</tbody>
+</table>
+<blockquote><p>最末一行写 <code>【各个角色的秘密】从上方角色卡中提取填入</code>，告诉引擎「秘密已在上文角色卡里写好了，去那里提取即可」，避免重复。</p></blockquote>
+<hr>
+<h2>五、完整范例（可直接照抄改）</h2>
+<p>下面是一份完整的丧尸末日范例，随引擎分发在 <code>engine/data/examples/script-example.txt</code>。你可以把它整个复制进「从剧本生成设定」的输入框，观察提炼效果；也可以逐段替换成你自己的设定。</p>
+<pre><code>剧本：丧尸末日生存
+舞台：中国南方某小镇
+人物角色：
+沈川：男性，40岁，小队的核心人物，领导者。思维活络，擅长战术分析。缺点：体能一般，不擅长战斗，面对重要抉择时会瞻前顾后。对林小满心生爱慕，暗地里照顾和偏爱她。核心渴望：自己和身边的人都能生存下去。核心恐惧：自己和身边的人倒在丧尸末日中。秘密：因为他的抉择错误，曾经在之前的队伍中导致队伍被丧尸覆灭，只有他侥幸逃脱，这也是他现在做重要决定会变得优柔寡断的原因。
+林小满：女性，23岁，性格文静而沉稳，医学毕业生，见习护士。缺点：她的优点和她的缺点一脉相承，医疗系统出身的她仁爱且温柔，不愿意轻易放弃受伤的人，更不会丢下同伴。核心渴望：医者仁心，竭力治好每一名伤病患者。核心恐惧：害怕因为自己的医疗经验不足导致病人丢掉性命。秘密：由于自己不愿放弃一名被丧尸咬伤的病人，坚持为他治疗。结果该病人最后尸变成丧尸，除了自己被救，医疗营地里的人都未能幸免于难。
+周岚：女性，36岁，是周子航的母亲，她和丈夫在灾难早期失散，认为孩子的父亲已经遇难。缺点：神经大条、性格冲动，做事容易不顾后果，理想主义者。灾难前是全职家庭主妇，因此擅长家务活和后勤，由于多年照顾家人的经验，她出乎意料地能敏锐察觉到身边人的需求和心思。核心渴望：保护好自己的孩子，让他能活下去健康长大。为了自己和孩子有所庇护，她愿意服从和讨好身边的人，尤其是领队的沈川。核心恐惧：孩子是她继续活下去的唯一念想，极度恐惧没能照顾好孩子，失去孩子。为了孩子她能牺牲一切。秘密：为了保护孩子，她曾自私地封堵一扇逃生的门，任由门后的幸存者被追来的丧尸啃咬和撕碎。
+周子航：男性，18岁，是周岚的儿子。缺点：涉世未深，头脑简单。贪玩且怕累，不能经受长时间的体力劳动或长途跋涉。叛逆期的他天然对权威有抗拒心理，因此经常对沈川的安排和分析不满。核心渴望：他深信爸爸不会轻易死掉，肯定还在某个地方活着，所以他总是想寻觅他的父亲。核心恐惧：他无法接受父亲已经离世的可能，虽然心里隐约有这个想法，但是他不想承认，也经常因此和母亲争执。秘密：他在某次擅自外出寻找父亲的时候被一只幼童丧尸咬了一口小臂，伤口不深但是已经见血，很有可能已经感染病毒。
+世界书：
+【常量-背景】丧尸病毒爆发已1个月，政府已经管控封堵受病毒感染的区域，无法进出，接近出入口的位置会被一律射杀。政府承诺会救援幸存者，但是迟迟未见具体行动。
+【常量-丧尸病毒】病毒通过血液传播（被丧尸啃咬、抓伤），目前无已证实的治疗方案。被丧尸咬伤或抓伤后受感染病毒爆发的时间因个体而异，短则数十分钟，长则数天。
+【常量-丧尸】丧尸视觉退化、靠听觉与血腥味锁定猎物，枪声与呼喊会迅速引来尸群，所以小队行动时多以冷兵器与静默为主。
+【临时庇护所-before】众人临时停留在一个地铁口附近的公寓单元中，街道满是丧尸。公寓的下水道时不时传来异响，相反地铁口下方的地铁通道则是静谧得很诡异。
+【物资-after】城市里的物资已被搜刮殆尽，药品与弹药尤其珍贵。每一支抗生素、每一发子弹都要用在刀刃上。
+【幸存者营地-after】有传言幸存者们在城市的东南方自发建立了一个幸存者营地，只要没有受到感染即可加入，相反如果受到感染一旦接近就会被击杀。
+【各个角色的秘密】从上方角色卡中提取填入。</code></pre>
+<hr>
+<h2>六、常见坑</h2>
+<ul>
+<li><strong>别用代号</strong>：写「角色A/B/C」会被当成真名。务必起真名。</li>
+<li><strong>别让无关人名混入</strong>：世界书正文里若冒出角色卡之外的人名（如复制粘贴带进来的「苏明负责…」），引擎会把他也识别成一个角色，多出一个你没打算写的人物。</li>
+<li><strong>秘密要写「往事」</strong>：秘密应该是「已经发生、见不得光」的旧事，而非「某人的性格特点」——这样引擎才能把它落成可被逼近、可被揭穿的软肋。</li>
+<li><strong>常量与情境分清楚</strong>：改不掉的世界法则写「常量」，会随剧情变的环境写「before/after」。</li>
+</ul>
+</main></div></body></html>
