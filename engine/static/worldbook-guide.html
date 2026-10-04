@@ -1,4 +1,4 @@
-<!DOCTYPE html><html lang="zh"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>世界书使用说明 · ST-Lite</title><style>
+<!DOCTYPE html><html lang="zh"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>世界书使用说明 · 群像弈</title><style>
 :root{
   --bg:#f5f6f8; --panel:#ffffff; --ink:#222833; --muted:#66707e;
   --accent:#3b6ef0; --line:#e3e7ee; --code-bg:#eef1f6; --code-ink:#c0341d;
@@ -41,9 +41,9 @@ header strong{font-size:16px;color:var(--ink);}
   .content{font-size:14.5px;}
   .content h2{font-size:18px;}
 }
-</style></head><body><div class="wrap"><header><strong>世界书使用说明 · ST-Lite</strong><button class="close" onclick="window.close()">关闭</button></header><main class="content"><h1>世界书使用说明书（Lorebook）</h1>
+</style></head><body><div class="wrap"><header><strong>世界书使用说明 · 群像弈</strong><button class="close" onclick="window.close()">关闭</button></header><main class="content"><h1>世界书使用说明书（Lorebook）</h1>
 <blockquote>
-<p>适用版本：<code>my-st</code> 精简版沙盘（基于 SillyTavern 理念重写的 Python/Flask 多角色关系推演引擎）。
+<p>适用版本：群像弈（Personae）【暂定】精简版沙盘（原创 Python/Flask 多角色关系推演引擎）。
 本文档面向<strong>创作者</strong>：告诉你世界书怎么用、每个字段干什么、什么时候该用什么，并附可直接照抄的例子。</p>
 </blockquote>
 <hr>
@@ -51,7 +51,7 @@ header strong{font-size:16px;color:var(--ink);}
 <p>世界书（Lorebook）是一份&quot;<strong>按需投放的背景设定库</strong>&quot;。</p>
 <p>普通做法是把所有设定一股脑塞进提示词，又长又费 token，还容易让模型搞混。世界书的思路是：<strong>只有&quot;当前剧情/对话涉及到的设定&quot;才会被注入给模型</strong>。你为每条设定写几个触发词，模型读到相关情节时，这条设定才出现。</p>
 <p>一句话：<strong>提到什么，补什么。</strong></p>
-<p>在 <code>my-st</code> 里，世界书同时承担两种职责：</p>
+<p>在本引擎里，世界书同时承担两种职责：</p>
 <table>
 <thead>
 <tr>

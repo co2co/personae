@@ -1,14 +1,17 @@
-# ST-Lite（my-st）· 项目总览
+# 群像弈（Personae）【暂定】· 项目总览
 
-基于 SilkyTavern 思路精简而来的**多角色关系沙盘**引擎——Flask + 本地/云端大模型驱动的
-剧情推演工具，自带世界书、秘密机制、关系网演化与 NSFW 尺度控制。
+> 项目曾用名 **my-st / ST-Lite**（已于 v0.13.x 阶段更名）。新名 **群像弈（Personae）【暂定】** 为暂定名，后续可能调整。
+> 本引擎为原创 Python/Flask 实现，设计参考公开理念，未使用 SillyTavern 等任何第三方源代码。
+
+原创的**多角色关系沙盘**引擎——Flask + 本地/云端大模型驱动的
+剧情推演工具，自带世界书、秘密机制、关系网演化与多角色叙事推演。
 
 ## 目录结构（A + B）
 
 本项目采用「**引擎本体（A） + 测试单元（B）**」双目录并列存放：
 
 ```
-my-st/                      ← 项目根
+personae/                 ← 项目根（群像弈，D:/codes/personae）
 ├── engine/                 ← A. 引擎本体（分发时用户只需这一份）
 │   ├── app.py              后端入口（路由 + SSE 流式转发）
 │   ├── director.py         导演简报 + 秘密曝光 + 机会等级 + present 校验
@@ -65,4 +68,4 @@ python tests/run_playthrough.py     # 不依赖 pytest，直接跑一局走查�
 
 ## 版本
 
-当前版本见 `engine/VERSION`（v0.13.0）。各版本备份 zip 与提交记录见 `engine/DEVLOG.md`。
+当前版本见 `engine/VERSION`（v0.13.1）。各版本备份 zip 与提交记录见 `engine/DEVLOG.md`。

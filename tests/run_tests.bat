@@ -2,7 +2,7 @@
 setlocal
 
 rem ============================================================
-rem  ST-Lite 测试单元运行器
+rem  群像弈（Personae） 测试单元运行器
 rem  用法：双击运行快测；或命令行追加 pytest 参数
 rem    run_tests.bat              -> 快测（确定性单测，不调 LLM，秒级）
 rem    run_tests.bat -m integration -> 完整走查（需引擎在运行 + 真实 LLM）
@@ -27,7 +27,7 @@ if not exist "%VENV%\Scripts\python.exe" (
 )
 
 echo ========================================
-echo   ST-Lite 测试
+echo   群像弈（Personae） 测试
 echo ========================================
 "%PY%" -m pytest %*
 

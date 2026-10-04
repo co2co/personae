@@ -97,7 +97,7 @@ def build_markdown(meta, rounds):
             out.append("")
     out.append("---")
     out.append("")
-    out.append("_由 ST-Lite 自动化测试套件生成。_")
+    out.append("_由 群像弈（Personae）自动化测试套件生成。_")
     return "\n".join(out)
 
 

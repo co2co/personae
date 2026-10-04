@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-"""构建 ST-Lite 分发 zip：只打包 engine/（纯引擎本体），排除开发/运行时冗余。
+"""构建 群像弈（Personae）分发 zip：只打包 engine/（纯引擎本体），排除开发/运行时冗余。
 
 分发原则：用户只需 engine/ 一份即可独立运作，不需要 tests/、venv、缓存与会话状态。
 归档根目录为 `engine/`，与 engine/README.md 的运行说明一致（解压后 `cd engine && python app.py`）。
 
 用法：
-    python package.py                 # 生成 my-st-<VERSION>.zip
+    python package.py                 # 生成 personae-<VERSION>.zip
     python package.py --out foo.zip   # 指定输出名
 """
 
@@ -59,7 +59,7 @@ def _excluded(rel_engine):
 
 def build(out_name=None):
     ver = _version()
-    out_name = out_name or f"my-st-{ver}.zip"
+    out_name = out_name or f"personae-{ver}.zip"
     out = ROOT / out_name
     n = 0
     bad = []
@@ -101,7 +101,7 @@ def build(out_name=None):
 
 if __name__ == "__main__":
     ap = argparse.ArgumentParser(description="打包 engine/ 为分发 zip")
-    ap.add_argument("--out", help="输出文件名（默认 my-st-<VERSION>.zip）")
+    ap.add_argument("--out", help="输出文件名（默认 personae-<VERSION>.zip）")
     args = ap.parse_args()
     out, n, bad = build(args.out)
     print(f"已生成 {out}（{n} 条目，{os.path.getsize(out)/1024:.1f} KB）")

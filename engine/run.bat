@@ -2,7 +2,7 @@
 setlocal
 
 rem ============================================================
-rem  my-st 启动脚本（引擎独立 venv）
+rem  群像弈 启动脚本（引擎独立 venv）
 rem  作用：检测端口占用 -> 占用则先 kill -> 用 engine/venv 启动 Flask
 rem  前置：需先运行 install.bat 安装依赖（创建 engine/venv）
 rem  停止：在窗口按 Ctrl+C
@@ -14,7 +14,7 @@ set "HOST=0.0.0.0"
 set "ROOT=%~dp0"
 set "VENV=%ROOT%venv"
 
-title my-st 服务 (端口 %PORT%)
+title 群像弈 服务 (端口 %PORT%)
 
 cd /d "%ROOT%" || (
     echo [错误] 无法进入引擎目录：%ROOT%
@@ -23,7 +23,7 @@ cd /d "%ROOT%" || (
 )
 
 echo ========================================
-echo   my-st 启动脚本
+echo   群像弈 启动脚本
 echo ========================================
 
 if not exist "%VENV%\Scripts\python.exe" (
@@ -62,7 +62,7 @@ for /f "delims=" %%a in (
 if not defined LAN_IP set "LAN_IP=127.0.0.1"
 
 echo ========================================
-echo   正在启动 my-st 服务
+echo   正在启动 群像弈 服务
 echo   本机访问：http://127.0.0.1:%PORT%
 echo   局域网访问（手机/其他设备）：http://%LAN_IP%:%PORT%
 echo   绑定地址：%HOST%:%PORT%

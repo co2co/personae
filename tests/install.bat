@@ -2,7 +2,7 @@
 setlocal
 
 rem ============================================================
-rem  ST-Lite 测试单元依赖安装
+rem  群像弈（Personae） 测试单元依赖安装
 rem  作用：在 tests/ 下创建独立 venv 并安装 tests/requirements.txt
 rem  说明：与引擎 engine/venv 完全独立，互不干扰。
 rem       改测试依赖不会污染引擎运行环境，反之亦然。
@@ -11,7 +11,7 @@ rem ============================================================
 set "ROOT=%~dp0"
 set "VENV=%ROOT%venv"
 
-title ST-Lite 测试依赖安装
+title 群像弈（Personae） 测试依赖安装
 
 cd /d "%ROOT%" || (
     echo [错误] 无法进入测试目录：%ROOT%
@@ -20,7 +20,7 @@ cd /d "%ROOT%" || (
 )
 
 echo ========================================
-echo   ST-Lite 测试依赖安装
+echo   群像弈（Personae） 测试依赖安装
 echo ========================================
 
 rem ---- 探测 Python：优先 py -3，其次 python ----

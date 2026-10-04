@@ -1,6 +1,16 @@
-# ST-Lite 开发日志
+# 群像弈（Personae）【暂定】开发日志
+
+> **更名记录**：本项目原名 my-st / ST-Lite，于 2026-10-04 更名为 **群像弈（Personae）【暂定】**（暂定名）。引擎代码为原创实现，与 SillyTavern 无源码派生关系；下文历史记录中的 `my-st-vX.Y.Z.zip` 为当时产物名，保留原貌。
 
 记录架构决策。待办与搁置项已统一收口至 [TODO.md](./TODO.md)（各版本「下版本待办」外链至此，避免日志臃肿），非任务日志，按主题追加。
+
+## 2026-10-04 v0.13.1（更名收口 + 去除不准确派生描述）
+
+- 升 v0.13.1：PATCH 档——项目更名收口与去除不准确的派生措辞，无新增能力，故 v0.13.0 → v0.13.1。
+- 更名收口：展示名 `ST-Lite` / `my-st` 全部改为「群像弈（Personae）【暂定】」；磁盘目录 `D:/codes/my-st` 重命名为 `D:/codes/personae`；分发 zip 前缀 `my-st-` 改为 `personae-`（本次产物 `personae-v0.13.1.zip`）。
+- 去除酒馆派生描述：删代码/文档中「参考酒馆」「基于 SillyTavern 思路/理念」「复刻酒馆」「酒馆社区搬运」等派生暗示措辞，改中性表述；保留两处主动原创性声明（与 SillyTavern 无源码派生关系）。
+- 文档修正：README 移除 v0.8.0 已废弃的「NSFW 尺度控制」功能表述。
+- git 关系：仓库根由 `.git` 位置决定，重命名上层文件夹对内部相对路径透明，仓库状态保持干净，无需额外提交。
 
 ## 2026-10-04 v0.13.0（剧本范例指南 + 提炼器缺陷修复）
 
@@ -389,7 +399,7 @@
 
 ## 2026-10-02 v0.7.0（S3 剧本→设定 自动导入器）
 
-- 升 v0.7.0：新增能力（MINOR），降低酒馆入门门槛——玩家贴剧本，引擎用 LLM 提炼角色卡与世界书，确认后一键写入，无需手动填表。
+- 升 v0.7.0：新增能力（MINOR），降低上手门槛——玩家贴剧本，引擎用 LLM 提炼角色卡与世界书，确认后一键写入，无需手动填表。
 - 核心结论：LLM 不能直接改文件（无权限）；由后端中间层执行。玩家剧本 → 后端固定 system prompt 调 LLM → 产出结构化 JSON → 后端调 `store.save_card` / `store.save_world` 写入。引擎已有写入入口（`/api/character`、`/api/world/<name>`）作下游复用。
 
 ### 新增模块与接口
@@ -892,7 +902,7 @@ v0.5.6 把 `detect_intimacy` 用于后果记账与事后余韵，随即暴露：
 
 ## 2026-09-30 世界书机制复刻（constant / depth / position 三件套）
 
-- 复刻酒馆 Lorebook 最核心三件套（递归扫描 recursive 留二期）：
+- 复刻 Lorebook 核心三件套（递归扫描 recursive 留二期）：
   - `constant`：常量条目，不依赖关键词，每轮必注入，解决长文基础规则掉线。
   - `depth`：条目级扫描深度，只回看最近 N 条聊天匹配（默认取全局 `RECENT_FOR_SCAN=4`）。
   - `position`：插入位置 `before`（系统层/历史前，默认）与 `after`（对话历史之后、导演指令之前，独立 system 消息）。
@@ -1051,7 +1061,7 @@ simon 拍板下一轮做 ① recursive 世界书 ② present 名单校验/后处
 
 ### ④ /docs/worldbook 渲染成网页 + 角色卡导入兼容性
 - app.py：`/docs/worldbook` 改为返回渲染后的 HTML 页面（marked.js CDN 渲染 Markdown，带暗色样式；CDN 不可用时回退纯文本）。Markdown 经 `json.dumps` + `</` 转义安全嵌入脚本。系统设置面板内链不变。
-- 角色卡导入兼容：前端 `loadChar` 拆出 `fillChar` 并 stash 原始卡 `_charOrig`；`char-save` payload 合并 `_charOrig` 中未识别字段（avatar/alternate_greetings/extensions/tags 等），避免从酒馆社区搬运时丢元数据；`char-new` 重置 `_charOrig`。新增「导入 JSON」按钮 + 隐藏 file input，读取本地 JSON 直接载入编辑器（未识别字段随保存保留）。
+- 角色卡导入兼容：前端 `loadChar` 拆出 `fillChar` 并 stash 原始卡 `_charOrig`；`char-save` payload 合并 `_charOrig` 中未识别字段（avatar/alternate_greetings/extensions/tags 等），避免从外部导入时丢元数据；`char-new` 重置 `_charOrig`。新增「导入 JSON」按钮 + 隐藏 file input，读取本地 JSON 直接载入编辑器（未识别字段随保存保留）。
 - 验证：docs 路由返回 text/html 且含 marked.min.js / id=content（不再回裸 md）；角色卡 API 往返确认 avatar/extensions/alternate_greetings/tags 均被原样保留。
 
 ## 2026-10-01 版本控制 v0.3（打包备份）

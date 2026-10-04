@@ -2,7 +2,7 @@
 setlocal
 
 rem ============================================================
-rem  ST-Lite 走查运行器（落盘 markdown，无需 pytest）
+rem  群像弈（Personae） 走查运行器（落盘 markdown，无需 pytest）
 rem  用法：
 rem    run_playthrough.bat            -> 跑一局走查并保存
 rem    run_playthrough.bat --keep     -> 跑完保留会话（可在 UI 继续）
@@ -27,7 +27,7 @@ if not exist "%VENV%\Scripts\python.exe" (
 )
 
 echo ========================================
-echo   ST-Lite 走查（落盘 markdown）
+echo   群像弈（Personae） 走查（落盘 markdown）
 echo   用法：run_playthrough.bat [--keep] [--base URL]
 echo ========================================
 "%PY%" run_playthrough.py %*

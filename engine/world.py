@@ -1,6 +1,6 @@
 """世界书：关键词命中才把设定塞进提示词。
 
-复刻酒馆 Lorebook 核心机制：
+世界书（Lorebook）核心机制：
     - constant：常量条目，不依赖关键词，每轮必注入（解决长文基础规则掉线）
     - depth：条目级扫描深度，只回看最近 N 条聊天匹配（默认取全局 default_depth）
     - position：插入位置 before（系统层）/ after（对话历史之后、导演指令之前）

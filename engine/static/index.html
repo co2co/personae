@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>ST-Lite 沙盘</title>
+<title>群像弈 沙盘</title>
 <style>
   :root{
     --bg:#f6f6f4;
@@ -268,7 +268,7 @@
     #ending-banner{ flex-wrap:wrap; }
     #ending-banner .eb-text{ min-width:0; }
   }
-  /* 初始化管理面板（角色库 / 世界书，参考酒馆 Character / Lorebook） */
+  /* 初始化管理面板（角色库 / 世界书） */
   .modal-box.wide{ width:min(900px, 94vw); }
   .mgr{ display:grid; grid-template-columns:220px 1fr; gap:18px; margin-top:6px; }
   .mgr-list{ max-height:62vh; overflow:auto; border-right:1px solid var(--line); padding-right:8px; }
@@ -393,7 +393,7 @@
 <body>
 
 <header>
-  <div class="brand"><b>ST-Lite</b><span>关系沙盘</span></div>
+  <div class="brand"><b>群像弈</b><span>关系沙盘</span></div>
   <span class="tag" id="round-tag">回合 –</span>
   <span class="spacer"></span>
   <button id="open-menu" class="btn btn-sm" aria-label="打开菜单">菜单</button>
@@ -490,11 +490,11 @@
   </div>
 </div>
 
-<!-- 角色库（参考酒馆 Character Management） -->
+<!-- 角色库 -->
 <div id="char-modal" class="modal hide">
   <div class="modal-box wide">
     <h3>角色库</h3>
-    <div class="sub">新建或编辑角色卡，保存后下次开局即可选用。对应酒馆的 Character Management。</div>
+    <div class="sub">新建或编辑角色卡，保存后下次开局即可选用。</div>
     <div class="mgr">
       <div>
         <button id="char-new" class="btn btn-sm">+ 新建角色</button>
@@ -538,11 +538,11 @@
   </div>
 </div>
 
-<!-- 世界书（参考酒馆 Lorebook） -->
+<!-- 世界书 -->
 <div id="world-modal" class="modal hide">
   <div class="modal-box wide">
     <h3>世界书</h3>
-    <div class="sub">管理世界设定与秘密（酒馆的 Lorebook）。保存即整份覆盖写入 data/worlds/&lt;名&gt;.json。</div>
+    <div class="sub">管理世界设定与秘密。保存即整份覆盖写入 data/worlds/&lt;名&gt;.json。</div>
     <div style="font-size:12px;color:var(--muted);margin:6px 0 4px;line-height:1.6;">
       两类条目：<b style="color:var(--ink-2);">设定</b>（默认，触发词命中场景/对话才注入 prompt）；
       <b style="color:#d6453e;">秘密</b>（勾选后<b>不</b>注入 prompt，仅在开局 seed 进该角色的秘密表，按曝光逻辑推进）。
@@ -1098,7 +1098,7 @@ document.getElementById('sys-save').onclick = async () => {
   setTimeout(() => sysModal.classList.add('hide'), 700);
 };
 
-// ---- 初始化流程：角色库 / 世界书（参考酒馆 Character / Lorebook） ----
+// ---- 初始化流程：角色库 / 世界书 ----
 document.querySelectorAll('.modal').forEach(m => m.addEventListener('click', e => {
   if (e.target === m) m.classList.add('hide');
 }));
@@ -1206,7 +1206,7 @@ document.getElementById('char-save').onclick = async () => {
     short_goal: document.getElementById('c-goal').value,
     relations: rel,
   };
-  // 保留未识别字段（avatar / alternate_greetings / extensions 等），避免从酒馆社区导入时丢元数据
+  // 保留未识别字段（avatar / alternate_greetings / extensions 等），避免从外部导入时丢元数据
   const KNOWN = new Set(['name','world','description','personality','core_desire','core_fear','short_goal','relations']);
   for (const k of Object.keys(_charOrig)) {
     if (!KNOWN.has(k)) payload[k] = _charOrig[k];

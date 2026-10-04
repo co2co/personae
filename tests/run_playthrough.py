@@ -14,7 +14,7 @@ import playthrough
 
 
 def main():
-    ap = argparse.ArgumentParser(description="跑一整轮 ST-Lite 走查并保存 markdown")
+    ap = argparse.ArgumentParser(description="跑一整轮 群像弈 走查并保存 markdown")
     ap.add_argument("--base", default=playthrough.BASE_DEFAULT, help="引擎基地址")
     ap.add_argument("--keep", action="store_true", help="跑完保留会话（可在 UI 继续）")
     args = ap.parse_args()

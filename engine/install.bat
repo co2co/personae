@@ -2,7 +2,7 @@
 setlocal
 
 rem ============================================================
-rem  my-st 依赖安装脚本（引擎独立 venv）
+rem  群像弈 依赖安装脚本（引擎独立 venv）
 rem  作用：在 engine/ 下创建 venv 并安装 requirements.txt 中的依赖
 rem  用法：双击本脚本，或命令行执行 install.bat
 rem  说明：仅在首次部署 / 依赖变更时运行；venv 位于 engine/venv，
@@ -12,7 +12,7 @@ rem ============================================================
 set "ROOT=%~dp0"
 set "VENV=%ROOT%venv"
 
-title my-st 依赖安装
+title 群像弈 依赖安装
 
 cd /d "%ROOT%" || (
     echo [错误] 无法进入引擎目录：%ROOT%
@@ -21,7 +21,7 @@ cd /d "%ROOT%" || (
 )
 
 echo ========================================
-echo   my-st 依赖安装
+echo   群像弈 依赖安装
 echo ========================================
 
 rem ---- 探测 Python：优先 py -3，其次 python ----
