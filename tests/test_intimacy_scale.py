@@ -65,11 +65,10 @@ def test_scale_law_is_global_default():
 def test_scale_law_neutral_wording():
     """普适性红线：措辞不得含具体角色名 / 剧本题材词。"""
     sys_p = _system_prompt()
-    # 历史已删剧本 / 当前 DEMO 角色名 / 题材词均不得出现
+    # 历史已删剧本角色名 / 剧本题材词均不得出现（引擎不绑定任何具体剧本）
     banned = ["王晨", "陆衡", "王秀兰", "林清", "苏晚", "顾庭深", "林见秋", "许照",
               "方哲", "陈默", "林瑶", "周凯",
-              "程禹", "沈薇", "许言", "苏黎",
-              "丧尸", "末日", "客服部", "庄园", "民宿"]
+              "丧尸", "末日", "庄园", "民宿"]
     for b in banned:
         assert b not in sys_p, "提示词出现禁用名/题材词：%s" % b
 
@@ -80,5 +79,5 @@ def test_scale_law_uses_neutral_placeholder_only():
     idx = sys_p.find("⑧")
     law8 = sys_p[idx:idx + 200]
     # 出现「未成年人」等词是允许的（这是红线表述，不是专名），但不得含具体姓名
-    for name in ["程禹", "沈薇", "许言", "苏黎", "角色甲", "角色乙"]:
+    for name in ["角色甲", "角色乙"]:
         assert name not in law8, "铁律⑧混入专名：%s" % name

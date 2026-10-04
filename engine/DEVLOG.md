@@ -4,6 +4,25 @@
 
 记录架构决策。待办与搁置项已统一收口至 [TODO.md](./TODO.md)（各版本「下版本待办」外链至此，避免日志臃肿），非任务日志，按主题追加。
 
+## 2026-10-04 v0.13.2（世界书机制修正 + 方向 B 打包硬化）
+
+- 升 v0.13.2：PATCH 档——世界书注入机制的多处修正 + 分发包「方向 B 无 DEMO」硬化，无新增对外能力，故 v0.13.1 → v0.13.2。
+- 世界书机制修正（纯引擎逻辑，零 LLM 依赖）：
+  1. **depth 窗口精确生效**：`app.py` 新增 `WORLDBOOK_SCAN_WINDOW=60`，把传给 `world.scan` 的历史截断到最近 60 条消息（原 `RECENT_FOR_SCAN=4` 仅作默认 depth 保留）；修正前 depth>4 与默认 4 实际等价、深度分档失效。修正后 depth 在 1~60 间精确触发（窗口含本轮导演指令），>60 等同 60。本地验证：depth=4 不命中而 depth=8 命中的用例已通过。
+  2. **after 重定位（after=临门一脚成真）**：`prompter.build_session` 把 `after_hits` 从拼进 system 块末尾，改为并入**末尾 user 消息**（导演指令之后、`【世界设定·当前环境】`标记），即生成点前的最后一瞥（recency 位）；`before` 仍恒在 system 块顶部（primacy 位）。借 transformer U 形注意力，before/after 对非恒定条目产生实质差异——before 搭建解读框架、after 直接 priming 下一轮行动。
+  3. **escHtml 崩溃修复**：`static/index.html` 的 `escHtml(s)` 对 number 入参调 `.replace` 抛错，改为先 `String(s==null?'':s)` 转字符串。
+  4. **删除空世界残留修复**：`loadWorldNames` 返回空列表时显式 `renderWorldEntries([])`，消除删空世界后条目残留。
+- 方向 B 收口（分发包不含任何示例剧本）：
+  - 删除「客服部之夜」都市 DEMO（`engine/data/characters/` 沈薇/程禹/苏黎/许言 + `engine/data/worlds/客服部之夜.json`），备份于 `backups/demo-kefu-backup-20261004_1437/`。
+  - `README.md` / `INSTALL.md` 文案由「随附 DEMO 剧本」改为「分发包不含示例剧本，首次运行需自行导入」。
+  - **打包硬化（关键）**：`package.py` 的 `EXCLUDE_SUBPATHS` 新增 `data/characters` 与 `data/worlds` 整体排除（此前注释误称「随附 DEMO 不再排除」、且打包走磁盘会泄漏磁盘上的私人剧本）。`store.save_card/save_world` 已 `mkdir(exist_ok=True)`，用户导入时自动建目录，排除不影响可用性。
+  - ⚠ **泄漏事故**：因上述打包缺陷，已发布的 `personae-v0.13.1.zip` 实际内嵌了磁盘上 simon 私人的「丧尸末日」DEMO（4 角色卡 + 1 世界书），属私人创作泄漏。本版重新生成分发包时已排除，并随清理删除该泄漏产物；若 v0.13.1 已被分发出去，需评估私人内容扩散面。
+- 测试：
+  - 现有单测中性化（`test_intimacy_scale.py` 角色名改中性占位）；扩展 `test_world_scan.py`、新建 `test_worldbook_depth_window.py`（18 项深度窗口/封顶断言）。
+  - 新建 `tests/stress_worldbook.py`：60 轮确定性压测（调真实 `world.scan` + `prompter.build_session`，零网络/零 LLM），覆盖 5 个非常量条目 before/after × 不同 depth，产出 `tests/runs/` 报告（MD+JSON）。
+  - 验证：关联单测 23 passed；60 轮压测 `depth 一致 / position 正确 / 封顶生效` 三项全 True，before+after 同轮共存轮（44/45/46）落点均正确。
+- 收口：tag `v0.13.2`；产物 `personae-v0.13.2.zip`（已排除私人剧本，泄漏校验通过）；清理上一版本 `personae-v0.13.1.zip`（含泄漏）及旧名 `my-st-v0.13.0.zip`。
+
 ## 2026-10-04 v0.13.1（更名收口 + 去除不准确派生描述）
 
 - 升 v0.13.1：PATCH 档——项目更名收口与去除不准确的派生措辞，无新增能力，故 v0.13.0 → v0.13.1。

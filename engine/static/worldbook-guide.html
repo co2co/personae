@@ -146,33 +146,40 @@ header strong{font-size:16px;color:var(--ink);}
 <thead>
 <tr>
 <th>值</th>
-<th>含义</th>
-<th>适合什么</th>
+<th>命中后落在哪</th>
+<th>注意力位</th>
+<th>实质作用</th>
 </tr>
 </thead>
 <tbody><tr>
 <td><code>before</code>（默认）</td>
-<td>系统层，放在对话历史<strong>之前</strong></td>
-<td>世界观基础、角色该共知的背景</td>
+<td>系统层首条消息顶部（<code>messages[0]</code> 顶部），在对话历史<strong>之前</strong></td>
+<td>primacy（首部强）</td>
+<td>当&quot;背景框架&quot;——角色带着这副眼镜解读整个世界；<strong>定调但不催行</strong></td>
 </tr>
 <tr>
 <td><code>after</code></td>
-<td>放在对话历史<strong>之后、导演指令之前</strong>，作为独立 system 消息</td>
-<td>角色&quot;当前应当知晓&quot;的环境细节</td>
+<td>末尾 user 消息（<code>【导演指令】</code>之后），在对话历史<strong>之后、生成点之前</strong>的最后一瞥</td>
+<td>recency（尾部最强）</td>
+<td>当&quot;临门一脚&quot;——模型生成前最后看到它，最容易变成&quot;此刻该做什么&quot;的推力，<strong>直接催角色当下行动</strong></td>
 </tr>
 </tbody></table>
-<p><strong>为什么 this 重要</strong>：把&quot;角色不该知道的上帝视角/元设定&quot;放错位置，会被模型当成角色已知，造成出戏（OOC）或第四面墙破裂。<code>after</code> 段贴近当下语境，适合&quot;当下环境细节&quot;；<code>before</code> 段像空气一样常驻系统层。</p>
+<blockquote>
+<p><strong>一句话核心</strong>：<code>after</code> = 触发即<strong>临门一脚、催角色当下行动</strong>；<code>before</code> = 触发即<strong>背景滤镜、给场景定调但不催行</strong>。</p>
+<p><strong>机制来源</strong>：transformer 的 U 形注意力——消息首部（primacy）与尾部（recency）权重最高。<code>before</code> 占首部、<code>after</code> 占尾部，所以两者即便都&quot;命中才注入&quot;，对角色行为的拉扯方式也不同：一个定调、一个催促。</p>
+</blockquote>
+<p><strong>为什么这重要</strong>：<code>position</code> 只决定&quot;命中后，它以哪种权重影响下一句&quot;，<strong>绝不改变&quot;角色是否看得到&quot;</strong>（那是 <code>constant</code> 的职责）。把&quot;角色不该知道的上帝视角 / 元设定&quot;写进世界书本身就会 OOC——这是<strong>内容权限</strong>问题，位置解决不了。另外，该差异对短条目是<strong>真实但幅度温和</strong>的、且随模型而变，别指望设了 <code>after</code> 角色就判若两人。</p>
 <p><strong>例子</strong>：</p>
 <pre><code>[after] 当下威胁：门外尸群已增至数十只，通风口有抓挠声，是今日最大隐患。
 </code></pre>
-<p>这条设 <code>after</code>——只有当某轮提到&quot;门外/尸群/通风口&quot;时才作为&quot;当前环境&quot;提示注入，且位置贴近当下，不会被当成远古背景。</p>
+<p>这条设 <code>after</code>——只有某轮提到&quot;门外/尸群/通风口&quot;时才作为&quot;当前环境&quot;拼在生成点前最后一瞥，直接催角色对尸群作出反应；不会被当成远古背景框架。</p>
 <h3>7. 扫描深度 <code>depth</code> 🔑 重点</h3>
 <p>控制这条设定<strong>只回看最近多少轮聊天</strong>来匹配关键词。</p>
 <ul>
 <li>留空 = 用全局默认 <code>4</code>（回看最近 4 条聊天）。</li>
 <li>填数字（如 <code>10</code>）= 该条目回看最近 N 条。</li>
 <li>窗口 = 最近 N 条聊天 <strong>+ 你本轮注入的导演指令</strong>（指令也参与匹配）。</li>
-<li>若 depth ≥ 已有聊天总数，则回看全部。</li>
+<li>若 depth ≥ 已有聊天总数（或达到 60 轮扫描窗口上限），则回看全部；depth 在 1~60 间精确生效，超过 60 等同 60。</li>
 </ul>
 <p><strong>用途</strong>：默认 4 条意味着&quot;第 5 轮提过的事，隔 4 轮后就不再触发&quot;。如果你的设定需要&quot;远距离仍能命中&quot;，就调大 depth。</p>
 <p><strong>例子</strong>（末日剧本 <code>depth=10</code>）：</p>
@@ -181,6 +188,51 @@ content：城东废弃体育馆被传改成了临时庇护所，有物资有活�
 depth：10
 </code></pre>
 <p>第 1 轮提了&quot;城东还有希望&quot;，之后 5 轮都在聊别的。默认 depth=4 会丢失这条；设 <code>depth=10</code> 后，第 6~10 轮仍命中——角色不会突然&quot;忘了城东还有生路&quot;。</p>
+<h4>决策表：constant / position / depth 怎么选</h4>
+<p><code>constant</code>（注入条件）与 <code>position</code>（注入位置）是两个独立维度，和 <code>depth</code> 搭配出四种合法组合。选错组合是&quot;设定总掉线 / 总被忘&quot;的头号原因：</p>
+<table>
+<thead><tr><th>设定性质</th><th>constant</th><th>position</th><th>depth</th><th>理由</th></tr></thead>
+<tbody>
+<tr><td>铁共识 / 世界观法则（尸变不可逆、全员幸存者互不熟）</td><td><strong>true</strong></td><td>before</td><td>无关</td><td>每轮必注入系统层，永不褪色——真&quot;共识&quot;的家</td></tr>
+<tr><td>永久据点背景（便利店后仓）</td><td><strong>true</strong></td><td>before</td><td>无关</td><td>同上，永久在场</td></tr>
+<tr><td>话题型共享知识（&quot;地铁通道诡异&quot;，只在聊地铁时相关）</td><td>false</td><td>before</td><td>偏深 8~15</td><td>关键词离场后仍能暖场多轮；想更耐久就调更高</td></tr>
+<tr><td>一过性共享细节（某句气话、临时约定）</td><td>false</td><td>after</td><td>浅 1~4</td><td>话题一冷就淡出，不占 prompt</td></tr>
+</tbody>
+</table>
+<p><strong>关键澄清</strong>：<code>position=before</code> 不等于&quot;永久背景&quot;——它只决定<em>注入时</em>坐在系统层，<strong>仍只在关键词命中时才注入</strong>；真正&quot;每轮都在、永不褪色&quot;的是 <code>constant=true</code>（此时 <code>depth</code> 完全无效）。所以：</p>
+<ul>
+<li><strong>真正不容褪色的铁共识 / 永久据点 → 直接 <code>constant=true</code>，不要靠调深 <code>depth</code> 来&quot;防忘&quot;。</strong></li>
+<li><code>constant=false, position=before</code> 严格说是&quot;当成背景框架呈现的<strong>话题型</strong>共享知识&quot;：话题冷却超过 <code>depth</code> 轮后就会淡出（最深 60 轮封顶）。若你担心&quot;常识被忘&quot;，那它本质上就不该是 <code>constant=false</code>，该升常量。</li>
+<li>注意：从&quot;剧本 / LLM 导入&quot;世界书时，<code>script_refiner</code> 会强制 <code>constant=true→before</code>、<code>constant=false→after</code>（防自相矛盾组合）；想自由解耦（如 <code>constant=true, position=after</code>）只能手动改 JSON。</li>
+</ul>
+<h4>7.2 常见误区：before/after 不是&quot;从开局常驻的记忆&quot;</h4>
+<p>很多玩家（包括从酒馆迁移过来的）会卡在这里：以为设了 <code>before</code> 或 <code>after</code>，这条设定就从游戏开局一直在角色视野里，能随时当决策参考。这是错的，也是&quot;设定总被忘 / 角色不按设定行动&quot;的头号根源。</p>
+<p><strong>核心心智模型：世界书条目只有两种命</strong></p>
+<ol>
+<li><strong>常量条目（<code>constant=true</code>）</strong>——每轮必注入，是真正的&quot;记忆库 / 决策地基&quot;。永久事实（地理锚点、世界观法则、铁共识）放这里。</li>
+<li><strong>非常量条目（<code>constant=false</code>，无论 <code>before</code> 还是 <code>after</code>）</strong>——只是&quot;话题触发器&quot;。只有当它的关键词在最近 <code>depth</code> 轮聊天里被提及时，才注入那一两轮；话题冷却超过 <code>depth</code>，它就不在了，模型不会主动想起。</li>
+</ol>
+<p><strong>before / after 是&quot;注入到哪、以哪种权重影响下一句&quot;的标签，不决定&quot;是否常驻&quot;</strong></p>
+<ul>
+<li><code>before</code>：命中后并入系统层首条消息顶部，当&quot;背景框架&quot;呈现——<strong>触发即背景滤镜、给场景定调但不催行</strong>。</li>
+<li><code>after</code>：命中后并入末尾 user 消息（生成点前最后一瞥），当&quot;临门一脚&quot;呈现——<strong>触发即催角色当下行动</strong>。这是与 before 的实质性差别（见第 6 节）。</li>
+<li>两者对非常量条目<strong>都一样是&quot;命中才注入&quot;</strong>；只有 <code>constant=true</code> 才会让条目&quot;每轮都在&quot;。所以&quot;想让设定永远跟着角色&quot;→ 勾常量，不是选 <code>before</code>/<code>after</code>。</li>
+</ul>
+<p><strong>触发非常量条目的两个入口</strong></p>
+<ul>
+<li>叙事自然衍生：角色聊到相关词，关键词命中。</li>
+<li>玩家注入扰动：玩家在发言 / 环境干扰里刻意带上关键词，主动命中（对应&quot;玩家凭常识注入环境干扰、推动世界运转&quot;的设计）。</li>
+</ul>
+<p><strong>那 depth 该设多少？</strong></p>
+<ul>
+<li><code>depth=4</code>（默认）是&quot;话题冷却&quot;：提过之后暖 4 轮就淡出，适合一过性细节。</li>
+<li>重要但偶发的剧情线用深 <code>depth</code>（8~15），让它暖更久。</li>
+<li><strong>但 depth 再大也救不了&quot;关键词从未被提&quot;的时刻</strong>——只有 <code>constant=true</code> 能。怕重要事实被忘？升常量，别调深 depth。</li>
+</ul>
+<blockquote>
+<p>一句话记牢：<strong>记忆库只有 <code>constant</code>；<code>before</code>/<code>after</code> 只是位置，非常量条目是&quot;关键词命中才闪现的临时参考&quot;，不是开局常驻的记忆。</strong></p>
+<p>补充一点精确化：非常量条目在&quot;话题正热的 <code>depth</code> 轮内&quot;其实是<strong>能</strong>当临时决策参考的（那几轮它就在 prompt 里），只是冷却后不能主动被想起。所以准确说法是&quot;不能当<strong>随时可靠的</strong>抉择参考&quot;，而非完全不能。</p>
+</blockquote>
 <h3>8. 秘密条目 <code>secret</code> + 归属角色 + 底线 🔑 重点</h3>
 <p>勾选「秘密条目」后，这条<strong>不进入提示词</strong>，而是：</p>
 <ol>

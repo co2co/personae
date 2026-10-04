@@ -20,13 +20,16 @@ ENGINE = ROOT / "engine"
 
 # 排除项（相对 engine/ 的路径）
 EXCLUDE_DIRS = {".git", "venv", "__pycache__"}
-# 不随分发包携带：会话状态/运行时状态、玩家私人设定。
-# 注：自 v0.8.0 起，引擎随附「丧尸末日」DEMO 剧本（角色卡 + 世界书），
-# 位于 data/characters 与 data/worlds，作为公开示例一并分发，故不再排除二者；
-# 如需排除私人剧本，请仅删除对应文件而非整目录。
+# 不随分发包携带：会话状态/运行时状态、玩家私人设定、任何剧本内容。
+# 方向 B（2026-10-04 simon 裁定）：分发包不含任何示例剧本，首次运行需自行导入；
+# 故 data/characters 与 data/worlds 整体排除（二者仅含用户私创/个人 DEMO，
+# 绝不可随分发泄漏）。引擎 save_card/save_world 已 mkdir(exist_ok=True)，
+# 用户导入时自动建目录，排除不影响可用性。
 EXCLUDE_SUBPATHS = {
     "data/sessions",
     "data/state.json",
+    "data/characters",   # 角色卡：用户私创/个人 DEMO，不随分发
+    "data/worlds",       # 世界书：同上
     "player-cast",       # 用户剧本：玩家设定
 }
 

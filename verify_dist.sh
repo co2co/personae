@@ -1,16 +1,30 @@
 #!/usr/bin/env bash
 # 纯引擎分发端到端验证：解压到空目录 -> 起服务 -> 探活
+# 用法: ./verify_dist.sh [ZIP路径] [DIST临时根]
+#   ZIP  默认 <项目根>/personae-<VERSION>.zip（VERSION 读 engine/VERSION，随版本自适配）
+#   DIST 默认系统临时目录下的唯一子目录（mktemp -d），不写死路径、不污染仓库
 set -u
-ZIP="D:/codes/personae/personae-v0.4.3.zip"
-DIST="D:/codes/_dist_test"
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+VERSION="$(cat "$ROOT/engine/VERSION" 2>/dev/null | tr -d '[:space:]')"
+ZIP="${1:-$ROOT/personae-${VERSION}.zip}"
+TMP="${TMPDIR:-/tmp}"
+DIST="${2:-$(mktemp -d "$TMP/personae_dist.XXXXXX")}"
 RUNID="run-$(date +%s)"
 TARGET="$DIST/$RUNID"
 PORT=5051
-SRC_VENV="D:/codes/personae/engine/venv"
+SRC_VENV="$ROOT/engine/venv"
 RESULT="$DIST/verify.result"
 
 mkdir -p "$DIST"
 
+echo "=== [0] 路径自检 ==="
+echo "  项目根 ROOT = $ROOT"
+echo "  待验证 ZIP  = $ZIP"
+echo "  临时根 DIST = $DIST"
+[ -f "$ZIP" ] && echo "  [info] ZIP 存在" || { echo "  [FAIL] ZIP 不存在：$ZIP（可 ./verify_dist.sh <zip路径> 显式传入）"; exit 2; }
+
+echo
 echo "=== [1] 解压到全新唯一目录 ==="
 mkdir -p "$TARGET"
 unzip -o -q "$ZIP" -d "$TARGET"

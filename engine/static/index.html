@@ -1229,6 +1229,7 @@ function loadWorldNames() {
     const sel = document.getElementById('w-name');
     sel.innerHTML = (list||[]).map(n=>`<option>${n}</option>`).join('') || '<option value="">（无）</option>';
     if (list && list.length) loadWorld(list[0]);
+    else renderWorldEntries([]);  // 删到空时清空条目区，避免残留被删世界的设定项
     sel.onchange = () => loadWorld(sel.value);
   });
 }
@@ -1237,7 +1238,7 @@ async function loadWorld(name) {
   const entries = (d.entries||[]).slice().sort((a,b)=> (b.priority??0)-(a.priority??0));
   renderWorldEntries(entries);
 }
-function escHtml(s){ return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+function escHtml(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 function escAttr(s){ return escHtml(s).replace(/"/g,'&quot;'); }
 function entryCard(e, i, expanded) {
   const keys = (e.keys||[]).join('、');

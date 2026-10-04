@@ -442,10 +442,19 @@ def build_session(cards_present, directive, world_hits, snap,
             messages[0]["content"] += "\n\n" + m["content"]
         else:
             messages.append(m)
+    # after 段（position=after 的世界书命中）刻意不进系统块，而是并入末尾的 user 消息
+    # （生成点之前的最后一瞥），以获得 transformer 近因权重——让「当前环境细节」真正起到
+    # 「临门一脚、催角色当下行动」的作用，而非被埋在系统块里稀释。before 段（world_hits）
+    # 仍留系统块顶部当背景框架。after 命中出现在末尾 user 消息的「【世界设定·当前环境】」块。
     if after_hits:
-        messages[0]["content"] += "\n\n[世界设定·续]\n" + "\n".join(
+        env_block = "【世界设定·当前环境】\n" + "\n".join(
             "- " + e["content"] for e in after_hits)
-    if directive:
+        if directive:
+            messages.append({"role": "user",
+                             "content": "【导演指令】" + directive + "\n\n" + env_block})
+        else:
+            messages.append({"role": "user", "content": env_block})
+    elif directive:
         messages.append({"role": "user", "content": "【导演指令】" + directive})
     return messages
 

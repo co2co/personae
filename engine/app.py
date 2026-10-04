@@ -37,7 +37,8 @@ import script_refiner
 ROOT = Path(__file__).parent
 app = Flask(__name__, static_folder=None)
 
-RECENT_FOR_SCAN = 4
+RECENT_FOR_SCAN = 4  # 世界书条目未设 depth 时的默认回看窗口（默认 4 轮）
+WORLDBOOK_SCAN_WINDOW = 60  # 传给世界书扫描的历史窗口上限；depth 在 1..60 内真实可调，>60 等同 60
 
 
 def speaker_segment(text, name, others):
@@ -467,7 +468,7 @@ def act():
         # 世界书：剔除潜伏秘密条目（秘密不进 prompt，只在角色块里按已知状态提示）
         world_name = cards_present[present[0]].get("world", "") if present else ""
         entries = store.load_world(world_name)
-        history = [m.get("content", "") for m in memory.load_chat(sid)[-RECENT_FOR_SCAN:]]
+        history = [m.get("content", "") for m in memory.load_chat(sid)[-WORLDBOOK_SCAN_WINDOW:]]
         hits_all = world_mod.scan(entries, history, directive=directive,
                                  default_depth=RECENT_FOR_SCAN, character=None)
         world_hits = [e for e in hits_all if not e.get("secret")]
@@ -494,13 +495,13 @@ def act():
         )
         messages = hooks.emit("prompt_ready", messages=messages, snap=snap)["messages"]
         tok = sum(prompter.count_tokens(m.get("content", "")) for m in messages)
-        # 计算世界书落点标注：before 命中全部进首条 system 段；after 命中进独立的「[世界设定·续]」段。
-        # 高级用户可据此逐段核对世界书到底插进了哪一段。
+        # 计算世界书落点标注：before 命中全部进首条 system 段；after 命中并入末尾 user 消息
+        # 的「【世界设定·当前环境】」块（生成点前最后一瞥，近因最强）。高级用户可据此逐段核对。
         prompt_ann = {}
         if before_hits and messages:
             prompt_ann[0] = "世界书·before"
         for i, m in enumerate(messages):
-            if (m.get("content") or "").startswith("[世界设定·续]"):
+            if "【世界设定·当前环境】" in (m.get("content") or ""):
                 prompt_ann[i] = "世界书·after"
         logger.info("prompt", "组装提示词：" + str(len(messages)) + " 段 ｜ 约 " + str(tok) + " token"
                     + "（系统层 " + str(1 + len(before_hits)) + " ｜ after " + str(len(after_hits))
