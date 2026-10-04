@@ -18,6 +18,10 @@ backups/
 engine/data/sessions/
 engine/data/state.json
 
+# 用户私人剧本数据（官方 demo 在 data/examples/，其余 characters/worlds 为私人数据，不入库）
+engine/data/characters/
+engine/data/worlds/
+
 # Test run artifacts（走查生成的 markdown 日志，非源码）
 tests/runs/
 

@@ -8,9 +8,11 @@
 """
 
 import json
+import shutil
 from pathlib import Path
 
 DATA_DIR = Path(__file__).parent / "data"
+EXAMPLES_DIR = DATA_DIR / "examples"
 
 
 def _read_json(path):
@@ -19,7 +21,28 @@ def _read_json(path):
     return json.loads(path.read_text(encoding="utf-8"))
 
 
+def _seed_examples():
+    """首次运行（无任何私人剧本时）从 examples/ 播种官方 demo。
+
+    仅当 characters/ 或 worlds/ 目录为空时才复制，且按名去重、不覆盖用户已有文件。
+    demo 是出厂预置，用户导入/新建私人剧本后目录不再为空，此后不再播种。
+    """
+    if not EXAMPLES_DIR.exists():
+        return
+    for kind in ("characters", "worlds"):
+        src = EXAMPLES_DIR / kind
+        dst = DATA_DIR / kind
+        if not src.is_dir():
+            continue
+        dst.mkdir(parents=True, exist_ok=True)
+        for f in src.glob("*.json"):
+            target = dst / f.name
+            if not target.exists():
+                shutil.copyfile(f, target)
+
+
 def list_characters():
+    _seed_examples()
     folder = DATA_DIR / "characters"
     return sorted(p.stem for p in folder.glob("*.json"))
 
@@ -51,6 +74,7 @@ def delete_card(name):
 
 
 def list_worlds():
+    _seed_examples()
     folder = DATA_DIR / "worlds"
     return sorted(p.stem for p in folder.glob("*.json"))
 
