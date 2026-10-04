@@ -159,6 +159,11 @@
   .npcs input{ width:16px; height:16px; accent-color:var(--accent); }
   .actions{ margin-top:24px; display:flex; justify-content:flex-end; }
   .setup-status{ font-size:12.5px; color:var(--muted); margin-top:12px; }
+  /* 点击「开始」后：引擎在后台同步调用 LLM 补全关系网与称呼（可能耗时数秒），
+     期间前端无反馈；显式提示玩家系统正在初始化，并禁用按钮防重复点击。 */
+  .setup-status.init{ color:var(--accent-strong); font-weight:600; display:flex; align-items:center; gap:8px; }
+  .init-spinner{ width:14px; height:14px; border:2px solid var(--accent-soft); border-top-color:var(--accent); border-radius:50%; animation:spin .8s linear infinite; flex:0 0 auto; }
+  @keyframes spin{ to{ transform:rotate(360deg); } }
 
   /* ---------- 弹窗 ---------- */
   .hide{ display:none; }
@@ -735,6 +740,13 @@ function renderNpcs(list) {
 
 async function startSession() {
   lwBody.innerHTML = '';  // 开新一轮前清空日志 DOM，去除上一轮推演残留
+  // 首次开启会话时引擎会在后台同步调用 LLM 补全关系网与称呼（可能耗时数秒），
+  // 期间前端无反馈；显式提示玩家系统正在初始化，并禁用按钮防重复点击。
+  const startBtn = document.getElementById('start');
+  const setupStatus = document.getElementById('setup-status');
+  startBtn.disabled = true;
+  setupStatus.className = 'setup-status init';
+  setupStatus.innerHTML = '<span class="init-spinner"></span>系统正在初始化，请稍等…';
   const cast = [...document.querySelectorAll('#npcs input:checked')].map(c => c.value);
   const scene = document.getElementById('scene').value.trim();
   const res = await fetch('/api/session/new', {
@@ -742,10 +754,19 @@ async function startSession() {
     body: JSON.stringify({cast, scene}),
   });
   const data = await res.json();
-  if (data.error) { document.getElementById('setup-status').textContent = data.error; return; }
+  if (data.error) {
+    setupStatus.className = 'setup-status';
+    setupStatus.textContent = data.error;
+    startBtn.disabled = false;
+    return;
+  }
   SID = data.session;
   document.getElementById('setup').classList.add('hide');
   document.getElementById('board').classList.remove('hide');
+  // 进入主界面后复原「开始」按钮与提示位，供下次开启世界时保持干净状态
+  setupStatus.className = 'setup-status';
+  setupStatus.textContent = '';
+  startBtn.disabled = false;
   renderSnapshot(data.snapshot);
   statusEl.textContent = '世界已开启：' + SID;
   if (!es) connectLog();  // 新世界就绪后再连接日志流（缓冲已清空，仅回放本轮）
