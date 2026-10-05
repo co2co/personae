@@ -201,6 +201,112 @@ def test_exposure_via_whitelist_ok(monkeypatch):
     assert B in s.get("known_by", [])
 
 
+# ---- 暴露语义护栏（v0.17.6，会话 467f1e4c 事故）----
+# _evidence_ok 只验「举证在不在正文」，不验「是否真构成该秘密的信息传递」，
+# 纪官把内心独白/话题错位/不在场者截成证据也能过检，误把潜伏秘密翻成暴露。
+# 两个叠加护栏（事实锚点相关 + 施受方在场）补上语义兜底，任一不过降级为起疑。
+
+
+def _snap_with_secret(owner, content, keys):
+    return {"scene": {"round": 3}, "present": [A, B, C], "relations": {},
+            "actions": {}, "silent_rounds": {}, "goals": {}, "ledger": [],
+            "states": {}, "facts": [],
+            "secrets": [{"owner": owner, "known_by": [], "holders": [],
+                         "content": content, "keys": keys, "state": "潜伏",
+                         "suspicions": []}]}
+
+
+def _run_reflect(monkeypatch, snap, reply, payload):
+    import json as _json
+    monkeypatch.setattr(director.llm, "complete",
+                        lambda *a, **k: _json.dumps(payload, ensure_ascii=False))
+    monkeypatch.setattr(director.memory, "load", lambda sid: snap)
+    monkeypatch.setattr(director.memory, "save", lambda sid, s: None)
+    director.reflect("sid", reply)
+    return snap["secrets"][0]
+
+
+def test_exposure_rejects_evidence_off_topic(monkeypatch):
+    """护栏一：证据虽在正文、却不触及秘密事实锚点（话题错位），降级为起疑。
+
+    对应会话 467f1e4c R4：纪官报「被告知了角色甲『某人失联』的秘密」，
+    但引的证据是讨论伤口、只字不提失联——锚点（keys）不命中，不得翻暴露。
+    """
+    snap = _snap_with_secret(A, "角色甲的秘密", ["父亲", "失联", "下落"])
+    reply = f"{B}盯着{A}手臂上的伤口说：“还在发痒。”"
+    payload = {"secret_exposures": [
+        {"owner": A, "by": B, "via": "被告知",
+         "evidence": "还在发痒"}]}
+    s = _run_reflect(monkeypatch, snap, reply, payload)
+    assert s["state"] == "潜伏"
+    assert B not in s.get("known_by", [])
+    assert any(x.get("by") == B for x in s.get("suspicions", []))
+
+
+def test_exposure_rejects_inner_monologue(monkeypatch):
+    """护栏二：证据是旁白心理独白、无施受方名字在场，不得翻暴露。
+
+    对应会话 467f1e4c R4：纪官引「她坚持救治的病人尸变」——那是叙述者旁白
+    （owner 的内心活动），不是 owner 对 by 说出口的信息传递。
+    """
+    snap = _snap_with_secret(A, "角色甲的秘密", ["旧队", "覆灭"])
+    reply = f"夜色里，{A}想起旧队覆灭那晚，那个病人最终尸变。"
+    payload = {"secret_exposures": [
+        {"owner": A, "by": B, "via": "被告知",
+         "evidence": "那个病人最终尸变"}]}
+    s = _run_reflect(monkeypatch, snap, reply, payload)
+    assert s["state"] == "潜伏"
+    assert B not in s.get("known_by", [])
+
+
+def test_exposure_rejects_absent_listener(monkeypatch):
+    """护栏二：证据里只有第三方、没有接收方 by 的名字（不在场者），不得翻暴露。
+
+    对应会话 467f1e4c R10：纪官报「某人听见某人的秘密」，但该听众留守不在场，
+    引的证据里根本没有这个听众。
+    """
+    snap = _snap_with_secret(A, "角色甲的秘密", ["旧队", "覆灭"])
+    reply = f"{B}压低声音对{C}说：“旧队那晚，我本可以早点救。”"
+    payload = {"secret_exposures": [
+        {"owner": A, "by": B, "via": "听见",
+         "evidence": "我本可以早点救"}]}
+    s = _run_reflect(monkeypatch, snap, reply, payload)
+    assert s["state"] == "潜伏"
+    assert B not in s.get("known_by", [])
+
+
+def test_exposure_accepts_real_transfer_with_anchor(monkeypatch):
+    """护栏不误伤真实暴露：证据同时命中锚点 + 施受方在场，正常翻暴露。"""
+    snap = _snap_with_secret(A, "角色甲的秘密", ["旧队", "覆灭"])
+    reply = f"{A}低头说：“旧队覆灭那晚，我本可以早点救你。”"
+    payload = {"secret_exposures": [
+        {"owner": A, "by": B, "via": "被告知",
+         "evidence": f"{A}低头说：“旧队覆灭那晚，我本可以早点救你。”"}]}
+    s = _run_reflect(monkeypatch, snap, reply, payload)
+    assert s["state"] == "暴露"
+    assert B in s.get("known_by", [])
+
+
+def test_evidence_anchor_helpers():
+    """_anchor_tokens / _evidence_related / _evidence_transfer 的边界行为。"""
+    # keys 含短于 2 字的词（单字「爸」）应被剔除，只留 ≥2 字锚点
+    assert director._anchor_tokens({"keys": ["爸", "父亲", "失联"]}) == ["父亲", "失联"]
+    # keys 空退回归属者名；归属者单字名则无锚点
+    assert director._anchor_tokens({"owner": "角色甲", "keys": []}) == ["角色甲"]
+    assert director._anchor_tokens({"owner": "甲", "keys": []}) == []
+    # 相关：证据与锚点共享 ≥2 字连续片段即真（不必逐字命中完整键）
+    assert director._evidence_related("提到父亲失联", {"keys": ["父亲", "失联"]}) is True
+    # 自然叙事语言 vs 触发词：key「旧队的死法」、正文「旧队覆灭」→ 共享「旧队」仍相关
+    assert director._evidence_related(
+        "旧队覆灭那晚", {"keys": ["旧队的死法"]}) is True
+    assert director._evidence_related("只是伤口发痒", {"keys": ["父亲", "失联"]}) is False
+    # 无锚点时放行（交由护栏二兜底）
+    assert director._evidence_related("任意", {"keys": [], "owner": "甲"}) is True
+    # 施受方：证据含 by 或 owner 名字即真；两者名字都缺席即假
+    assert director._evidence_transfer("角色乙看见伤口", "角色乙", "角色甲") is True
+    assert director._evidence_transfer("伤口很痛", "角色乙", "角色甲") is False
+
+
 # ---- 纪官输出格式漂移防御（v0.16.1，80 轮压测暴露）----
 # 纪官偶发把对象字段写成字符串（actions: "角色甲翻看物资"）或把对象列表写成
 # 字符串数组（new_facts: ["角色甲死了"]）。修复前抛 'str' object has no

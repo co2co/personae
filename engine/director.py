@@ -196,6 +196,83 @@ def _evidence_ok(evidence, reply):
     return _strip_punct(e) in _strip_punct(_norm_text(reply))
 
 
+# ---- 暴露语义护栏（v0.17.6，会话 467f1e4c 事故）----
+# _evidence_ok 只验证「举证原文在不在正文里」，不验证「这段原文是否真的构成
+# 该秘密的信息传递」。纪官会把「内心独白 / 猜测 / 讨论另一话题 / 家庭共享背景」
+# 截成一段确实存在于正文的原文当证据，从而把潜伏秘密误翻成「暴露」——
+# 会话 467f1e4c 第十回合多名角色秘密被误标暴露，正文却无任何暴露动作。
+#
+# 两个叠加护栏（AND）补上这层语义兜底，均**不引入引擎自持的题材语义词表**，
+# 不违背记录员模式契约（语义判断仍归 LLM，引擎只做结构核验）：
+#   护栏一 _evidence_related：证据须命中秘密的事实锚点（作者在 keys 里给的触发词，
+#       非引擎硬编码）——拦住「讨论伤口却去坐实某人失联」这类话题错位。
+#   护栏二 _evidence_transfer：证据片段内须出现信息接收方 by 或提供方 owner 的名字
+#       （信息传递必有施/受方在场）——拦住「旁白心理独白」「不在场者听见」这类
+#       无施受方的伪传递。
+# 任一护栏不过 → 降级为起疑（证据仍真实存在于正文，只是语义不构成暴露），
+# 而非直接丢弃；宁可漏记（状态滞后），不可误记（秘密提前暴露、张力提前消耗）。
+
+
+def _bigrams(s):
+    """提取文本的相邻双字片段（去标点后），用于锚点与证据的宽松重合判定。
+
+    中文无天然分词边界，用双字滑动窗口近似「实质词重合」：证据若确实在讨论
+    该秘密，必然与作者给的触发词（keys）共享某个 ≥2 字的连续片段（人名/关键词/
+    短语）。纯单字重叠（的/了/他）不采信，避免放行无关描述。
+    """
+    t = _strip_punct(_norm_text(s))
+    return {t[i:i + 2] for i in range(len(t) - 1)}
+
+
+def _anchor_tokens(secret):
+    """事实锚点：作者在秘密 keys 里给的触发词，keys 空则退回归属者名。
+
+    这是作者提供的、每个秘密独有的锚点，不是引擎硬编码的通用题材词表——
+    记录员模式里引擎不自创语义，只复用作者给定的事实边界做结构核验。
+    """
+    keys = [k for k in (secret.get("keys") or []) if k and len(_norm_text(k)) >= 2]
+    if keys:
+        return keys
+    owner = _norm_text(secret.get("owner") or "")
+    return [owner] if len(owner) >= 2 else []
+
+
+def _evidence_related(evidence, secret):
+    """护栏一：举证原文须触及秘密的事实锚点（keys 或归属者名）。
+
+    用双字片段重合判定：证据与锚点共享任一 ≥2 字连续片段即视为相关。
+    比「完整键逐字子串」宽松——纪官引的原文常是自然叙事语言，未必逐字照抄
+    作者的触发词（如 key 是「旧队的死法」、正文写「旧队覆灭」）；比单字严格——
+    不会因「的/了/他」这类虚词重合误放行无关描述。
+    锚点为空（keys 空且归属者名为单字）时放行，交由护栏二兜底。
+    """
+    anchors = _anchor_tokens(secret)
+    if not anchors:
+        return True
+    ev = _bigrams(evidence)
+    if not ev:
+        return False
+    for a in anchors:
+        if ev & _bigrams(a):
+            return True
+    return False
+
+
+def _evidence_transfer(evidence, by, owner):
+    """护栏二：证据片段内须出现信息接收方 by 或提供方 owner 的名字。
+
+    信息从 owner 传到 by 必有其一方在场作为动作主语/宾语；两者名字都缺席的
+    证据（旁白心理独白、第三人转述、不在场者）不构成实际传递。
+    名字短于 2 字（罕见单字名）时该项不参与判定，避免误伤。
+    """
+    names = [n for n in (by, owner)
+             if n and len(_norm_text(n)) >= 2 and n != ENV_PUSHER]
+    if not names:
+        return True
+    e = _strip_punct(_norm_text(evidence))
+    return any(n in e for n in names)
+
+
 # ---- 身体接触词表 / 机会等级触发源已随 NSFW 整体废弃（v0.8.0）----
 # 原 BODY_STRONG/BODY_MID/STRONG_AFFECTION/SOFT_AFFECTION/DIRECT_ASSAULT/
 # COERCION_FORCE/COERCION_SEXUAL 均为「内容尺度判定」服务，随 nsfw 机制一并移除。
@@ -1585,11 +1662,26 @@ def reflect(sid, reply):
                 break
             continue
         for s in snap.get("secrets", []):
+            if s.get("owner") != owner:
+                continue
             holders = s.setdefault("holders", list(s.get("known_by", [])))
-            if s.get("owner") == owner and by not in holders:
-                _record_exposure(s, by, via, snap["scene"]["round"])
-                _ledger_entry(snap, s, by, snap["scene"]["round"])
+            if by in holders:
                 break
+            # 语义护栏（v0.17.6，会话 467f1e4c）：via 合法 + 举证逐字在正文，
+            # 仍须通过「事实锚点相关」+「施受方在场」两关，才采信为暴露。
+            # 任一不过 = 证据虽在正文、却不构成该秘密的实际传递（内心独白/话题错位/
+            # 不在场者），降级为起疑——宁可漏记，不可误记。
+            if not (_evidence_related(exp.get("evidence"), s)
+                    and _evidence_transfer(exp.get("evidence"), by, owner)):
+                logger.warn("secret", "曝光语义未通过（锚点/施受方缺失），降级为起疑："
+                            "%s 对 %s 的秘密（via=%r）" % (by, owner, via))
+                if by not in (s.get("known_by") or []):
+                    _record_suspicion(s, by, exp.get("evidence"),
+                                      snap["scene"]["round"])
+                break
+            _record_exposure(s, by, via, snap["scene"]["round"])
+            _ledger_entry(snap, s, by, snap["scene"]["round"])
+            break
 
     # 起疑（线索逼近）：同样按举证归档。只记疑点、不记真相，起疑者不得因此剧透。
     # 这是「潜伏／曝光」二态之外的中间态——曝光前的逼近过程才是张力最足的一段。
