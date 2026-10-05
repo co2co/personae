@@ -114,3 +114,59 @@ def test_record_exposure_adds_holder():
     director._record_exposure(s, B, "叙事揭露", 3)
     assert B in s["known_by"] and B in s["holders"]
     assert s["state"] == "暴露"
+
+
+# ---- 纪官输出格式漂移防御（v0.16.1，80 轮压测暴露）----
+# 纪官偶发把对象字段写成字符串（actions: "角色甲翻看物资"）或把对象列表写成
+# 字符串数组（new_facts: ["角色甲死了"]）。修复前抛 'str' object has no
+# attribute 'get'，整个 reflect 回写中断，本轮关系/行动/事实/状态全丢且无告警。
+
+def test_as_dict_list_filters_non_dict():
+    """只保留 dict 元素；非列表输入返回空列表。"""
+    assert director._as_dict_list([{"a": 1}, "坏数据", 5, None]) == [{"a": 1}]
+    assert director._as_dict_list("不是列表") == []
+    assert director._as_dict_list(None) == []
+
+
+def test_reflect_survives_string_actions(monkeypatch):
+    """actions 被写成字符串时，reflect 不得抛错，且本轮跳过静默判定。
+
+    关键在「跳过」而非「按全员无行为计静默」：后者会把在场全员误记成被遗忘，
+    一次漂移即误触发硬性焦点并污染后续多轮。
+    """
+    snap = {"scene": {"round": 5}, "present": [A, B], "relations": {},
+            "actions": {}, "silent_rounds": {A: 0, B: 0}, "secrets": [],
+            "facts": [], "states": {}, "goals": {}, "ledger": []}
+    payload = {"actions": "角色甲翻看物资，角色乙清点药品"}
+    monkeypatch.setattr(director.llm, "complete",
+                        lambda *a, **k: __import__("json").dumps(payload, ensure_ascii=False))
+    monkeypatch.setattr(director.memory, "load", lambda sid: snap)
+    saved = {}
+    monkeypatch.setattr(director.memory, "save", lambda sid, s: saved.update(s))
+    out = director.reflect("sid", f"{A}翻看物资，{B}清点药品。")
+    assert out["actions"] == {}
+    # 静默轮数未被本轮污染（仍为原值，不被 +1）
+    assert out["silent_rounds"] == {A: 0, B: 0}, out["silent_rounds"]
+
+
+def test_reflect_survives_string_list_fields(monkeypatch):
+    """state_updates 等列表字段混入字符串时，reflect 不得抛错。"""
+    snap = {"scene": {"round": 5}, "present": [A, B], "relations": {},
+            "actions": {A: "翻看物资", B: "清点药品"}, "silent_rounds": {},
+            "secrets": [], "facts": [], "states": {}, "goals": {}, "ledger": []}
+    payload = {
+        "actions": {A: "翻看物资", B: "清点药品"},
+        "state_updates": ["门坏了", {"subject": "木门", "value": "已撞裂"}],
+        "secret_exposures": "角色甲得知了秘密",
+        "secret_suspicions": [None, "角色乙起疑"],
+        "handle_releases": "把柄没了",
+        "secret_touches": "都碰到了",
+    }
+    reply = f"{A}翻看物资。\n木门被撞裂，{B}退开半步。"
+    monkeypatch.setattr(director.llm, "complete",
+                        lambda *a, **k: __import__("json").dumps(payload, ensure_ascii=False))
+    monkeypatch.setattr(director.memory, "load", lambda sid: snap)
+    monkeypatch.setattr(director.memory, "save", lambda sid, s: None)
+    out = director.reflect("sid", reply)
+    # 合法的 dict 元素仍被正常记账（防御不是丢弃整个字段）
+    assert any("木门" in k for k in out["states"]), out["states"]

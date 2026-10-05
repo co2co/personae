@@ -27,10 +27,26 @@ def count_tokens(text):
 
 
 # 历史滑动窗口：保留最近 N 轮原始叙事，更早的回合压缩为摘要块。
-# 依据：probe_history_degradation 梯度探测显示，prompt tok（≈字符数/2）在
-# ~5300（R=16 轮，约 10600 字符）起出现叙事衰退，tok<3000（R≤8）为安全区。
-# 取窗口 8 轮使最近原始叙事稳定在安全区，窗口外压缩抑制无限膨胀。
-HISTORY_WINDOW_ROUNDS = 8
+# 取值依据（v0.16.1，80 轮事实保真度实测，见 DEVLOG）：
+#   旧值 8 来自 v0.6.4 时代探针的「tok≈5300 起衰退」——该阈值在 compress_history
+#   落地后已不成立（80 轮实测 tok 峰值 15240 仍无容量型衰退），故 8 偏保守。
+#   实测轮距 38（远超窗口）的事实召回率仍达 83%，说明骨架摘要保住了主体信息、
+#   窗口还有很大扩容空间。取 12：多保 4 轮原文（约 +4k tok），代价可接受；
+#   不建议超过 20——收益递减，而摘要块成本随轮数线性上升（此消彼长，非净增）。
+HISTORY_WINDOW_ROUNDS = 12
+
+# 摘要块每轮提取的字数。摘要质量比窗口长度更值钱：同样的窗口下，
+# 提取字数越多保住的细节越多，且不增加窗口外的上下文规模。
+# v0.16.1 由 80/90 上调至 150/200。
+#
+# ★ 这是一次取舍，不是纯赚。实测每轮摘要成本 76 tok（80/90）→ 127 tok（150/200），
+#   摘要块占 prompt 的比例随之上升：R80 40%→47%，R200 65%→71%。
+#   当前值按「多数会话在 100 轮内」这一假设选取。若用户（分发后无法预知其剧本
+#   与会话长度）反馈长会话叙事退化，把这两个值调回 80/90 即可止血；
+#   若反馈中短会话就忘早期细节，则应加大本值而非动窗口。
+#   完整判据与决策表见 DEVLOG「⚠ 长期提醒·环境、阈值与调参结论」一节。
+SUMMARY_DIRECTIVE_CHARS = 150
+SUMMARY_NARRATIVE_CHARS = 200
 
 
 def _pair_history(history):
@@ -62,8 +78,9 @@ def _pair_history(history):
 def compress_history(history, window_rounds=HISTORY_WINDOW_ROUNDS):
     """滑动窗口压缩：保留最近 window_rounds 轮原始叙事，更早回合压成单条摘要块。
 
-    目的：抑制长上下文下 prompt 无限膨胀导致的叙事衰退（探针定位拐点 tok≈5300）。
-    零额外 LLM 调用——older 每轮取「导演指令前 80 字 + 叙事首 90 字」作为剧情骨架。
+    目的：抑制长上下文下 prompt 无限膨胀导致的叙事衰退。
+    零额外 LLM 调用——older 每轮取「导演指令前 SUMMARY_DIRECTIVE_CHARS 字 +
+    叙事首 SUMMARY_NARRATIVE_CHARS 字」作为剧情骨架。
     未超窗口时原样返回，等价旧行为。
     """
     if not history:
@@ -75,8 +92,8 @@ def compress_history(history, window_rounds=HISTORY_WINDOW_ROUNDS):
     older = pairs[:-window_rounds]
     lines = ["[历史叙事摘要] 以下为较早回合的压缩记录，仅保留剧情骨架："]
     for i, (u, a) in enumerate(older):
-        head_u = (u or "").replace("\n", " ")[:80]
-        head_a = (a or "").replace("\n", " ")[:90]
+        head_u = (u or "").replace("\n", " ")[:SUMMARY_DIRECTIVE_CHARS]
+        head_a = (a or "").replace("\n", " ")[:SUMMARY_NARRATIVE_CHARS]
         lines.append("R%d｜指令: %s｜叙事: %s" % (i + 1, head_u, head_a))
     out = [{"role": "system", "content": "\n".join(lines)}]
     for u, a in recent:
@@ -351,16 +368,6 @@ def build_session(cards_present, directive, world_hits, snap,
                         + "\n".join("- " + a for a in active_consequences)
                         + "\n以上旧账与本轮情境相关，人物的提防、为难、报复、和解或回避"
                           "都须在叙事中体现，不得装作无事发生。")
-    # 事实保全：常量层（不可逆、不可违背）与状态层（当前值、可被改写）。
-    # 历史被压缩成骨架后，早期确立的世界事实会整段蒸发；这两块常驻提示词、不参与压缩。
-    fact_lines = ["- " + (f.get("text") or "").strip()
-                  for f in (snap.get("facts") or []) if not f.get("invalid")]
-    if fact_lines:
-        blocks.append(
-            "[既定事实（不可违背）]\n" + "\n".join(fact_lines)
-            + "\n以上为推演中已经确立、且在本世界观下不可逆转的事实，严禁写出与之矛盾的内容。"
-              "已登记死亡者不得再有台词、动作或内心活动，只能被他人提及或回忆。"
-        )
     st_lines = ["- " + k + "：" + (v.get("value") or "")
                 for k, v in (snap.get("states") or {}).items() if v]
     if st_lines:

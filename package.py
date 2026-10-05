@@ -33,6 +33,11 @@ EXCLUDE_SUBPATHS = {
     "player-cast",       # 用户剧本：玩家设定
 }
 
+# 内部设计备忘：不随分发（写给开发者复装用，用户不需要也不该看到已移除机制的细节）
+EXCLUDE_FILES = {
+    "FACT-MEMO.md",
+}
+
 # Windows 保留设备名（CON/PRN/AUX/NUL/COM1-9/LPT1-9）。
 # 误把命令输出重定向到这些名（如 `... > nul`）时，会在工作树里生成同名垃圾文件：
 # 既不该入库、也不该进分发包，且会让 os.path.relpath 抛
@@ -53,6 +58,8 @@ def _excluded(rel_engine):
     rel = rel_engine.replace(os.sep, "/")  # 跨平台：统一为正斜杠
     parts = rel.split("/")
     if parts[0] in EXCLUDE_DIRS:
+        return True
+    if rel in EXCLUDE_FILES:
         return True
     for sp in EXCLUDE_SUBPATHS:
         if rel == sp or rel.startswith(sp + "/"):

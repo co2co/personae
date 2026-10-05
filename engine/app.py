@@ -133,6 +133,56 @@ def script_example_doc():
     return send_from_directory(ROOT / "static", "script-example-guide.html")
 
 
+# ----------------------------------------------------------------------------
+# 快照的玩家视图投影
+# ----------------------------------------------------------------------------
+# 引擎内部快照含大量「不该给用户看」的东西：秘密的完整真相与暴露后果、发酵压力
+# 数字、命中词表、关系冻结基准、称呼速查表。这些要么是给 LLM 的内部指令输入
+# （prompter 明确写着「数字只存在于快照，模型永远看不到」），要么是防错用的
+# 非剧情数据（称呼表存在只是为了让模型别叫错辈分）。
+# 用户是「导演」而非「全知者」：知道有几条暗线在发酵、进展到哪一步是玩法乐趣，
+# 知道每条暗线的具体内容和爆炸后果就没戏了。因此对外出口一律走本投影。
+#
+# ?debug=1 返回完整视图，供开发排障（与右栏运行时日志的调试定位需求一致）。
+
+# 秘密条目只对外暴露「谁藏了什么、露到哪一步」，不含内容与后果。
+_SECRET_PUBLIC_FIELDS = ("owner", "state", "known_by", "suspicions")
+
+# 快照顶层字段白名单：未列出的一律不外发（含 relations_base / kinship_base /
+# address / recent 等内部字段）。
+# aux 在白名单内：临时群演是「谁在这局里出现过」的事实，用户需要知道（否则
+# 半路加入的配角会从视野里消失、跨回合失去连续性认知）。前端把它挂到
+# 「在场角色」面板末尾并用蓝色底色区分——它不是剧本角色，但确实在场。
+#
+# relations / actions / goals / ledger 当前**没有 UI 消费者**（v0.16.1 起左栏
+# 刻意不展示它们：那些是引擎的中间产物，摆出来会让玩家照着面板核对而不是
+# 读故事）。仍留在白名单里，因为它们是引擎的核心状态，导出、复盘、二次开发
+# 都要用；白名单的职责是「哪些字段可以外发」，不是「哪些字段当前在渲染」。
+_SNAPSHOT_PUBLIC_FIELDS = (
+    "present", "scene", "relations", "actions", "goals",
+    "secrets", "ledger", "states", "silent_rounds", "aux",
+)
+
+
+def player_view(snap, debug=False):
+    """把内部快照投影为玩家视图：白名单顶层字段 + 秘密条目裁剪。
+
+    debug=True 时原样返回（含全部内部字段），供 ?debug=1 排障使用。
+    """
+    if not snap:
+        return {}
+    if debug:
+        return snap
+    out = {k: snap[k] for k in _SNAPSHOT_PUBLIC_FIELDS if k in snap}
+    # 秘密：只留状态字段。content / bottom_line / pressure / keys 一律不外发——
+    # 前者剧透，后两者会让用户去「刷压力」或按关键词构造触发，破坏叙事自然性。
+    out["secrets"] = [
+        {k: s[k] for k in _SECRET_PUBLIC_FIELDS if k in s}
+        for s in (snap.get("secrets") or [])
+    ]
+    return out
+
+
 
 # ----------------------------------------------------------------------------
 # 创作管理：角色卡 / 世界书 / 聊天 / 配置
@@ -360,34 +410,20 @@ def session_new():
     else:
         logger.info("director", "称呼推导未产出，本轮推演不启用称呼约束")
     logger.success("session", "会话就绪：" + sid)
-    return jsonify({"session": sid, "snapshot": memory.load(sid)})
+    # 同 /api/snapshot：走玩家视图投影，不把秘密真相与内部字段发给前端。
+    return jsonify({"session": sid,
+                    "snapshot": player_view(memory.load(sid),
+                                            debug=request.args.get("debug") in ("1", "true", "yes"))})
 
 
 @app.get("/api/snapshot")
 def get_snapshot():
     sid = request.args.get("session")
     snap = memory.load(sid) if sid else None
-    return jsonify(snap or {})
-
-
-@app.post("/api/fact/invalidate")
-def invalidate_fact_route():
-    """作者手动作废一条既定事实（纠错通道）。
-
-    常量只废不改：引擎绝不因剧情推翻常量、也不自动纠正。作废后停止注入提示词，
-    但条目保留在快照里（留痕，避免下一轮被纪官重新抽回）。
-    """
-    body = request.get_json(force=True)
-    sid = body.get("session")
-    snap = memory.load(sid) if sid else None
-    if not snap:
-        return jsonify({"error": "会话不存在"}), 404
-    key = (body.get("text") or "").strip()
-    if not director.invalidate_fact(snap, key, body.get("reason") or ""):
-        return jsonify({"error": "未匹配到该事实"}), 404
-    memory.save(sid, snap)
-    logger.info("fact", "作者作废既定事实：" + key)
-    return jsonify({"ok": True, "snapshot": snap})
+    # 玩家视图：秘密真相/压力/命中词、冻结基准、称呼表等内部字段不外发（见 player_view）。
+    # ?debug=1 返回完整快照供排障。
+    debug = request.args.get("debug") in ("1", "true", "yes")
+    return jsonify(player_view(snap, debug=debug))
 
 
 @app.get("/api/sessions")

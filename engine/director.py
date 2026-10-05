@@ -351,6 +351,20 @@ def _extract_json(text):
         return _salvage_json(text[s:])
 
 
+# ---- 纪官输出归一化（防御模型格式漂移）----
+# 纪官偶发把本该是对象的字段写成字符串（如 actions: "角色甲翻看物资"），
+# 或把本该是对象的列表写成字符串数组（如 state_updates: ["门坏了"]）。
+# 80 轮压测实测两种漂移都会出现，抛出的 `'str' object has no attribute 'get'`
+# 会让整个 reflect 回写中断——本轮的关系/行动/事实/状态全部丢失，且无任何告警。
+# 语义未定的字段一律降级为空：宁可不记账，不可让整轮回写崩掉。
+def _as_dict_list(val):
+    """只保留列表中的 dict 元素；非列表或元素全非 dict 时返回空列表。"""
+    if not isinstance(val, list):
+        return []
+    return [x for x in val if isinstance(x, dict)]
+
+
+
 def validate_present(reply, present, known_names, allowed=None):
     """后处理：剥离非在场角色的台词块，修掉模型偶发写出已离场角色的出戏问题。
 
@@ -399,13 +413,95 @@ _AUX_BEAT_WORDS = {
 }
 _AUX_SPEAKER_RE = re.compile(r"^([\u4e00-\u9fffA-Za-z·•]{1,8})\s*[:：]")
 
+# 自称消解：模型台词里的「我叫X」把「泛称」与「本名」绑成同一人。
+# 只认「我叫 / 名字叫 / 我名叫 / 我姓」这类**明确报姓名**的句式。
+# 刻意不含「我是」——「我是护士」「我是医生」「我是学生」报的是身份不是姓名。
+# 也不做模糊匹配——「年轻女子」与「苏青」在字符串上无从推断，
+# 但「我叫苏青」是模型亲口给出的对应关系，是唯一可靠依据。
+_AUX_SELFNAME_RE = re.compile(
+    r"(?:我叫|名字叫|我名字叫|我名叫|我姓)\s*"
+    r"([\u4e00-\u9fffA-Za-z·•]{2,6})"
+)
+# 泛称 / 描述词（v0.16.1 修 aux 重复登记）：模型常先用「年轻女子」「中年男人」
+# 这类**描述**起段，待角色自我介绍后再转本名（「我叫苏青」→ 后续写「苏青：」）。
+# 引擎若把两个称呼都登记成新群演，左栏会出现两个 chip 指同一个人。
+# 这些词是外貌/身份/职业描述而非人名，一律不作为群演名登记。
+_AUX_GENERIC_WORDS = {
+    "女子", "男人", "女人", "老人", "孩子", "女孩", "男孩", "少年", "少女",
+    "妇人", "汉子", "青年", "中年", "中年人", "老年人", "小孩", "姑娘", "小伙",
+    "陌生人", "路人", "幸存者", "幸存者们", "身影", "那人", "此人", "对方",
+    "男人", "妇女", "老妇人", "老翁", "少年人", "来人", "某人", "旁人",
+    "女人", "男的", "女的", "有人", "众人", "大家",
+    # 职业/身份描述（模型常以「医生：」起段介绍临时登场者）
+    "医生", "大夫", "护士", "老师", "警察", "士兵", "工人", "农民",
+    "司机", "厨师", "记者", "律师", "会计", "演员", "歌手", "病人", "伤员",
+    "志愿者", "新人", "老板", "队长", "小姐", "先生", "女士", "大叔", "大妈",
+}
+
+# 修饰性泛称后缀（v0.16.1）：模型常把年龄/外貌修饰与称谓拼成复合泛称——
+# 「年轻女子」「中年男人」「老妇人」「小女孩」。这些组合不在任何词表里，
+# 但都含一个**修饰性后缀**，故这一组用「包含」匹配。
+# 与 _AUX_PROFESSION_WORDS 的区别：职业词能合法构成人名（「李医生」），
+# 修饰性称谓不能（「年轻女子」永远不是名字）。
+_AUX_GENERIC_MODIFIERS = {
+    "年轻", "中年", "年老", "老", "小", "大", "男", "女",
+    "少女", "少年", "孩童", "苍老", "衰老", "年轻气盛",
+}
+
+# 身份 / 职业 / 亲属类词：跟在自称位置时是身份而非姓名，绝不能当本名。
+_AUX_PROFESSION_WORDS = {
+    "护士", "医生", "大夫", "教师", "老师", "学生", "工人", "农民", "警察",
+    "军人", "士兵", "司机", "厨师", "会计", "律师", "记者", "编辑",
+    "演员", "歌手", "孩子", "母亲", "父亲", "儿子", "女儿",
+    "姐姐", "哥哥", "妹妹", "弟弟", "新人", "老人", "熟人", "外人", "自己人",
+    "医生", "病人", "伤员", "志愿者", "幸存者",
+}
+
+
+def _resolve_aux_aliases(reply, names):
+    """用「我叫X」这类自称句把泛称与本名消解为同一个角色。
+
+    背景：模型常先以描述性称呼起段（「年轻女子：……我叫苏青……」），自我介绍后
+    改用本名（「苏青：……」）。两处都会被 discover_aux_speakers 抓成候选，若不去重，
+    同一个群演会在左栏显示两个 chip。
+
+    返回 (保留名, 被消解的别名列表)。消解时**保留本名**（模型后续使用的那个），
+    因为后续轮次大概率一直用本名，登记它对跨回合连续性更有用。
+    """
+    if not reply or not names:
+        return list(names), []
+    # 自称句里出现的名字 → 该名字的行首说话人就是「泛称」
+    real_names = {m.group(1) for m in _AUX_SELFNAME_RE.finditer(reply)}
+    real_names -= _AUX_PROFESSION_WORDS   # 「我叫医生」这种是身份不是姓名
+    if not real_names:
+        return list(names), []
+    alias_of = {}      # 泛称 -> 本名
+    for ln in reply.split("\n"):
+        m = _AUX_SPEAKER_RE.match(ln.strip())
+        if not m:
+            continue
+        speaker = m.group(1).strip()
+        if speaker in names and speaker not in real_names:
+            said = _AUX_SELFNAME_RE.search(ln)
+            if said and said.group(1) in real_names:
+                alias_of[speaker] = said.group(1)
+    if not alias_of:
+        return list(names), []
+    kept, dropped = [], []
+    for n in names:
+        if n in alias_of:
+            dropped.append(n)
+        else:
+            kept.append(n)
+    return kept, dropped
+
 
 def discover_aux_speakers(reply, exclude):
     """从本轮叙事里发现尚未登记的「说话人式」名字，作为候选辅助群演。
 
     exclude：已知名字集合（在场角色 + 角色卡库 + 已登记 aux + 背景人物 + 环境推手），
-    这些不算新群演。返回去重后的新名字列表（已排除常见叙事节拍词/元信息前缀，
-    仅保留 2~6 字、疑似人名的片段）。
+    这些不算新群演。返回去重后的新名字列表（已排除常见叙事节拍词/元信息前缀/
+    泛称描述词/自称消解后的别名，仅保留疑似人名的片段）。
     """
     if not reply:
         return []
@@ -417,11 +513,64 @@ def discover_aux_speakers(reply, exclude):
         name = m.group(1).strip()
         if not name or name in seen or name in _AUX_BEAT_WORDS:
             continue
+        # 泛称描述（年轻女子、中年男人、老翁）不是人名，不登记为群演。
+        # 用**包含**匹配：「年轻女子」不是词表里的词，但含修饰性后缀「女子」。
+        # 职业词只做**全等**——「李医生」「王医生」含「医生」但都是真名字，不能误伤。
+        if any(w in name for w in _AUX_GENERIC_MODIFIERS):
+            continue
+        if name in _AUX_GENERIC_WORDS or name in _AUX_PROFESSION_WORDS:
+            continue
         if len(name) > 6 or len(name) < 2:
             continue
         out.append(name)
         seen.add(name)
-    return out
+    # 自称消解：模型先用泛称起段、自报姓名后改用本名时，两者只算一个人（见 _resolve_aux_aliases）
+    kept, dropped = _resolve_aux_aliases(reply, out)
+    if dropped:
+        logger.info("aux", "自称消解（同一人被两个称呼指代）：" + "、".join(dropped)
+                    + " → 保留本名")
+    return kept
+
+
+def _prune_aux_aliases(snap):
+    """清理已登记的 aux 别名：同一轮引入的泛称 + 本名只留一个。
+
+    v0.16.1 之前的会话可能出现「年轻女子」与「苏青」两个 chip 指同一人
+    （模型先以描述性称呼起段、自报姓名后改用本名）。discover_aux_speakers
+    现在会在登记前消解，但**已落盘的脏数据不会自动回溯**——本函数在每次
+    登记前跑一遍，把同轮引入、且一方已被消解的泛称剔除，让老会话在下轮自愈。
+
+    判据：同一 intro_round 内，若存在「泛称 → 本名」的消解关系，则剔除泛称。
+    跨轮不同名不做处理（可能真是两个角色）。
+    """
+    aux = snap.get("aux") or []
+    if len(aux) < 2:
+        return []
+    dropped = []
+    keep = []
+    by_round = {}
+    for a in aux:
+        by_round.setdefault(a.get("intro_round"), []).append(a)
+    for rnd, items in by_round.items():
+        if len(items) < 2:
+            keep.extend(items)
+            continue
+        # 同一轮引入多条：其中带修饰性泛称后缀的（「年轻女子」「中年男人」）是描述而非人名。
+        # 判据与 discover 一致：修饰后缀用包含、词表用全等，避免误伤「李医生」这类真名。
+        def _is_generic(nm):
+            nm = nm or ""
+            return (any(w in nm for w in _AUX_GENERIC_MODIFIERS)
+                    or nm in _AUX_GENERIC_WORDS or nm in _AUX_PROFESSION_WORDS)
+        desc = [a for a in items if _is_generic(a.get("name"))]
+        if len(desc) == 1 and len(items) - len(desc) >= 1:
+            dropped.extend(d["name"] for d in desc)
+            keep.extend(a for a in items if a not in desc)
+        else:
+            keep.extend(items)
+    if dropped:
+        snap["aux"] = keep
+        logger.info("aux", "清理群演别名（描述性泛称）：" + "、".join(dropped))
+    return dropped
 
 
 def register_aux(snap, names, round_no, notes=None):
@@ -430,6 +579,8 @@ def register_aux(snap, names, round_no, notes=None):
     notes：可选 {名字: 身份说明}，来自导演显式【引入角色】指令。
     返回新增的名字列表（便于日志与前端呈现）。
     """
+    # 入表前先清理历史别名：老会话里的「泛称 + 本名」重复项在这里自愈
+    _prune_aux_aliases(snap)
     aux = snap.setdefault("aux", [])
     existing = {a.get("name") for a in aux}
     added = []
@@ -832,21 +983,6 @@ def _merge_pressure_into_focus(focus, snap, present):
     # 高压轮次锁定延续：下轮即便指令不再点名，也要黏住这对焦点人物，直到碰撞发生。
     merged["sticky"] = True
     return merged
-
-
-# ---- 事实保全：常量层（不可逆）与状态层（可刷新）----
-# 起因：历史超过窗口后会被压缩成「指令前 80 字 + 叙事首 90 字」的骨架，早期确立的
-# 世界事实（谁死了、谁残了、什么东西毁了、谁当众说过什么）随压缩蒸发，后面就会出现
-# 死人开口、伤口痊愈、毁掉的东西又出现这类硬伤。关系/旧账只覆盖「人与人」，覆盖不了
-# 「世界状态」，故另设一张事实表常驻提示词、不参与压缩。
-#
-# 分类口径（用户裁定）：常量 ≠ 「看起来很难改的事」，而是「后续任何一个动作都改不回来
-# 的事」。门被封死可以被爆破、被内鬼打开，人离开了还会回来——这些都不是常量，属于状态层。
-# 人死了才是常量：没有任何一个动作能把死人变回活人。
-FACT_CORE_KINDS = {"death", "disable", "destroy", "identity"}
-FACT_EVENT_KINDS = {"deed", "utterance", "other"}
-# 分类上限：超出后把最老的同类折叠成一行（只留对象与摘要），体积恒定而信息不丢。
-FACT_CAPS = {"core": 30, "event": 15}
 # 状态层键上限：超出淘汰最久未更新的键（状态是覆盖式的，键数本由对象数决定，此为兜底）。
 STATE_CAP = 20
 # 键归一化忽略的字符：助词「的」与常见标点。仅用于判定「是不是同一个键」，不改写键名。
@@ -858,100 +994,6 @@ _STATE_NOISE = re.compile(r"[的\s，。、：:；;！!？?（）()【】《》\
 # 这些后缀不携带区分信息，剥掉后归一到同一键，覆盖式存储才不会退化成追加式。
 # 后缀可能叠加（「角色A的情绪状态」剥一次还剩「角色A情绪」），故用 + 反复剥到不动。
 _STATE_SUFFIX = re.compile(r"(?:情绪|状态|情况|状况|精神|心理|身体|伤口|咬伤|创口|伤处|伤)+$")
-
-
-def _fact_group(kind):
-    return "core" if (kind or "other") in FACT_CORE_KINDS else "event"
-
-
-def add_facts(snap, items, round_no, reply=None):
-    """把纪官抽出的新常量写入事实表（举证核验 + 去重 + 分类上限折叠）。
-
-    证据必须逐字出自正文：与秘密归档同一套纪律，防止纪官凭空造事实。
-    """
-    added = 0
-    for f in items or []:
-        subj = (f.get("subject") or "").strip()
-        text = (f.get("text") or "").strip()
-        if not subj or not text:
-            continue
-        if not _evidence_ok(f.get("evidence"), reply):
-            logger.warn("fact", "常量举证未通过，已丢弃：%s｜%s" % (subj, text))
-            continue
-        kind = (f.get("kind") or "other").strip()
-        if kind not in FACT_CORE_KINDS and kind not in FACT_EVENT_KINDS:
-            kind = "other"
-        # 去重：同一对象同一类同一句话只记一次（常量不可逆，重复上报多为纪官回看历史误报）
-        for old in snap.get("facts", []):
-            if (old.get("kind") == kind and (old.get("subject") or "").strip() == subj
-                    and (old.get("text") or "").strip() == text):
-                text = None
-                break
-        if text is None:
-            continue
-        snap.setdefault("facts", []).append({
-            "kind": kind,
-            "subject": subj,
-            "text": text,
-            "round": round_no,
-            "quote": (f.get("evidence") or "").strip()[:80],
-            "invalid": False,
-            "reason": "",
-        })
-        added += 1
-    if added:
-        _compact_facts(snap)
-    return added
-
-
-def _compact_facts(snap):
-    """分类超限折叠：把最老的若干条同类压进**该组唯一的一行摘要**，常数体积、不丢对象。
-
-    早前实现每轮新建一行摘要，且不排除已折叠条目——下一轮它自己又成了最老的一条被再次
-    折叠，压测实证出现「早期已确立（R1–R3）：早期已确立（R1–R1）：…」套娃，每轮还白占
-    一个新条目，上限形同虚设。故：已折叠条目不再是折叠对象；摘要行每组唯一，只更新
-    回合区间与对象名单（不重复拼接正文，避免摘要无限变长）。
-    """
-    facts = snap.get("facts", [])
-    for grp, cap in FACT_CAPS.items():
-        items = [f for f in facts
-                 if not f.get("invalid") and not f.get("folded")
-                 and _fact_group(f.get("kind")) == grp]
-        if len(items) <= cap:
-            continue
-        items.sort(key=lambda f: f.get("round", 0))
-        oldest = items[:len(items) - cap + 1]
-        drop = {id(f) for f in oldest}
-        names = [(f.get("subject") or "（未指名）").strip() for f in oldest]
-        lo, hi = oldest[0].get("round", 0), oldest[-1].get("round", 0)
-
-        summary = next((f for f in facts
-                        if f.get("folded") and _fact_group(f.get("kind")) == grp), None)
-        if summary is None:
-            summary = {
-                "kind": oldest[0].get("kind") or "other",
-                "subject": "",
-                "text": "",
-                "round": lo,
-                "quote": "",
-                "folded": True,
-                "invalid": False,
-                "reason": "",
-                "fold_lo": lo,
-                "fold_hi": hi,
-            }
-            facts.append(summary)
-        else:
-            lo = min(lo, summary.get("fold_lo", lo))
-            hi = max(hi, summary.get("fold_hi", hi))
-            summary["fold_lo"], summary["fold_hi"] = lo, hi
-        # 名单只留对象名（不拼正文片段）：早期细节交给历史摘要，摘要行只保证「谁被确立过」不丢。
-        merged = list(dict.fromkeys(
-            [s for s in (summary.get("subject") or "").split("、") if s]
-            + [s for s in names if s]))
-        summary["subject"] = "、".join(merged[-40:])
-        summary["text"] = "早期已确立（R%s–R%s）：%s" % (lo, hi, summary["subject"])
-        snap["facts"] = [f for f in facts if id(f) not in drop]
 
 
 def state_key(snap, raw):
@@ -1007,47 +1049,6 @@ def update_states(snap, items, round_no):
         for k in sorted(st, key=lambda k: st[k].get("round", 0))[:len(st) - STATE_CAP]:
             st.pop(k, None)
     return st
-
-
-def invalidate_fact(snap, text_or_subject, reason=""):
-    """作者手动作废一条常量（标记而非删除——留痕以免下轮被纪官重新抽回）。
-
-    只作废、不改写：引擎绝不因剧情推翻常量，纠错权归作者。
-    """
-    key = (text_or_subject or "").strip()
-    if not key:
-        return False
-    for f in snap.get("facts", []):
-        if f.get("invalid"):
-            continue
-        if key in ((f.get("text") or "") + (f.get("subject") or "")):
-            f["invalid"] = True
-            f["reason"] = (reason or "作者手动作废").strip()
-            return True
-    return False
-
-
-def check_fact_conflicts(snap, reply):
-    """正文与常量矛盾时告警（只报不改——用户裁定：引擎不得擅自改写事实）。
-
-    只做代价最低、误报可控的一类：已登记死亡者又作为说话人登场（「名字：」行首）。
-    回忆、被提及不算矛盾，故不按「名字出现」判，按「名字开口」判。
-    """
-    dead = [(f.get("subject") or "").strip()
-            for f in snap.get("facts", [])
-            if f.get("kind") == "death" and not f.get("invalid")]
-    dead = [d for d in dead if d]
-    if not dead:
-        return []
-    hits = []
-    for line in (reply or "").splitlines():
-        head = line.split("：", 1)[0].strip().lstrip("【「").strip()
-        if head in dead:
-            hits.append(head)
-    if hits:
-        logger.warn("fact", "正文与既定事实冲突（已故者登场，仅告警不改写）："
-                    + "、".join(dict.fromkeys(hits)))
-    return hits
 
 
 def init_address(snap):
@@ -1161,7 +1162,6 @@ def reflect(sid, reply):
             '  "secret_suspicions": [{"owner": "秘密归属者", "by": "本轮起了疑心的角色名", "evidence": "本轮叙事原文片段（引发怀疑的那句话/那个细节）"}],\n'
             '  "handle_releases": [{"owner": "秘密归属者", "from": "失去把柄的人", "to": "接过把柄的人（彻底失去则填空字符串）", "evidence": "本轮叙事原文片段"}],\n'
             '  "secret_touches": [{"owner": "秘密归属者", "touched": true}],\n'
-            '  "new_facts": [{"kind": "death|disable|destroy|identity|deed|utterance|other", "subject": "对象（角色名或物件名）", "text": "一句话事实", "evidence": "本轮叙事原文片段"}],\n'
             '  "state_updates": [{"subject": "对象（如某道门、某件物品、某人的伤）", "value": "当前状态一句话"}]\n'
             "}\n"
             "规则：\n"
@@ -1177,19 +1177,6 @@ def reflect(sid, reply):
             "- evidence **必须逐字照抄**本轮叙事中的一段连续原文（不要改写、不要概括、不要润色），引擎会逐字核验它是否真的出现在叙事里；照抄不到原文就不要填该条目。\n"
             "- 照抄时**不得改动任何一个字**：正文写「她看得很清楚」就照抄「她看得很清楚」，不得把代词替换成角色名写成「某某看得很清楚」，也不得增删标点——改了字就核验不过，该条目会被丢弃。\n"
             "- 宁可少填也不要误填：填错会让秘密提前暴露或让把柄凭空失效。\n"
-            "- new_facts 只填**本轮新确立、且再也改不回来**的事实，用来防止它被后续回合忘掉：\n"
-            "  · death：角色死亡（死亡不可逆转；若世界设定允许复活则不填此项）\n"
-            "  · disable：致残、失明、失聪、落下永久疤痕等永久性损伤（普通受伤不算）\n"
-            "  · destroy：物件被销毁（烧毁、砸碎、吃掉、彻底损毁）\n"
-            "  · identity：身份类事实（血亲、法定关系、真实身份被揭穿）\n"
-            "  · deed / utterance：某人做过或当众说过的具体事（做过的事、说出口的话收不回）\n"
-            "  · 判据：能被后续一个动作改掉的就不是常量。**门被封死、路被堵、断电**可被爆破/打开/修复，不算常量；\n"
-            "    **人离开**还会回来，不算；**物品在谁手上**可被偷抢转送，不算；**受伤**可治愈，不算；\n"
-            "    **承诺、欠债、人情**可被履行勾销，不算；关系好坏、态度、天气时间场景也不算——这些都填 state_updates。\n"
-            "  · 若世界设定明确该类可被逆转（有复活手段、有治愈设定），一律不填 new_facts。\n"
-            "  · 只填本轮**新发生**的，不要重复此前已确立的条目。\n"
-            "  · text 只写**事实本身**（谁做了什么、说了什么），不得夹带推论与解读\n"
-            "    （如「暴露了他隐瞒病情的事实」「说明两人关系破裂」）——推论会被固化成常量，错了无法回退。\n"
             "- state_updates 填**当前状态的最新值**：门是否封死、通道是否通行、物件在谁手上、某人伤情、电源是否可用等。\n"
             "  subject 沿用既有名称（此前叫「铁门」就继续用「铁门」），同一对象后一轮直接覆盖，不要另起新名造重复键。\n"
             "  只填本轮发生变化或新出现的对象；状态被解除时也要填（如「铁门：已被炸开，可通行」）。\n"
@@ -1240,18 +1227,25 @@ def reflect(sid, reply):
                 # 初始表无此键则丢弃该越权关系，不引入新条目。
                 if k in base:
                     snap["relations"][k] = base[k]
-    if isinstance(data.get("actions"), dict):
+    actions_ok = isinstance(data.get("actions"), dict)
+    if actions_ok:
         snap["actions"] = {k: v for k, v in data["actions"].items() if v}
+    else:
+        # 纪官把 actions 写成字符串/数组时，本轮行为摘要不可用。
+        # 此时绝不能按「全员无行为」去累加静默轮数——那会把所有在场角色误记成
+        # 被遗忘、误触发硬性焦点，一次格式漂移污染后续多轮。故本轮跳过静默判定。
+        snap["actions"] = {}
     # 在场即须留痕：用纪官的行为摘要判定谁本轮真的在戏里（替代 app.py 里按名字是否
     # 出现在正文的字符串判断——那个判不出「被提到名字但没有任何行为」）。
     # 镜头跟随时只统计镜头内角色：镜头外的人本轮就不该被写，计沉默会误伤。
-    _update_silent_rounds(snap, present)
+    if actions_ok:
+        _update_silent_rounds(snap, present)
     if isinstance(data.get("goals"), dict):
         for k, v in data["goals"].items():
             if v:
                 snap["goals"][k] = v
-    # 秘密：举证式归档（记录员模式）——引擎不猜，只核验证据是否出自正文
-    for exp in (data.get("secret_exposures") or []):
+    # 秘密：举证式归档（记录员模式）——引擎不猜，只核验证据是否真的出自正文
+    for exp in _as_dict_list(data.get("secret_exposures")):
         owner = exp.get("owner")
         by = exp.get("by")
         if not owner or not by or by == owner:
@@ -1273,7 +1267,7 @@ def reflect(sid, reply):
 
     # 起疑（线索逼近）：同样按举证归档。只记疑点、不记真相，起疑者不得因此剧透。
     # 这是「潜伏／曝光」二态之外的中间态——曝光前的逼近过程才是张力最足的一段。
-    for sus in (data.get("secret_suspicions") or []):
+    for sus in _as_dict_list(data.get("secret_suspicions")):
         owner = sus.get("owner")
         by = sus.get("by")
         if not owner or not by or by == owner:
@@ -1295,7 +1289,7 @@ def reflect(sid, reply):
 
     # 把柄消除：同样按举证归档。仅操作 holders（握把柄者），known_by 保持不变；
     # holders 清空时 _secret_state 自动回落「潜伏」（状态回落路径）。
-    for rel in (data.get("handle_releases") or []):
+    for rel in _as_dict_list(data.get("handle_releases")):
         owner = rel.get("owner")
         frm = rel.get("from")
         if not owner or not frm:
@@ -1315,19 +1309,12 @@ def reflect(sid, reply):
     # 必须排在曝光/起疑归档之后：本轮刚被揭开的秘密当轮就要把压力清零，
     # 否则它会在「已曝光」的状态下多带一轮压力（虽不足档位，但状态不自洽）。
     if "secret_touches" in data:
-        _update_secret_pressure(snap, data.get("secret_touches") or [])
+        _update_secret_pressure(snap, _as_dict_list(data.get("secret_touches")))
 
     # 事实保全：常量只增不改（须逐字举证），状态覆盖式刷新。
-    # 与秘密归档同一套纪律：纪官说的不算，正文里查得到才算。
-    # 回合数取容错写法：reflect 的既有分支本就依赖 snap["scene"]，但这两块无条件执行，
-    # 缺键不该让整轮回写失败（事实保全只是增益，不得阻塞主流程）。
+    # 状态层：当前值的覆盖式刷新（回合数取容错写法——缺键不该让整轮回写失败）
     rd = (snap.get("scene") or {}).get("round", 0)
-    added = add_facts(snap, data.get("new_facts") or [], rd, reply)
-    if added:
-        logger.info("fact", "新确立常量 " + str(added) + " 条")
-    update_states(snap, data.get("state_updates") or [], rd)
-    # 矛盾只告警、不自动改写（纠错权归作者）
-    check_fact_conflicts(snap, reply)
+    update_states(snap, _as_dict_list(data.get("state_updates")), rd)
 
     memory.save(sid, snap)
     return snap

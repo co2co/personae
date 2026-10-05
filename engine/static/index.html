@@ -69,6 +69,10 @@
   .tag.on{ background:var(--pos-soft); color:var(--pos); border-color:#bfe3d3; }
   .chip{ font-size:12.5px; padding:4px 12px; border-radius:999px;
          background:var(--accent-soft); color:var(--accent-strong); border:1px solid #ecd9d1; }
+  /* 连续静默轮数标记：轻量提示「引擎已注意到这个角色」，不抢戏 */
+  .chip-warn{ font-size:10px; margin-left:4px; opacity:.65; font-weight:400; }
+  /* 临时群演：蓝色底色，与剧本角色（粉色）区分——在场但不属于剧本卡组 */
+  .chip-aux{ background:#e3edf7; color:#2f5d8a; border-color:#c6dcee; }
   .spacer{ flex:1; }
 
   /* ---------- 顶栏 ---------- */
@@ -99,13 +103,36 @@
     padding:11px 14px; border-bottom:1px solid var(--line); background:var(--surface-2); flex-shrink:0; }
   .rail-title{ font-weight:650; font-size:14px; letter-spacing:.02em; }
   /* 左栏各子面板可独立收起，见下方 .panel 区块 */
-  .rail-body{ flex:1; overflow:auto; padding:14px; }
+  /* min-height:0 不可省：.rail-body 是 .rail（column flex）的 flex item，
+     默认 min-height:auto 会让它被内容撑开而不是产生滚动——展开子面板后
+     内容超出视口，底部被推到看不见的区域且拖不出滚动条。 */
+  .rail-body{ flex:1; min-height:0; overflow-y:auto; overflow-x:hidden;
+              overscroll-behavior:contain; padding:14px;
+              /* 显式滚动条样式：默认窄条在深色底上几乎看不见，
+                 用户会以为「没有可滚动内容」而放弃拖动。 */
+              scrollbar-width:thin;
+              scrollbar-color:var(--line) transparent; }
+  .rail-body::-webkit-scrollbar{ width:9px; }
+  .rail-body::-webkit-scrollbar-track{ background:transparent; }
+  .rail-body::-webkit-scrollbar-thumb{ background:var(--line);
+                                       border-radius:5px;
+                                       border:2px solid var(--surface); }
+  .rail-body::-webkit-scrollbar-thumb:hover{ background:var(--muted); }
   .side{ display:flex; flex-direction:column; gap:14px; }
+  /* 关键：column flex 容器里，flex item 默认 flex-shrink:1。展开的面板若
+     允许收缩，其高度会被压到内容高度以下，再被 .panel 的 overflow:hidden 裁掉
+     ——表现就是「内容被截断且拖不动」。显式禁止收缩，滚动交给 .rail-body。 */
+  .side > .panel{ flex-shrink:0; }
   #center{ flex:1; min-width:0; display:flex; flex-direction:column; background:var(--bg); }
   #center .stage{ flex:1; overflow:auto; padding:18px 22px 10px; }
 
   .panel{ background:var(--surface); border:1px solid var(--line);
-          border-radius:var(--radius); overflow:hidden; }
+          border-radius:var(--radius); overflow:hidden;
+          /* 不加这两条，展开的面板会被压扁：.rail-body 是 column flex 容器，
+             .panel 作为 flex item 默认 flex-shrink:1，内容超出时高度被压到
+             内容高度以下，再被上面的 overflow:hidden 裁掉——既不滚动也看不见。
+             配上下方 .side > .panel 的 flex-shrink:0，滚动交给 .rail-body 统一处理。 */
+          flex-shrink:0; min-height:0; }
   .panel-head{ display:flex; align-items:center; justify-content:space-between; gap:8px;
                padding:11px 14px; cursor:pointer; user-select:none; }
   .panel-head:hover{ background:var(--surface-2); }
@@ -114,12 +141,28 @@
   .panel-toggle{ font-size:11px; color:var(--muted); transition:transform .15s ease; }
   .panel.collapsed .panel-toggle{ transform:rotate(-90deg); }
   .panel-body{ padding:0 14px 12px; }
+  /* 长列表面板内部滚动：关系/状态条目多时（如 12 条关系边）不让单面板
+     撑满整栏，改为面板内部滚动，标题行始终可见可点。
+     max-height 用 dvh 而非 vh：vh 只算视口高、不含顶栏，本栏在顶栏之下，
+     用 dvh 会整体比可用高度高出一截（差值=顶栏高度），底部仍会顶出可视区。 */
+  .panel-body-scroll{ max-height:min(38dvh,420px); overflow-y:auto;
+                      scrollbar-width:thin; scrollbar-color:var(--line) transparent; }
+  .panel-body-scroll::-webkit-scrollbar{ width:8px; }
+  .panel-body-scroll::-webkit-scrollbar-track{ background:transparent; }
+  .panel-body-scroll::-webkit-scrollbar-thumb{ background:var(--line);
+                                                border-radius:4px; }
   .panel.collapsed .panel-body{ display:none; }
 
   .chips{ display:flex; gap:8px; flex-wrap:wrap; }
+  /* 群演单独占一行，与剧本角色拉开距离（颜色之外再加一道结构分隔） */
+  .chips-row{ display:flex; gap:8px; flex-wrap:wrap; width:100%; }
+  .chips-aux-row{ margin-top:2px; padding-top:8px; border-top:1px dashed var(--line-2); }
   .scene-line{ font-size:14px; color:var(--ink-2); margin-top:8px; line-height:1.6; }
   .rel-row,.sec-row{ font-size:13.5px; padding:7px 0; border-bottom:1px dashed var(--line-2); color:var(--ink-2); }
   .rel-row:last-child,.sec-row:last-child{ border-bottom:none; }
+  /* 关系定性常是一整段叙述，逐条限高会截出半句话、语义不完整。
+     面板内部已有滚动兜底（.panel-body-scroll），这里不再限高——宁可面板内滚动，
+     也不要让用户读到「……事后偶现一丝自厌」这种断句。 */
   .sec-state{ font-weight:600; }
   .sec-state.latent{ color:var(--muted); }
   .sec-state.exposed{ color:var(--warn); }
@@ -619,7 +662,13 @@
 
 <!-- 沙盘主界面：三栏（左固定 / 中叙事 / 右日志） -->
 <div id="board" class="hide">
-  <!-- 左栏：世界状态（默认收起，点击展开；再点收回） -->
+  <!-- 左栏：世界状态（默认收起，点击展开；再点收回）
+       设计原则：只回答「现在这个世界是什么样」，不展示引擎的中间产物。
+       三个面板默认全部展开（面板少、一屏放得下），点标题可各自收起。
+       刻意不做：关系定性、每轮行为摘要、角色短期目标——它们是叙事正文的原料，
+       摆出来会让玩家照着面板核对而不是读故事。
+       注：曾有的「不可逆事实」面板已随 facts 表机制整体移除（v0.17.0，
+       该机制在当前容量下与 history 冗余；设计存档见 FACT-MEMO.md）。 -->
   <aside id="left-rail" class="rail rail-left">
     <div class="rail-head">
       <span class="rail-title">世界状态</span>
@@ -632,22 +681,16 @@
           <div class="scene-line" id="scene-line"></div>
         </div>
       </div>
-      <div class="panel" data-collapse>
-        <div class="panel-head"><h3>本轮行动</h3><span class="panel-toggle">▾</span></div>
-        <div class="panel-body"><div id="actions"></div></div>
+      <div class="panel">
+        <div class="panel-head"><h3>现状</h3><span class="panel-toggle">▾</span></div>
+        <div class="panel-body panel-body-scroll"><div id="states"></div>
+          <div style="margin-top:6px;font-size:11px;color:var(--muted)">只记「现在是什么样」，随时会被后续剧情覆盖。</div>
+        </div>
       </div>
-      <div class="panel" data-collapse>
-        <div class="panel-head"><h3>当前意图</h3><span class="panel-toggle">▾</span></div>
-        <div class="panel-body"><div id="goals"></div></div>
-      </div>
-      <div class="panel" data-collapse>
+      <div class="panel">
         <div class="panel-head"><h3>秘密</h3><span class="panel-toggle">▾</span></div>
-        <div class="panel-body"><div id="secrets"></div></div>
-      </div>
-      <div class="panel" data-collapse>
-        <div class="panel-head"><h3>既定事实（不可逆转）</h3><span class="panel-toggle">▾</span></div>
-        <div class="panel-body"><div id="facts"></div>
-          <div style="margin-top:6px;font-size:11px;color:var(--muted)">仅收录改不回来的事实；抽错可点「作废」，引擎不会自动改写。</div>
+        <div class="panel-body"><div id="secrets"></div>
+          <div style="margin-top:6px;font-size:11px;color:var(--muted)">只知道谁藏着什么、进展到哪一步；具体内容与暴露后果不向导演公开。</div>
         </div>
       </div>
     </div>
@@ -794,20 +837,51 @@ function bubbleSystem(text) {
 
 function renderSnapshot(snap) {
   roundTag.textContent = '回合 ' + (snap.scene ? snap.scene.round : 0);
-  document.getElementById('present').innerHTML = (snap.present || [])
-    .map(n => `<span class="chip">${n}</span>`).join('');
+
+  // 在场角色：chip 右上角标数字 = 该角色连续静默轮数（引擎在防「角色被遗忘」）。
+  // 只给轻量提示，不单开面板——这是引擎内部节奏，不是玩法信息。
+  // 临时群演（aux）排在剧本角色之后，蓝色底色区分：它们确实在场、且跨回合
+  // 保持连续性，但不属于剧本卡组——混排会让用户误以为是正式登场角色。
+  const silent = snap.silent_rounds || {};
+  const chipOf = (n) => {
+    const s = silent[n] || 0;
+    const warn = s >= 2
+      ? `<sup class="chip-warn" title="连续 ${s} 轮没有行为，引擎已在关注">·${s}</sup>` : '';
+    return `<span class="chip">${n}${warn}</span>`;
+  };
+  const castHtml = (snap.present || []).map(n => chipOf(n)).join('');
+  const auxList = (snap.aux || []).filter(a => a && a.name);
+  const auxHtml = auxList.map(a => {
+    const tip = [a.role, a.intro_round ? `R${a.intro_round} 加入` : '', a.status]
+      .filter(Boolean).join(' ｜ ');
+    return `<span class="chip chip-aux" title="${tip}">${a.name}</span>`;
+  }).join('');
+  // 群演单独一行：既满足 simon 要求的「排在剧本角色之后」，也让两类角色
+  // 一眼可分（粉色=剧本卡组、蓝色=导演引入的群演），不靠颜色单独承担区分。
+  document.getElementById('present').innerHTML =
+    castHtml + (auxHtml ? `<div class="chips-row chips-aux-row">${auxHtml}</div>` : '');
   const sc = snap.scene || {};
   let line = '场景：' + (sc.place || '');
   if (sc.time) line += '（' + sc.time + '）';
   if (sc.weather) line += ' ｜ ' + sc.weather;
   document.getElementById('scene-line').textContent = line;
 
-  document.getElementById('actions').innerHTML = Object.entries(snap.actions || {})
-    .map(([k, v]) => `<div class="rel-row">${k}：${v}</div>`).join('') || '<div class="rel-row">（本回合暂无行动）</div>';
+  // 现状（可刷新层 states）：一键一当前值，后写覆盖前写。
+  // 面板名用「现状」而非「世界状态」：后者是整个左栏的栏目名，同名会让人
+  // 以为这是总览，点进去才发现只是物件状态表。
+  document.getElementById('states').innerHTML = Object.entries(snap.states || {})
+    .map(([k, v]) => `<div class="rel-row">${k}：${(v && v.value) || '（未知）'}</div>`)
+    .join('') || '<div class="rel-row">（尚未确立任何状态）</div>';
 
-  document.getElementById('goals').innerHTML = Object.entries(snap.goals || {})
-    .map(([k, v]) => `<div class="rel-row">${k}：${v || '（待生成）'}</div>`).join('') || '<div class="rel-row">（无）</div>';
+  // 刻意不渲染：relations / actions / goals。
+  // 这三者都是「引擎算出来的中间结果」而非「世界本身」——关系定性、每回合行为
+  // 摘要、角色短期目标，全都是叙事正文的原料。摆出来会把玩家注意力从正文
+  // 转移到账本上，变成「照着面板核对」而不是「读故事」。左栏只回答一个问题：
+  // 现在这个世界是什么样（谁在场、什么东西处于什么状态、有哪些不可逆的事实、
+  // 几条暗线进展到哪一步）。其余都让正文自己说。
 
+  // 秘密：只有「谁藏着什么、露到哪一步」是玩家视图（后端 player_view 已剥掉
+  // content/bottom_line/pressure/keys）。导演全知就没戏，所以不显示内容。
   document.getElementById('secrets').innerHTML = (snap.secrets || []).map(s => {
     const kb = s.known_by || [];
     const envKnows = kb.includes('环境推手');
@@ -821,119 +895,8 @@ function renderSnapshot(snap) {
     return `<div class="sec-row">${s.owner}：<span class="sec-state ${cls}">${s.state}</span> ${tag}</div>`;
   }).join('') || '<div class="sec-row">（无）</div>';
 
-  // 既定事实（常量层）：只增不改，作者可手动作废
-  document.getElementById('facts').innerHTML = (snap.facts || []).map(f => {
-    const txt = f.text || '';
-    const rd = `<span style="color:var(--muted);font-size:11px">R${f.round == null ? '' : f.round}</span>`;
-    if (f.invalid) {
-      return `<div class="rel-row"><s style="opacity:.55">${txt}</s> ${rd}
-        <span style="font-size:11px;opacity:.6">已作废</span></div>`;
-    }
-    return `<div class="rel-row">${txt} ${rd}
-      <a href="javascript:void(0)" class="fact-drop" data-text="${encodeURIComponent(txt)}"
-         style="font-size:11px;color:var(--muted)">作废</a></div>`;
-  }).join('') || '<div class="rel-row">（无）</div>';
-  document.querySelectorAll('#facts .fact-drop').forEach(a => {
-    a.onclick = async (e) => {
-      e.preventDefault();
-      const text = decodeURIComponent(a.dataset.text || '');
-      if (!confirm('作废这条既定事实？作废后不再约束后续叙事，但会留痕保存。')) return;
-      await fetch('/api/fact/invalidate', {
-        method: 'POST', headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({session: SID, text, reason: '作者手动作废'}),
-      });
-      refreshSnapshot();
-    };
-  });
-
 }
 
-// 重新拉取快照并刷新左栏（用于手动作废事实后就地更新）
-async function refreshSnapshot() {
-  try {
-    const r = await fetch('/api/snapshot?session=' + encodeURIComponent(SID));
-    const snap = await r.json();
-    if (snap && snap.scene) renderSnapshot(snap);
-  } catch (e) { /* 刷新失败不影响主流程 */ }
-}
-
-async function send() {
-  const text = input.value.trim();
-  if (!text || sendBtn.disabled) return;
-  input.value = '';
-  sendBtn.disabled = true;
-  statusEl.textContent = '生成中…';
-  bubble('user', text);
-
-  const resp = await fetch('/api/act', {
-    method: 'POST', headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({session: SID, input: text}),
-  });
-  const reader = resp.body.getReader();
-  const decoder = new TextDecoder();
-  let buffer = '', node = null, acc = '';
-  while (true) {
-    const {done, value} = await reader.read();
-    if (done) break;
-    buffer += decoder.decode(value, {stream: true});
-    const parts = buffer.split('\n\n');
-    buffer = parts.pop();
-    for (const part of parts) {
-      const line = part.trim();
-      if (!line.startsWith('data:')) continue;
-      const data = JSON.parse(line.slice(5).trim());
-      if (data.error) { statusEl.textContent = '错误：' + data.error; break; }
-      if (data.status) {
-        statusEl.textContent = data.status;
-        // 纪官同步阶段：输入框显式切换到「后台同步」提示，禁止玩家误解为可输入下一回合
-        const syncing = data.status.indexOf('同步') >= 0;
-        if (syncing) {
-          input.placeholder = '后台正在进行本回合叙事状态同步…';
-          input.disabled = true;
-        }
-      }
-      if (data.delta) {
-        if (!node) node = bubble('assistant', '');
-        acc += data.delta;
-        node.textContent = acc;
-        stageEl.scrollTop = stageEl.scrollHeight;
-      }
-      if (data.done) {
-        if (data.reply) { if (!node) node = bubble('assistant', ''); node.textContent = data.reply; acc = data.reply; }
-        // 纪官同步结束，恢复输入框默认状态，允许玩家进入下一回合
-        input.placeholder = INPUT_PLACEHOLDER_DEFAULT;
-        input.disabled = false;
-        if (data.snapshot) {
-          renderSnapshot(data.snapshot);
-        }
-        if (data.ending_candidate) showEndingCandidate(data.ending_candidate);
-        if (data.scene_change) {
-          const sc = data.scene_change;
-          let line = '—— 场景切换：' + sc.place + (sc.time ? '（' + sc.time + '）' : '）');
-          if (sc.leave.length) line += ' ｜ ' + sc.leave.join('、') + ' 离开';
-          if (sc.arrive.length) line += ' ｜ ' + sc.arrive.join('、') + ' 到场';
-          bubbleSystem(line);
-          statusEl.textContent = '场景切换：' + sc.place + (sc.time ? '（' + sc.time + '）' : '');
-        }
-        else statusEl.textContent = '完成';
-      }
-    }
-  }
-  sendBtn.disabled = false;
-  // 兜底复原：无论正常结束还是中途异常，都恢复输入框默认状态
-  input.placeholder = INPUT_PLACEHOLDER_DEFAULT;
-  input.disabled = false;
-}
-
-document.getElementById('start').onclick = startSession;
-sendBtn.onclick = send;
-input.addEventListener('keydown', e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } });
-
-// ---- 系统设置（模型与生成 + 帮助与文档，统一入口） ----
-// 已保存的 LLM 提供商（持久化到 config.providers，每项 {key,name,base_url,api_key,model}）
-let cfgProviders = [];      // 提供商清单
-let cfgActiveKey = "";      // 当前生效的提供商 key
-let cfgOpen = {};           // 展开状态：key -> bool
 function renderProviders() {
   const box = document.getElementById('cfg-providers');
   if (!cfgProviders.length) {
@@ -1764,7 +1727,10 @@ document.getElementById('end-delete').onclick = async () => {
 loadCharacters();
 refreshState();
 
-// 左栏各子面板可独立收起/展开（长内容默认收起，决定权交给用户）
+// 左栏各子面板可独立收起/展开。
+// 左栏各子面板可独立收起/展开。默认全部展开：面板数少（4 个）且一屏放得下，
+// 玩家想精简时可点标题自行收起。若日后面板增多，给需要默认收起的面板加
+// data-collapse 即可（下面的选择器会把它折叠）。
 document.querySelectorAll('#left-rail .panel').forEach(p => {
   p.querySelector('.panel-head').addEventListener('click', () => p.classList.toggle('collapsed'));
 });
