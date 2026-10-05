@@ -606,38 +606,25 @@ def act():
         else:
             logger.info("model", "在场校验通过：仅含在场角色台词")
         # 背景人物活动化自检：无独立角色卡、仅关系事实的角色若被写成对白/独白/主角行动，
-        # 属引擎失责（simon 验收标准）。仅检测不删正文，结果向前端报告。
-        offscreens = director.background_names_from_relations(snap, present)
+        # 属引擎失责（simon 验收标准）。
+        # v0.17.2 起**只告警、绝不删正文**：此前命中即整句 replace 删除，而判据②
+        # 「分句主语 + 动作字表」把「来自远方的指令」这类合法提及也判成失责——实测
+        # 296 轮里 23 轮命中、真失责接近 0，却把有卡在演的角色（真实会话事故）
+        # 的 27 字长句删到只剩「。」。误删代价远大于漏删收益，改为下轮提示词点名批评。
+        # 语义判定移交纪官（reflect 的 offscreen_activity + 逐字举证），见 prompter。
+        offscreens = director.background_names_from_relations(snap, present, extra_known=known)
         off_viol, off_hits = director.detect_offscreen_activity(full, offscreens)
         if off_viol:
             present_violation = True
-            logger.warn("model", "背景人物活动化自检失责：" + "；".join(off_hits[:3])
-                        + ("…" if len(off_hits) > 3 else ""))
-            # 强制清洗：删除背景人物的活动化句子（对话块/主动叙事），仅保留在场角色视角，
-            # 落实「背景人物不得被写成活动角色」原则（simon）。只删命中句，不伤在场叙事；
-            # off_hits 保留原始命中随 done 回传前端，以报告本次失责。
-            cleaned = full
-            for hit in off_hits:
-                if hit:
-                    cleaned = cleaned.replace(hit, "")
-            if cleaned != full:
-                logger.warn("model", "已强制清洗背景人物活动化句子（"
-                            + str(len(off_hits)) + " 句）")
-                full = cleaned
+            logger.warn("model", "背景人物活动化自检命中（仅告警，不删正文）："
+                        + "；".join(off_hits[:3]) + ("…" if len(off_hits) > 3 else ""))
         else:
             logger.info("model", "背景人物自检通过："
                         + ("、".join(offscreens) + " 保持背景" if offscreens else "无背景人物"))
-        # 自动登记本轮新出现的辅助群演（导演/叙事引入的临时角色），保障跨回合连续性；
-        # 不污染角色卡库/世界书/分发，仅存于本会话快照，会话结束即销毁。
-        bg_names = director.background_names_from_relations(snap, present)
-        aux_exclude = (set(present) | set(store.list_characters())
-                       | set(aux_names) | set(bg_names) | {director.ENV_PUSHER})
-        new_aux = director.discover_aux_speakers(full, aux_exclude)
-        if new_aux:
-            added = director.register_aux(snap, new_aux, snap["scene"]["round"], None)
-            if added:
-                memory.save(sid, snap)
-                logger.info("aux", "自动登记辅助群演：" + "、".join(added))
+        # 群演登记改由纪官语义提取（director.reflect 的 aux_updates 字段，见下方同步阶段）。
+        # v0.17.2 前此处用散文正则 discover_aux_speakers 挖「名字+说话动词+引号」，
+        # 但正则无法区分「他喃喃道」与「陈叔说」，真实会话连续误报（喃喃/胁语气/想要），
+        # 误报不可根治，退出登记链路；函数保留作离线分析与测试守护。
         # 注：原始 token 已实时流式回传，此处不再回吐整段以免重复；
         # 校验后的 canonical 文本经末尾 done.reply 回传，前端据此对齐（极少剥离时无缝修正）。
 

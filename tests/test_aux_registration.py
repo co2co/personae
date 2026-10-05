@@ -105,6 +105,29 @@ def test_register_is_idempotent_on_existing_name():
     assert len(snap["aux"]) == 1
 
 
+def test_register_prunes_legacy_garbage_entries():
+    """历史脏数据（情绪/能愿/代词/描述碎片）在下次登记时自愈删除。"""
+    snap = {"aux": [{"name": "胁语气", "intro_round": 2, "role": "会话群演",
+                     "note": "", "status": "活跃"},
+                    {"name": "想要", "intro_round": 2, "role": "会话群演",
+                     "note": "", "status": "活跃"},
+                    {"name": "她想", "intro_round": 2, "role": "会话群演",
+                     "note": "", "status": "活跃"},
+                    {"name": "年轻女子", "intro_round": 2, "role": "会话群演",
+                     "note": "", "status": "活跃"},
+                    {"name": "苏青", "intro_round": 2, "role": "会话群演",
+                     "note": "", "status": "活跃"}]}
+    added = director.register_aux(snap, ["新角色甲"], 5, None)
+    names = [a["name"] for a in snap["aux"]]
+    assert "胁语气" not in names
+    assert "想要" not in names
+    assert "她想" not in names
+    assert "年轻女子" not in names
+    assert "苏青" in names
+    assert "新角色甲" in names
+    assert added == ["新角色甲"]
+
+
 # ---- 散文形态支持（v0.17.0 移除「角色名：」分段契约后，模型回归散文主体）----
 # 移除分段格式契约后，依赖「行首 名字：」的机制必须在散文体下仍可用，
 # 否则它们会静默失效：discover_aux_speakers（群演登记）与 detect_offscreen_activity
@@ -146,6 +169,37 @@ def test_discover_aux_still_supports_segmented_form():
     assert director.discover_aux_speakers("角色丙：（喘息）我是护士。", CAST) == ["角色丙"]
 
 
+def test_discover_aux_rejects_modal_and_describe_fragments():
+    """散文判据不得把能愿/描述碎片当人名（真实回归：v0.17.1 误报）。"""
+    # 「威胁语气说道」被截断成「胁语气」
+    assert director.discover_aux_speakers(
+        "他压低声音，用不容置疑的威胁语气说道：“管好你的嘴。”", CAST) == []
+    # 「想要问“…”」被截成「想要」
+    assert director.discover_aux_speakers(
+        "他张了张嘴，想要问“你认识我吗”，但发不出声音。", CAST) == []
+    # 「她想道“…”」被截成「她想」
+    assert director.discover_aux_speakers(
+        "她低下头，她想道“完了”，指尖微微发抖。", CAST) == []
+
+
+def test_discover_aux_rejects_abstract_state_as_speaker():
+    """情绪/状态词当主语不是群演。"""
+    assert director.discover_aux_speakers(
+        "恐惧慢慢爬上他的脊背。绝望说道：“没有退路了。”", CAST) == []
+    assert director.discover_aux_speakers(
+        "他愤怒地说道：“这不是你的错。”", CAST) == []
+
+
+def test_discover_aux_still_keeps_real_names_with_modal_substring():
+    """含能愿/情绪字但作为整体是真名的，不应误伤。"""
+    # 「会」是能愿字，但「会哥」作为整体是真名时应保留
+    assert director.discover_aux_speakers(
+        "会哥说：“跟上。”", CAST) == ["会哥"]
+    # 「想」在词表中，但「想容」作为名字不应被过滤
+    assert director.discover_aux_speakers(
+        "想容说：“我没事。”", CAST) == ["想容"]
+
+
 def test_offscreen_detects_quoted_dialogue():
     """散文体：背景人物被写成对白（「“角色戊。”他转身」）应判失责。"""
     hit, _ = director.detect_offscreen_activity("“角色戊。”他转身看向门。", ["角色戊"])
@@ -156,3 +210,38 @@ def test_offscreen_mention_alone_is_not_violation():
     """仅被提及不算失责（老机制，不能因新增引号判据而误报）。"""
     hit, _ = director.detect_offscreen_activity("他们说起角色戊最近的事。", ["角色戊"])
     assert hit is False
+
+
+# ---- v0.17.2 补充：说话拟声/叠音动词碎片（真实回归：会话 ec086687 误报「喃喃」）----
+
+def test_discover_rejects_speech_onomatopoeia():
+    """「他喃喃道」的「喃喃」是说话动词碎片，不是人名。"""
+    assert director.discover_aux_speakers(
+        "他喃喃道：“爸……他说……”", {"角色甲"}) == []
+    assert director.discover_aux_speakers(
+        "她呜呜地说道：“好冷。”", {"角色甲"}) == []
+
+
+def test_discover_rejects_speech_phrase_from_segmented_line():
+    """分段形判据把「喃喃自语道：」当成行首名字后剥掉动词，剩下的复合短语也不是人名。"""
+    assert director.discover_aux_speakers(
+        "喃喃自语道：“完了。”", set()) == []
+    assert director.discover_aux_speakers(
+        "低声私语：“听见了吗。”", set()) == []
+
+
+def test_discover_rejects_aabb_and_tone_adverbs():
+    """AABB 拟声（呜呜咽咽）与语气状语本身（沉声开口 → 沉声）都不是人名。"""
+    assert director.discover_aux_speakers(
+        "她呜呜咽咽：“别走。”", set()) == []
+    assert director.discover_aux_speakers(
+        "沉声开口：“站住。”", set()) == []
+
+
+def test_discover_strips_single_char_speech_verbs():
+    """「爸爸叹道」被截成「爸爸叹」：单字说话动词从尾部剥离后，叠音「爸爸」被拒。"""
+    assert director.discover_aux_speakers(
+        "爸爸叹道：“走吧。”", {"角色甲"}) == []
+    # 真名 + 单字动词：剥离后还原真名，正常登记
+    assert director.discover_aux_speakers(
+        "角色丙叹道：“进来吧。”", {"角色甲"}) == ["角色丙"]

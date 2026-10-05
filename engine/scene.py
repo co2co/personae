@@ -74,6 +74,11 @@ def _triggered(directive, snap):
     # 就永远走关键词分支（force=False），防僵死保护同样会被架空。
     if snap["scene"].get("same_scene", 0) >= AUTO_TIME_THRESHOLD:
         return True, True
+    # 纪官并联（v0.17.2）：上一轮叙事里场景/时间/天气已实际变化，但快照没跟上
+    # （如正文早已入夜、scene.time 还停在「清晨」）。关键词表枚举不完这类变化，
+    # 纪官从语义上读出来补上。零额外 LLM 成本——reflect 本来就每轮都跑。
+    if (snap.get("scene_shift") or {}).get("changed"):
+        return True, False
     if any(k in t for k in MOVE_KEYS):
         return True, False
     if any(k in t for k in TIME_KEYS):
@@ -90,6 +95,9 @@ def apply(sid, directive, snap):
     指令中显式进出影响；地点/天气变化默认全员随世界移动（安全网保证名单不乱）。
     """
     triggered, force = _triggered(directive, snap)
+    # 纪官信号用后即清：它只是「上一轮的观察」，本轮已消费。留着会让同一次上报
+    # 反复触发，把「规则版触发避免每轮调 LLM」的设计原则架空。
+    shift = snap.pop("scene_shift", None) or {}
     if not triggered:
         snap["scene"]["same_scene"] = snap["scene"].get("same_scene", 0) + 1
         return False, None
@@ -105,6 +113,16 @@ def apply(sid, directive, snap):
     )
     if force:
         prompt += _FORCE_HINT.format(stuck=snap["scene"].get("same_scene", 0))
+    if shift.get("changed"):
+        # 纪官从上一轮叙事里读到的实际场景：正文已经走到这儿了，快照还停在旧值。
+        # 以叙事为准——场景与叙事脱节比场景少变一次严重得多。
+        prompt += (
+            "\n\n【纪官观察】上一轮叙事结束时场景已实际变为："
+            + f"地点 {shift.get('place') or '（未变）'}"
+            + f"｜时间 {shift.get('time') or '（未变）'}"
+            + f"｜天气 {shift.get('weather') or '（未变）'}"
+            + "。若与上方当前场景不一致，请以叙事为准更新（changed 填 true）。"
+        )
     try:
         raw = llm.complete(
             [{"role": "system", "content": prompt}],

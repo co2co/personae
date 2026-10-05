@@ -85,9 +85,11 @@ def fetch_cast(base_url, timeout=30):
 
 def build_arc(cast):
     """把 ARC_TEMPLATE 里的 {A}{B}{C}{D} 占位替换为实际角色名。"""
+    if not cast:
+        raise SystemExit("卡组为空：引擎未返回角色卡，请用 --cast 显式指定。")
     mapping = {}
     for i, key in enumerate("ABCD"):
-        mapping["{" + key + "}"] = cast[i] if i < len(cast) else cast[-1]
+        mapping[key] = cast[i] if i < len(cast) else cast[-1]
     return [t.format(**mapping) for t in ARC_TEMPLATE]
 
 
@@ -219,6 +221,10 @@ def run(base_url, rounds, timeout, cast=None, scene=None):
                 "relations": snap.get("relations", {}),
                 "present_violation": done.get("present_violation"),
                 "ending": bool(done.get("ending_candidate")),
+                # v0.17.2 纪官语义提取观测：群演登记 / 越界告警 / 场景切换信号
+                "aux": [a.get("name") for a in (snap.get("aux") or [])],
+                "offscreen_violated": snap.get("offscreen_violated") or [],
+                "scene_shift": snap.get("scene_shift"),
             })
             # 能力保持：点名角色是否真的出场（出现在回复里）
             if rec["named"]:
@@ -228,7 +234,9 @@ def run(base_url, rounds, timeout, cast=None, scene=None):
             print(f"[R{i}] {elapsed:5.1f}s len={len(reply or ''):4d} "
                   f"present={len(rec['present'])} focus={rec['focus']} "
                   f"暴露={rec['exposed']} 起疑={susp_n} 账本={rec.get('ledger', 0)} "
-                  f"违例={rec['present_violation']} ending={rec['ending']}",
+                  f"违例={rec['present_violation']} ending={rec['ending']} "
+                  f"群演={len(rec['aux'])} 越界={len(rec['offscreen_violated'])} "
+                  f"换场={'是' if (rec['scene_shift'] or {}).get('changed') else '-'}",
                   flush=True)
     finally:
         try:
@@ -347,6 +355,16 @@ def analyze(records, errors):
     first_fact_round = next((r["round"] for r in ok if r.get("facts")), "-")
     state_sizes = [len(r.get("states") or {}) for r in ok]
 
+    # v0.17.2 纪官语义提取落地观测
+    aux_last = (ok[-1].get("aux") or []) if ok else []
+    aux_peak = max([len(r.get("aux") or []) for r in ok] or [0])
+    offscreen_rounds = sum(1 for r in ok if r.get("offscreen_violated"))
+    shift_rounds = sum(1 for r in ok if (r.get("scene_shift") or {}).get("changed"))
+    # 删正文回归哨兵：极短回复或残句（以句号/逗号开头）
+    short_rounds = sum(1 for r in ok if 0 < r.get("reply_len", 0) < 200)
+    stump_rounds = sum(1 for r in ok
+                       if (r.get("reply") or "").lstrip()[:1] in ("。", "，", "、"))
+
     return {
         "轮数": n,
         "成功轮数": len(ok),
@@ -384,6 +402,12 @@ def analyze(records, errors):
         "常量层首次入表轮次": first_fact_round,
         "状态层键数(末轮/峰值)": (f"{state_sizes[-1]}/{max(state_sizes)}"
                                   if state_sizes else "-"),
+        "群演登记(末轮/峰值)": f"{len(aux_last)}/{aux_peak}",
+        "群演名单(末轮)": "、".join(aux_last) or "无",
+        "背景人物越界告警轮数": offscreen_rounds,
+        "场景切换信号轮数": shift_rounds,
+        "极短回复轮数(<200字)": short_rounds,
+        "残句回复轮数(以句号/逗号开头)": stump_rounds,
     }
 
 
@@ -420,6 +444,26 @@ def build_report(meta, records, summary, errors):
                    f"| {r.get('latent','-')} | {susp_n} | {r.get('ledger','-')} "
                    f"| {'是' if r.get('present_violation') else '否'} "
                    f"| {named} |")
+    out.append("")
+    out.append("## 纪官语义提取观测（群演登记 / 越界告警 / 换场信号）")
+    out.append("")
+    out.append("| 轮 | 群演总数 | 本轮新增 | 越界告警 | 换场信号 | 换场去向 |")
+    out.append("|---|---|---|---|---|---|")
+    prev_aux = set()
+    for r in records:
+        if r.get("error"):
+            continue
+        cur = list(r.get("aux") or [])
+        new = [n for n in cur if n not in prev_aux]
+        prev_aux |= set(cur)
+        viol = r.get("offscreen_violated") or []
+        sh = r.get("scene_shift") or {}
+        if not cur and not viol and not sh:
+            continue
+        out.append(f"| {r['round']} | {len(cur)} | {'、'.join(new) or '-'} "
+                   f"| {'、'.join(str(v) for v in viol) or '-'} "
+                   f"| {'是' if sh.get('changed') else '-'} "
+                   f"| {sh.get('place') or '-'} |")
     out.append("")
     out.append("## 秘密链条演进")
     out.append("")

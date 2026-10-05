@@ -14,6 +14,7 @@ build_session 的分层：
 
 import re
 
+import store
 from director import ENV_PUSHER, SILENT_THRESHOLD, pressure_targets
 
 _START = re.compile(r"<START>", re.I)
@@ -342,11 +343,18 @@ def build_session(cards_present, directive, world_hits, snap,
     # 关联但无独立角色卡的"背景人物"（如某位仅被提及的亲属）：仅可作背景提及，
     # 其关系定位为既定事实，严禁模型改写或升级（小姨子→妻子类漂移在此被提示约束）
     card_names = set(cards_present.keys())
+    # 背景人物口径与 director.background_names_from_relations 必须一致：
+    # 「关系表里出现、但没有独立角色卡」的人。早前这里用「不在场卡」判定，把有卡但
+    # 本轮不在场名单的角色也划成背景，提示词一边要求「不得为其撰写出场段落」、
+    # 叙事里他却正在演——自相矛盾（真实会话事故）。
+    all_cards = set(store.list_characters())
+    aux_names = {a.get("name") for a in (snap.get("aux") or [])}
     rel_names = set()
     for k in snap.get("relations", {}):
         for e in k.split("→"):
             rel_names.add(e.strip())
-    offscreens = sorted(n for n in rel_names if n and n not in card_names)
+    offscreens = sorted(n for n in rel_names
+                        if n and n not in all_cards and n not in aux_names)
     offscreen_note = ""
     if offscreens:
         offscreen_note = (
@@ -358,7 +366,21 @@ def build_session(cards_present, directive, world_hits, snap,
             "③ 若剧情需要提及，只能由在场角色在其台词或内心活动中以「谈论/回忆/称呼」方式一句话带过，"
             "且不得借此铺陈成主动情节；④ 其关系定位（见上）为既定事实，"
             "不得改写为在场/夫妻/恋人等升级关系。背景人物一旦被写成有对白、独白或以主角身份行动，"
-            "即视为越界（引擎会强制清洗并报警），务必避免。"
+            "即视为越界，务必避免。"
+        )
+    # 上轮越界点名批评：由纪官按语义判定（reflect 的 offscreen_activity，逐字举证核验
+    # 通过后才记入）。引擎**不删正文**——旧链路靠正则整句删除，误删代价远大于漏删收益
+    # （实测真失责≈0 却切碎了正常叙事）。改为本轮显式点名，让模型自己纠正。
+    last_off = snap.get("offscreen_violated") or []
+    if last_off:
+        ev = (last_off[0].get("evidence") or "").strip()
+        offscreen_note += (
+            "\n【上轮越界·本轮严禁再犯】上一轮你把 "
+            + "、".join(str(v.get("name")) for v in last_off)
+            + " 写成了会开口说话、或亲自登场行动的角色"
+            + ("（原文如「" + ev[:24] + "」）" if ev else "")
+            + "。他们是无独立角色卡的背景人物：本轮严禁让其开口、登场或成为动作主语，"
+            "只能由在场角色以谈论/回忆/提及的方式一句话带过。"
         )
     cons = "\n".join("- " + l["account"] for l in snap.get("ledger", [])) or "（暂无）"
     state_block = "[关系与状态（不可违背）]\n关系：\n" + rel + offscreen_note + "\n旧账：\n" + cons

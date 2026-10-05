@@ -416,14 +416,14 @@ _AUX_SPEAKER_RE = re.compile(r"^([\u4e00-\u9fffA-Za-z·•]{1,8})\s*[:：]")
 # 自称消解：模型台词里的「我叫X」把「泛称」与「本名」绑成同一人。
 # 只认「我叫 / 名字叫 / 我名叫 / 我姓」这类**明确报姓名**的句式。
 # 刻意不含「我是」——「我是护士」「我是医生」「我是学生」报的是身份不是姓名。
-# 也不做模糊匹配——「年轻女子」与「苏青」在字符串上无从推断，
-# 但「我叫苏青」是模型亲口给出的对应关系，是唯一可靠依据。
+# 也不做模糊匹配——「年轻女子」与「X」在字符串上无从推断，
+# 但「我叫X」是模型亲口给出的对应关系，是唯一可靠依据。
 _AUX_SELFNAME_RE = re.compile(
     r"(?:我叫|名字叫|我名字叫|我名叫|我姓)\s*"
     r"([\u4e00-\u9fffA-Za-z·•]{2,6})"
 )
 # 泛称 / 描述词（v0.16.1 修 aux 重复登记）：模型常先用「年轻女子」「中年男人」
-# 这类**描述**起段，待角色自我介绍后再转本名（「我叫苏青」→ 后续写「苏青：」）。
+# 这类**描述**起段，待角色自我介绍后再转本名（「我叫X」→ 后续写「X：」）。
 # 引擎若把两个称呼都登记成新群演，左栏会出现两个 chip 指同一个人。
 # 这些词是外貌/身份/职业描述而非人名，一律不作为群演名登记。
 _AUX_GENERIC_WORDS = {
@@ -457,12 +457,136 @@ _AUX_PROFESSION_WORDS = {
     "医生", "病人", "伤员", "志愿者", "幸存者",
 }
 
+# ---- 散文判据的额外护栏（v0.17.1）----
+# 模型回归散文主体后，prose_said 正则会把描述性短语误当成人名。
+# 真实案例：「威胁语气说道」→ 捕获「胁语气」；「想要问“…”」→ 捕获「想要」；
+# 「她想道“…”」→ 捕获「她想」。这些不是角色，而是状语/能愿/代词碎片。
+# 以下集合按「结构特征」过滤，不依赖具体题材。
+
+# 以这些字/词开头的候选不是人名（代词、虚词），且 2~3 字短候选
+# 无法被 _AUX_PREFIX_NOISE 完整剥离（剩 1 字）。
+# 注意：不放「老/大/小」等可能作为真名前缀的字，避免误伤「老王」「大雄」。
+_AUX_PRONOUN_PREFIXES = {
+    "她", "他", "它", "我", "你", "您", "咱", "谁", "这", "那", "其",
+    "有", "众", "人",
+}
+
+# 能愿动词 / 趋向动词：常出现在「想要问/会说道」这类结构里，不是名字。
+_AUX_MODAL_WORDS = {
+    "想要", "想", "要", "会", "能", "可以", "应该", "愿意", "需要", "必须",
+    "得", "敢", "肯", "能够", "应当", "该当", "意欲", "将要", "快要",
+}
+
+# 抽象情绪 / 状态 / 描述词：「恐惧地说道」「威胁语气说道」里的“恐惧/威胁”。
+_AUX_ABSTRACT_WORDS = {
+    # 情绪 / 状态
+    "恐惧", "绝望", "紧张", "愤怒", "痛苦", "疲惫", "冷静", "沉默", "警惕",
+    "希望", "失望", "威胁", "压迫", "危险", "安全", "兴奋", "激动", "慌乱",
+    "害怕", "害羞", "尴尬", "悲伤", "快乐", "高兴", "愉快", "难受", "舒服",
+    "累", "困", "饿", "渴", "慌", "怒", "惧", "悲", "喜", "愁", "忧", "急",
+    # 抽象描述名词（「威胁语气」被截断为「胁语气」的核心来源）
+    "语气", "心情", "神情", "神态", "表情", "目光", "眼神", "声音", "口气",
+    "态度", "动作", "举止", "模样", "样子", "心境", "状态", "情绪", "感觉",
+    "神色", "口吻", "眼色", "姿态", "身影", "手势", "步伐", "意志", "意识",
+}
+
+# 描述性后缀：候选以这些词结尾，说明它是「X语气/神情说道」被截断的碎片。
+_AUX_DESCRIBE_TAIL = {
+    "语气", "神情", "神态", "表情", "目光", "眼神", "声音", "口气", "态度",
+    "动作", "举止", "模样", "样子", "心情", "心境", "状态", "情绪", "感觉",
+    "神色", "口吻", "眼色", "姿态", "身影", "手势", "步伐",
+}
+
+# 结构助词结尾：副词/状语碎片（「愤怒地说道」→ 捕获「愤怒地」）。
+_AUX_PARTICLE_TAIL = {"地", "得", "着", "了", "过"}
+
+# 说话拟声/方式动词（v0.17.2 新增）：「他喃喃道：“…”」里的「喃喃道」整体是
+# 说话动词，正则会截出「喃喃」——它是动词的一部分，不是人名。这类词与
+# 说话动词同位（甚至本身就是 _AUX_VERB_TAIL 里的「呢喃」「嘟囔」的同义词），
+# 真正的说话人在更前面（往往是代词，剥离后本就不该登记）。
+_AUX_SPEECH_ONOMATOPOEIA = {
+    "喃喃", "呢喃", "嘟哝", "嘀咕", "念叨", "念及", "沉吟", "低语", "私语",
+    "自语", "呻吟", "惊呼", "呜咽", "嗫嚅", "嘟囔", "呢哝", "絮语", "絮叨",
+}
+
+
+def _is_aux_speech_verb(nm):
+    """候选是说话拟声/方式动词短语，而非人名。
+
+    覆盖三种形态（均来自真实误报）：
+      「喃喃」        —— AA 叠音说话动词（「他喃喃道」被截断）
+      「喃喃自语」    —— 拟声词开头的复合动词短语（分段形判据把
+                         「喃喃自语道：」整行当成「名字：」后剥掉「道」的产物）
+      「咕哝/沉吟」   —— 非叠音的说话方式词本身
+
+    AA 叠音做整体判断：中文真实人名确有叠音（冰冰/芳芳/明明），但散文判据里
+    捕获到的叠音几乎总是「喃喃道」「呜呜地哭」这类动词/拟声碎片；按 simon 定的
+    「宁可漏检（晚一轮登记），不可误检（左栏出现假角色）」取舍，一律拒绝。
+    真叠音角色的登记走旁路：导演【引入角色】指令，不依赖正文形态。
+    """
+    nm = nm or ""
+    if nm in _AUX_SPEECH_ONOMATOPOEIA:
+        return True
+    if len(nm) == 2 and nm[0] == nm[1]:
+        return True
+    # AABB 叠音（「呜呜咽咽」）：前两字叠 + 后两字叠，是拟声/动作碎片
+    if len(nm) >= 4 and nm[0] == nm[1] and nm[2] == nm[3]:
+        return True
+    # 拟声词开头的复合短语（「喃喃自语」「呜呜咽咽」）
+    if len(nm) > 2 and any(nm.startswith(w) for w in _AUX_SPEECH_ONOMATOPOEIA):
+        return True
+    # 说话方式词结尾的复合短语（「喃喃自语」「低声私语」）
+    if any(nm.endswith(w) for w in ("自语", "私语", "低语", "梦呓", "呓语")):
+        return True
+    return False
+
+
+# 语气状语本身（「沉声开口」剥掉动词后剩「沉声」）——全等过滤，不做后缀匹配，
+# 「李沉声」这类真名即使存在也不受影响。
+_AUX_TONE_ADVERBS = {
+    "低声", "沉声", "冷声", "轻声", "大声", "哑声", "颤声", "急声", "高声", "厉声",
+}
+
+
+def _is_aux_garbage_name(nm):
+    """结构性判定：这个名字碎片明显不是人名。
+
+    供两处使用：① discover_aux_speakers 的候选过滤（散文/分段正则挖掘，已退居
+    兜底）；② reflect 纪官语义登记的保险层（纪官偶发也会把动词碎片当名字上报）。
+    全部是结构特征（代词/能愿/抽象/描述/拟声/泛称），不含任何题材词。
+    """
+    nm = (nm or "").strip()
+    if not nm:
+        return True
+    return (any(nm.startswith(p) for p in _AUX_PRONOUN_PREFIXES)
+            or nm in _AUX_MODAL_WORDS
+            or nm in _AUX_ABSTRACT_WORDS
+            or any(nm.endswith(t) for t in _AUX_DESCRIBE_TAIL)
+            or any(nm.endswith(t) for t in _AUX_PARTICLE_TAIL)
+            or _is_aux_speech_verb(nm)
+            or nm in _AUX_TONE_ADVERBS)
+    # 注意：泛称/职业词（年轻女子/李医生）**不在**本判定内——跨轮泛称可能真是
+    # 不同角色，只做「同轮与本名消解」（_prune_aux_aliases ②），不无条件拒收。
+
+
+def _is_aux_generic_name(nm):
+    """结构性判定：这个名字是描述性泛称（年轻女子/路人/幸存者/李医生不含）。
+
+    泛称跨轮可能真是不同角色，**不做无条件拒收**；用于两处：
+    ① _prune_aux_aliases 的同轮消解（泛称 + 本名同轮出现只留本名）；
+    ② reflect 改名合并的结构兜底（自报姓名 + 本轮唯一在场的泛称旧群演 → 合并）。
+    """
+    nm = (nm or "").strip()
+    return (any(w in nm for w in _AUX_GENERIC_MODIFIERS)
+            or nm in _AUX_GENERIC_WORDS
+            or nm in _AUX_PROFESSION_WORDS)
+
 
 def _resolve_aux_aliases(reply, names):
     """用「我叫X」这类自称句把泛称与本名消解为同一个角色。
 
-    背景：模型常先以描述性称呼起段（「年轻女子：……我叫苏青……」），自我介绍后
-    改用本名（「苏青：……」）。两处都会被 discover_aux_speakers 抓成候选，若不去重，
+    背景：模型常先以描述性称呼起段（「年轻女子：……我叫X……」），自我介绍后
+    改用本名（「X：……」）。两处都会被 discover_aux_speakers 抓成候选，若不去重，
     同一个群演会在左栏显示两个 chip。
 
     返回 (保留名, 被消解的别名列表)。消解时**保留本名**（模型后续使用的那个），
@@ -504,8 +628,8 @@ def discover_aux_speakers(reply, exclude):
     泛称描述词/自称消解后的别名，仅保留疑似人名的片段）。
 
     **两种叙事形态都要认**（v0.17.0 移除「角色名：」分段格式契约后，模型回归散文主体）：
-      ① 分段形：`苏青：（喘息）我是护士`  —— 行首「名字：」
-      ② 散文形：`“苏青。”她抬起头` / `苏青喊道：……` —— 引号紧跟名字，或「名字 + 说话动词」
+      ① 分段形：`X：（喘息）我是护士`  —— 行首「名字：」
+      ② 散文形：`“X。”她抬起头` / `X喊道：……` —— 引号紧跟名字，或「名字 + 说话动词」
     只认 ① 时，散文体下该机制完全失效（临时群演无法登记、跨回合连续性丢失）。
     """
     if not reply:
@@ -532,9 +656,14 @@ def discover_aux_speakers(reply, exclude):
         r"(?:说道|说|道|问道|问|答道|答|喊道|喊|叫道|开口|嘟囔|呢喃)\s*"
         r"[：:]?\s*[“\"]")
     # 说话动词与语气状语可能已被贪婪匹配吃进名字（「角色丙说」「角色丙低声」）——从尾部切掉。
+    # 单字动词（叹/笑/吼…）只用于尾部剥离、不进正则交替：正则交替会让
+    # 「爸爸叹道」仍捕获「爸爸叹」（惰性量词先短后长回溯），而尾部剥离能把
+    # 「陈叔叹」还原成「陈叔」、把「爸爸叹」还原成叠音「爸爸」再被叠音判据拒绝。
     _AUX_VERB_TAIL = ("说道", "说", "道", "问道", "问", "答道", "答",
                       "喊道", "喊", "叫道", "叫", "开口", "嘟囔", "呢喃",
-                      "低声", "沉声", "冷声", "轻声", "大声", "哑声", "颤声", "急声")
+                      "低声", "沉声", "冷声", "轻声", "大声", "哑声", "颤声", "急声",
+                      "叹", "笑", "吼", "骂", "嚷", "呻", "应", "催", "劝",
+                      "喃", "嘀", "嘟", "呜", "嗫", "絮", "念", "喝")
     # 候选**前缀**污染：代词与常见动作/方位词开头的一律不是人名（「他转向角色丙」→ 切掉「他转向」）。
     # 用反复剥离而非一次替换——中文里「他转向」「她递给」可能叠着多层。
     _AUX_PREFIX_NOISE = (
@@ -577,6 +706,25 @@ def discover_aux_speakers(reply, exclude):
                 continue
             if name in _AUX_PRONOUNS:
                 continue
+            # 代词 / 虚词 / 方位词开头的短候选不是人名（「她想」「有人」），
+            # 前缀剥离会剩 1 字，不如直接拒绝。
+            if any(name.startswith(p) for p in _AUX_PRONOUN_PREFIXES):
+                continue
+            # 能愿动词与抽象情绪/状态/描述词不是人名（「想要」「威胁」「冷静」）。
+            if name in _AUX_MODAL_WORDS or name in _AUX_ABSTRACT_WORDS:
+                continue
+            # 描述性后缀结尾：通常是「威胁语气说道」被截断成「胁语气」的碎片。
+            if any(name.endswith(t) for t in _AUX_DESCRIBE_TAIL):
+                continue
+            # 结构助词结尾：状语碎片（「愤怒地说道」→「愤怒地」）不是人名。
+            if any(name.endswith(t) for t in _AUX_PARTICLE_TAIL):
+                continue
+            # 说话拟声/叠音动词碎片：「他喃喃道」→「喃喃」是动词不是人名。
+            if _is_aux_speech_verb(name):
+                continue
+            # 语气状语本身：「沉声开口」剥掉动词后剩「沉声」。
+            if name in _AUX_TONE_ADVERBS:
+                continue
             # 泛称描述（年轻女子、中年男人、老翁）不是人名，不登记为群演。
             # 用**包含**匹配：「年轻女子」不是词表里的词，但含修饰性后缀「女子」。
             # 职业词只做**全等**——「李医生」「王医生」含「医生」但都是真名字，不能误伤。
@@ -597,43 +745,54 @@ def discover_aux_speakers(reply, exclude):
 
 
 def _prune_aux_aliases(snap):
-    """清理已登记的 aux 别名：同一轮引入的泛称 + 本名只留一个。
+    """清理已登记的 aux 中的别名与垃圾项。
 
-    v0.16.1 之前的会话可能出现「年轻女子」与「苏青」两个 chip 指同一人
+    v0.16.1 之前的会话可能出现「年轻女子」与「X」两个 chip 指同一人
     （模型先以描述性称呼起段、自报姓名后改用本名）。discover_aux_speakers
     现在会在登记前消解，但**已落盘的脏数据不会自动回溯**——本函数在每次
-    登记前跑一遍，把同轮引入、且一方已被消解的泛称剔除，让老会话在下轮自愈。
+    登记前跑一遍，让老会话在下轮自愈。
 
-    判据：同一 intro_round 内，若存在「泛称 → 本名」的消解关系，则剔除泛称。
-    跨轮不同名不做处理（可能真是两个角色）。
+    v0.17.1 新增：散文判据会把描述性短语误当人名（「威胁语气说道」→「胁语气」、
+    「想要问“…”」→「想要」、「她想道“…”」→「她想」），这些垃圾项也在此处清理。
     """
     aux = snap.get("aux") or []
-    if len(aux) < 2:
+    if not aux:
         return []
+
+    def _is_garbage(nm):
+        """明显不是人名的碎片（判据集中在 _is_aux_garbage_name，与登记链路共用）。"""
+        return _is_aux_garbage_name(nm)
+
+    def _is_generic(nm):
+        """描述性泛称（年轻女子/中年男人/路人），判据集中在 _is_aux_generic_name。"""
+        return _is_aux_generic_name(nm)
+
     dropped = []
     keep = []
-    by_round = {}
+    # ① 清理历史误登记的垃圾项
     for a in aux:
+        if _is_garbage(a.get("name")):
+            dropped.append(a["name"])
+        else:
+            keep.append(a)
+    # ② 同一轮引入多条：带修饰性泛称后缀的只留本名/真名
+    by_round = {}
+    for a in keep:
         by_round.setdefault(a.get("intro_round"), []).append(a)
+    keep2 = []
     for rnd, items in by_round.items():
         if len(items) < 2:
-            keep.extend(items)
+            keep2.extend(items)
             continue
-        # 同一轮引入多条：其中带修饰性泛称后缀的（「年轻女子」「中年男人」）是描述而非人名。
-        # 判据与 discover 一致：修饰后缀用包含、词表用全等，避免误伤「李医生」这类真名。
-        def _is_generic(nm):
-            nm = nm or ""
-            return (any(w in nm for w in _AUX_GENERIC_MODIFIERS)
-                    or nm in _AUX_GENERIC_WORDS or nm in _AUX_PROFESSION_WORDS)
         desc = [a for a in items if _is_generic(a.get("name"))]
         if len(desc) == 1 and len(items) - len(desc) >= 1:
             dropped.extend(d["name"] for d in desc)
-            keep.extend(a for a in items if a not in desc)
+            keep2.extend(a for a in items if a not in desc)
         else:
-            keep.extend(items)
+            keep2.extend(items)
     if dropped:
-        snap["aux"] = keep
-        logger.info("aux", "清理群演别名（描述性泛称）：" + "、".join(dropped))
+        snap["aux"] = keep2
+        logger.info("aux", "清理群演脏数据/别名：" + "、".join(dropped))
     return dropped
 
 
@@ -681,18 +840,29 @@ def parse_aux_introductions(directive):
     return out
 
 
-def background_names_from_relations(snap, present):
-    """从快照关系表中析出「背景人物」：在 relations 键里出现、但不在在场名单 present 的角色。
+def background_names_from_relations(snap, present, extra_known=None):
+    """从快照关系表中析出「背景人物」：在 relations 键里出现、但不在场的**无卡**角色。
 
     这些角色无独立角色卡（store 不收录），仅在他人 relations 字段/世界书里被定位，
     属于「非在场」背景板。引擎应保证其不被活动化（见 detect_offscreen_activity）。
+
+    extra_known：调用方已知的角色名集合（省一次 list_characters 扫盘）；不传则自取。
+
+    判定为「有独立角色卡即不是背景人物」是这个函数的设计本意（背景 = store 不收录者）。
+    早前只做「relations 名字 − present」的集合差，把**有卡但本轮不在场名单**的角色也
+    划成背景，于是他在叙事里的正常戏份被 detect_offscreen_activity 判失责并整句删除
+    （真实事故：某有独立角色卡、全程在演的角色，27 字长句被删到只剩「。」）。
+    已登记的会话群演（aux）同理——有名有姓的活跃参与者，不是背景板。
     """
     present_set = set(present or [])
+    known = set(extra_known) if extra_known is not None else set(store.list_characters())
+    known |= {a.get("name") for a in ((snap or {}).get("aux") or [])}
     rel_names = set()
     for k in (snap or {}).get("relations", {}):
         for e in k.split("→"):
             rel_names.add(e.strip())
-    return sorted(n for n in rel_names if n and n not in present_set)
+    return sorted(n for n in rel_names
+                  if n and n not in present_set and n not in known)
 
 
 def detect_offscreen_activity(reply, background_names):
@@ -1216,6 +1386,17 @@ def reflect(sid, reply):
     # 既有状态键回喂：不把键名摆出来，纪官就会为同一对象造同义新键（压测实证 20 轮造出
     # 3 个「角色B手臂*」），覆盖式存储退化成追加式。列出既有键，要求沿用、勿造同义键。
     st_text = "、".join(sorted((snap.get("states") or {}).keys())) or "（无）"
+    # 已登记群演回喂：纪官必须知道「某个泛称」已在册，才能在她自报姓名时声明改名合并，
+    # 否则会把「X」当成又一个新人物（真实回归：会话 1868b891 左栏出现两个 chip）。
+    aux_lines = [f"{a.get('name')}（{a.get('role') or ''}）"
+                 for a in (snap.get("aux") or [])]
+    aux_text = "；".join(aux_lines) or "（无）"
+    # 背景人物（无独立角色卡、不在场，仅存在于他人关系定位里）：回喂名单，纪官才能
+    # 按语义判断本轮有没有人把他们写成有对白/独白的角色。这取代了原先的正则扫描——
+    # 「分句主语 + 动作字表」把「来自远方的指令」这类合法提及也判成失责，实测 23 轮
+    # 命中里真失责接近 0，且旧链路会整句删除正文（会话 d024172c 事故）。
+    offscreens = background_names_from_relations(snap, present)
+    off_text = "、".join(offscreens) or "（无）"
 
     prompt = [
         {"role": "system",
@@ -1226,6 +1407,8 @@ def reflect(sid, reply):
             f"当前短期目标：\n{goal_text}\n"
             f"秘密与把柄现状：\n{secret_text}\n"
             f"既有状态键：{st_text}\n"
+            f"已登记群演：{aux_text}\n"
+            f"背景人物（无独立角色卡、不在场）：{off_text}\n"
             f"本轮叙事：\n{reply}\n\n"
             "请输出 JSON：\n"
             "{\n"
@@ -1236,7 +1419,10 @@ def reflect(sid, reply):
             '  "secret_suspicions": [{"owner": "秘密归属者", "by": "本轮起了疑心的角色名", "evidence": "本轮叙事原文片段（引发怀疑的那句话/那个细节）"}],\n'
             '  "handle_releases": [{"owner": "秘密归属者", "from": "失去把柄的人", "to": "接过把柄的人（彻底失去则填空字符串）", "evidence": "本轮叙事原文片段"}],\n'
             '  "secret_touches": [{"owner": "秘密归属者", "touched": true}],\n'
-            '  "state_updates": [{"subject": "对象（如某道门、某件物品、某人的伤）", "value": "当前状态一句话"}]\n'
+            '  "state_updates": [{"subject": "对象（如某道门、某件物品、某人的伤）", "value": "当前状态一句话"}],\n'
+            '  "aux_updates": [{"name": "新出场人物的名字或稳定称呼", "note": "一句话身份说明（如「隔壁的住户」「巡夜的保安」）", "replaces": "该人物在「已登记群演」里的旧称呼（仅当本轮才得知其真名时填）"}],\n'
+            '  "offscreen_activity": [{"name": "被写成活动角色的背景人物", "evidence": "本轮叙事原文片段"}],\n'
+            '  "scene_shift": {"changed": false, "place": "本轮叙事末尾所处的地点", "time": "本轮叙事末尾的时间", "weather": "本轮叙事末尾的天气"}\n'
             "}\n"
             "规则：\n"
             "- relations 只写跨回合稳定的关系定性，严禁把本轮动作（如\'靠肩头\'\'护送\'\'命令其回房\'）写进关系描述；关系键保持\"源 → 目标\"格式；只更新确实变化的条目，不要删除未提及的关系。\n"
@@ -1258,7 +1444,30 @@ def reflect(sid, reply):
             "  严禁为同一对象造同义新键（如已有「角色A手臂伤口」就不得再写「角色A的手臂伤口」「角色A手臂咬伤」）。\n"
             "  角色只填具体伤情部位（如「角色A手臂伤口」），不得填角色裸名，也不得填「某人情绪／某人状态／\n"
             "  某人的心理状态」这类泛称——情绪与整体状态归关系与本轮行动，不占状态键（压测实证这类泛称\n"
-            "  造出「角色A／角色A情绪／角色A状态／角色A的情绪状态」四键，把键表撑到上限）。"
+            "  造出「角色A／角色A情绪／角色A状态／角色A的情绪状态」四键，把键表撑到上限）。\n"
+            "- aux_updates 只填本轮叙事里**新出场、或本轮才确认身份**的人物，引擎登记后跨回合追踪。绝对不填：代词（他/她/有人）、"
+            "说话动词碎片（喃喃/呜呜/低声）、无名的背景一笔带过者。"
+            "同一称呼此前出现过就不必重填；名字拿不准或人物只是被顺带提及，就不填——"
+            "宁可少登记，也绝不造出叙事里不存在的人。\n"
+            "- aux_updates 的改名合并（**最容易漏的一项，务必逐条对照**）：逐一看「已登记群演」名单，"
+            "只要本轮叙事揭示了其中某人的真实姓名，**就必须走合并而非新增**——"
+            "name 填真名、note 填最新身份、replaces 填她在名单里的旧称呼（**逐字照抄名单写法**），引擎会把旧条目改名。"
+            "典型触发：名单里是职务/身份/外貌类称呼（巡逻员、队长、陌生女子、幸存者之类），"
+            "本轮这人自报或被叫出姓名（「我叫X」「他叫X」「X，哪一队的」都算）。"
+            "示例（X 为占位，与你的剧本无关）：名单里有「那个陌生女子」，本轮写「那名女子站在门口……“我叫X。”」"
+            "→ aux_updates 填 {\"name\": \"X\", \"note\": \"自称某某身份\", \"replaces\": \"那个陌生女子\"}，"
+            "绝不能把 X 当成又一个新人物。只有确认是同一个人时才填 replaces；拿不准就不填，按新人物处理。\n"
+            "- offscreen_activity：检查「背景人物」名单里的人，本轮有没有被**写成活动角色**——"
+            "获得对白、独白、或作为动作主语亲自出场行动（如「X从门后走出」「X笑着说：“…”」）。\n"
+            "  不算的情况（**一律不填**，填了就是误报）：被在场角色在台词或心里谈论、回忆、"
+            "提及名字、收到其来信或指令、被想念或被担心——哪怕名字出现了也不算活动化；"
+            "以「X不在场」「X说过的话」「想起X」这类间接形式出现也不算。\n"
+            "  只有他本人**亲自登场说话或行动**才算。evidence 逐字照抄原文，引擎会核验。"
+            "没有就填空数组——宁可漏报，不可误报。\n"
+            "- scene_shift：本轮叙事里**地点／时间／天气有没有实际发生变化**（如从客厅走到楼道、"
+            "天黑了、下起雨）。changed 填 true 时同时给出变化后的 place/time/weather，"
+            "引擎据此把场景状态追上叙事（避免场景停在「清晨」而正文早已入夜）。"
+            "没有变化就填 {\"changed\": false}。"
         )},
     ]
     # 额度必须留足：纪官要吐关系/行动/目标/秘密三类/事实两层，900 会被截断在半句话上，
@@ -1389,6 +1598,110 @@ def reflect(sid, reply):
     # 状态层：当前值的覆盖式刷新（回合数取容错写法——缺键不该让整轮回写失败）
     rd = (snap.get("scene") or {}).get("round", 0)
     update_states(snap, _as_dict_list(data.get("state_updates")), rd)
+
+    # 群演登记（语义提取）：由纪官按语义判断谁是新出场人物。
+    # v0.17.2 起这是唯一登记入口——原散文正则挖掘（discover_aux_speakers）无法区分
+    # 「他喃喃道」与「陈叔说」，误报不可根治，已退出登记链路（函数保留作离线工具）。
+    # 此处仍过一遍结构护栏：纪官偶发也会把动词碎片/泛称当名字上报。
+    # 改名合并：纪官声明「此人就是已登记的旧称呼」（如「某个泛称」自报「我叫X」）时，
+    # 引擎核验 replaces 确在册后把旧条目改名，不产生重复 chip。
+    aux_updates = _as_dict_list(data.get("aux_updates"))
+    if aux_updates:
+        aux_list = snap.setdefault("aux", [])
+        existing = {a.get("name") for a in aux_list}
+        exclude = (set(present) | existing
+                   | set(store.list_characters())
+                   | set(background_names_from_relations(snap, present))
+                   | {ENV_PUSHER})
+        new_names, new_notes, merges = [], {}, []
+        for u in aux_updates:
+            nm = (u.get("name") or "").strip()
+            if not nm or len(nm) > 8:
+                continue
+            note = (u.get("note") or "").strip()
+            old = (u.get("replaces") or "").strip()
+            if old and old != nm and old in existing and nm not in existing:
+                merges.append((old, nm, note))
+                continue
+            if nm in exclude:
+                continue
+            if _is_aux_garbage_name(nm):
+                logger.warn("aux", "纪官上报的群演名未通过结构校验，已丢弃：" + nm)
+                continue
+            new_names.append(nm)
+            if note:
+                new_notes[nm] = note
+        # 结构兜底：纪官漏填 replaces 时，用「自报姓名 + 本轮唯一提及的泛称旧群演」
+        # 做证据合并。证据链不完整（旧称呼不是泛称、或本轮提及多条泛称）就不合并，
+        # 宁可保留两条等下轮裁决——误合并会把两个人捏成一个人，比重复 chip 严重。
+        if new_names:
+            self_named = {m.group(1) for m in _AUX_SELFNAME_RE.finditer(reply)}
+            mentioned = [a.get("name") for a in aux_list
+                         if a.get("name") and a.get("name") in reply]
+            generic_mentioned = [x for x in mentioned if _is_aux_generic_name(x)]
+            if len(generic_mentioned) == 1:
+                old = generic_mentioned[0]
+                for nm in list(new_names):
+                    if nm in self_named and nm != old:
+                        merges.append((old, nm, new_notes.get(nm, "")))
+                        new_names.remove(nm)
+                        new_notes.pop(nm, None)
+        if new_names:
+            added = register_aux(snap, new_names, snap["scene"]["round"], new_notes)
+            if added:
+                logger.info("aux", "纪官登记新群演：" + "、".join(added))
+        if merges:
+            by_name = {a.get("name"): a for a in snap.get("aux") or []}
+            for old, nm, note in merges:
+                entry = by_name.get(old)
+                if entry is None or nm in by_name:
+                    # 旧称呼已被本轮更早的合并改掉，或新名与另一条目撞名：留给下次裁决
+                    continue
+                if _is_aux_garbage_name(nm):
+                    logger.warn("aux", "合并新名未通过结构校验，保留旧称呼：" + old)
+                    continue
+                entry["name"] = nm
+                if note:
+                    entry["role"] = note
+                logger.info("aux", "群演改名合并：" + old + " → " + nm)
+
+    # 背景人物活动化：语义判定交给纪官，引擎只做逐字举证核验（记录员模式，
+    # 与 secret_exposures 同一套）。写得下轮提示词点名批评用的名单，engine 不再
+    # 靠正则删正文——旧链路误判率过高（实测真失责≈0）且后果是切碎用户看到的叙事。
+    offs = background_names_from_relations(snap, present)
+    if offs:
+        viol = []
+        for it in _as_dict_list(data.get("offscreen_activity")):
+            nm = (it.get("name") or "").strip()
+            if nm not in offs:
+                continue
+            if not _evidence_ok(it.get("evidence"), reply):
+                logger.warn("director", "背景人物活动化举证未通过，已丢弃：" + nm)
+                continue
+            viol.append({"name": nm, "evidence": it.get("evidence"),
+                         "round": snap["scene"]["round"]})
+        if viol:
+            snap["offscreen_violated"] = viol
+            logger.warn("director", "背景人物被写成活动角色：" +
+                        "、".join(v["name"] for v in viol))
+        else:
+            snap.pop("offscreen_violated", None)
+    else:
+        snap.pop("offscreen_violated", None)
+
+    # 场景信号并联（零额外 LLM 成本）：纪官从叙事里读出「场景其实已经变了」，
+    # 补上 scene._triggered 关键词表枚举不完的洞（关键词漏触发 = 场景与叙事脱节）。
+    # 存进快照供下一轮 scene.apply 读取——scene 在生成前跑、reflect 在生成后跑，只能跨轮。
+    ss = data.get("scene_shift")
+    if isinstance(ss, dict) and ss.get("changed"):
+        snap["scene_shift"] = {
+            "changed": True,
+            "place": (ss.get("place") or "").strip(),
+            "time": (ss.get("time") or "").strip(),
+            "weather": (ss.get("weather") or "").strip(),
+        }
+    else:
+        snap.pop("scene_shift", None)
 
     memory.save(sid, snap)
     return snap

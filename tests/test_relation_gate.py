@@ -330,3 +330,70 @@ def test_fill_relation_gaps_skips_when_complete(monkeypatch):
     assert called["n"] == 0, "齐全卡不应调用推断"
     assert snap["relations"] == {"角色乙 → 角色甲": "妻子", "角色甲 → 角色乙": "丈夫"}
 
+
+
+# ---------------------------------------------------------------------------
+# 背景人物名单推导（v0.17.2 修复：有独立角色卡 / 已登记群演不是背景人物）
+# ---------------------------------------------------------------------------
+
+def test_background_excludes_carded_characters(monkeypatch):
+    """有独立角色卡的角色即便本轮不在场名单，也不算背景人物。
+
+    真实事故：某位有独立角色卡、全程在演的角色，却被 relations↔present 的
+    集合差划成背景，导致其正常戏份被 detect_offscreen_activity 整句删除
+    （27 字长句被删到只剩「。」）。背景人物的定义是「store 不收录者」。
+    """
+    monkeypatch.setattr(director.store, "list_characters",
+                        lambda: ["角色甲", "角色丙"])
+    snap = {"relations": {"角色甲 → 角色丙": "妹妹", "角色甲 → 角色戊": "邻居"},
+            "present": ["角色甲"], "aux": []}
+    offs = director.background_names_from_relations(snap, ["角色甲"])
+    assert offs == ["角色戊"], offs
+
+
+def test_background_excludes_registered_aux(monkeypatch):
+    """已登记的会话群演是有名有姓的活跃参与者，不是背景板。"""
+    monkeypatch.setattr(director.store, "list_characters", lambda: ["角色甲"])
+    snap = {"relations": {"角色甲 → 角色戊": "邻居"},
+            "present": ["角色甲"],
+            "aux": [{"name": "角色戊", "intro_round": 1}]}
+    assert director.background_names_from_relations(snap, ["角色甲"]) == []
+
+
+def test_background_accepts_extra_known(monkeypatch):
+    """extra_known 用于复用调用方已算好的名单，避免重复扫盘。"""
+    monkeypatch.setattr(director.store, "list_characters", lambda: [])
+    snap = {"relations": {"角色甲 → 角色戊": "邻居"}, "present": ["角色甲"], "aux": []}
+    assert director.background_names_from_relations(snap, ["角色甲"]) == ["角色戊"]
+    assert director.background_names_from_relations(
+        snap, ["角色甲"], extra_known=["角色戊", "角色甲"]) == []
+
+
+def test_scene_trigger_uses_director_signal(monkeypatch):
+    """纪官的 scene_shift 信号触发场景导演，补上关键词表枚举不完的洞。
+
+    零额外 LLM 成本：reflect 本来就每轮都跑，只是把它的语义判断并联进来。
+    """
+    import scene
+    snap = {"scene": {"same_scene": 0}}
+    # 无关键词、无超时、无纪官信号 -> 不触发
+    assert scene._triggered("他走向窗边，沉默地望着外面。", snap) == (False, False)
+    # 有纪官信号 -> 触发（非 force）
+    snap["scene_shift"] = {"changed": True, "place": "楼道", "time": "", "weather": ""}
+    assert scene._triggered("他走向窗边，沉默地望着外面。", snap) == (True, False)
+    # 停留超时优先，返回 force
+    snap["scene"]["same_scene"] = 3
+    assert scene._triggered("他走向窗边。", snap) == (True, True)
+
+
+def test_scene_shift_consumed_once(monkeypatch):
+    """纪官信号用后即清，避免同一次上报反复触发、每轮都调场景 LLM。"""
+    import scene
+    calls = []
+    monkeypatch.setattr(scene.llm, "complete", lambda *a, **k: calls.append(1) or "{}")
+    monkeypatch.setattr(scene.store, "list_characters", lambda: ["角色甲"])
+    snap = {"scene": {"same_scene": 0, "place": "客厅", "time": "清晨", "weather": ""},
+            "present": ["角色甲"], "goals": {},
+            "scene_shift": {"changed": True, "place": "楼道", "time": "", "weather": ""}}
+    scene.apply("sid", "他望着窗外。", snap)
+    assert "scene_shift" not in snap, "信号必须被消费掉"
