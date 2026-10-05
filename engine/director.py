@@ -10,6 +10,7 @@ import memory
 import llm
 import logger
 import store
+import scene
 
 ENV_PUSHER = "环境推手"
 
@@ -23,6 +24,14 @@ ENV_PUSHER = "环境推手"
 # 早前设为 8 会把真实短句误杀——压测实证纪官就死亡举证「没有脉搏。」（5 字，逐字出现在正文），
 # 硬常量硬生生漏记。逐字核验本身已足够防伪，故下限压到 4。
 EVIDENCE_MIN_LEN = 4
+
+# 秘密「暴露」的合法信息获取方式（纪官 secret_exposures.via 白名单）。
+# 只有这些「信息实际发生了跨角色传递」的动作才算暴露；缺 via、或 via 是
+# 「猜透/心知肚明/早已知道」等单方面心证，一律不算——那些只能算起疑。
+# 这是 v0.17.3 修复：此前曝光归档只看「举证逐字在正文」+ 纪官语义判断，
+# 纪官会把「角色内心想到他早就知道」这类心理描写误报成「实际得知」，
+# 导致潜伏秘密在开场即被翻成「暴露」（真实会话 256d924c 事故）。
+EXPOSURE_VIA_WHITELIST = ("看见", "听见", "被告知", "发现物证")
 
 # （机会等级/内容尺度机制已随 NSFW 整体废弃，v0.8.0：ALONE/DEFENSE_DOWN/OBSTACLE/OPP_NOTE 已移除）
 
@@ -155,6 +164,18 @@ def _norm_text(s):
     return re.sub(r"\s+", "", s or "")
 
 
+_PUNCT = "，。！？、；：""''「」『』（）()<>《》,.!?;:…—–-·\"'"
+
+
+def _strip_punct(s):
+    """剥离标点/引号，用于举证比对容忍排版差异。只消标点、不动汉字字面。
+
+    纪官引用原文时的标点/引号差异（正文「」，引用漏引号；句末句号截断）不该导致
+    漏记；但「她」→角色名这类字面篡改仍保留，故只去标点不替换字。
+    """
+    return re.sub("[" + re.escape(_PUNCT) + "]", "", s or "")
+
+
 def _evidence_ok(evidence, reply):
     """结构校验：LLM 的举证必须是本轮正文的原文片段。
 
@@ -163,11 +184,16 @@ def _evidence_ok(evidence, reply):
 
     举证缺失或不匹配时丢弃该条目：宁可漏记（状态滞后），不可误记
     （秘密提前暴露 -> 张力提前消耗、机会等级被顶格）。
+
+    v0.17.4：比对在「折叠空白」之上再「剥离标点/引号」。纪官引用原文时最常犯的
+    轻微差异是标点与引号（正文用「」、引用时漏掉；或句末句号截断），逐字比对会把
+    这类纯排版差异误杀、造成漏记；而「把代词替换成角色名」这类**字面篡改**仍要
+    拒绝（那是编造，不是引用）。故只消标点、不消字面。
     """
     e = _norm_text(evidence)
     if len(e) < EVIDENCE_MIN_LEN:
         return False
-    return e in _norm_text(reply)
+    return _strip_punct(e) in _strip_punct(_norm_text(reply))
 
 
 # ---- 身体接触词表 / 机会等级触发源已随 NSFW 整体废弃（v0.8.0）----
@@ -1415,7 +1441,7 @@ def reflect(sid, reply):
             '  "relations": { "源 → 目标": "关系定性（只写稳定的人物关系定位，如\'妈妈，独占欲\'，不要包含本轮具体动作描写）" },\n'
             '  "actions": { "角色名": "本轮该角色做的一句具体行为（不含关系定性，只写这回合发生了什么）" },\n'
             '  "goals": { "角色名": "新的短期目标" },\n'
-            '  "secret_exposures": [{"owner": "秘密归属者", "by": "本轮得知该秘密的角色名", "evidence": "本轮叙事原文片段"}],\n'
+            '  "secret_exposures": [{"owner": "秘密归属者", "by": "本轮得知该秘密的角色名", "via": "信息获取方式，只能填「看见/听见/被告知/发现物证」四类之一", "evidence": "本轮叙事原文片段"}],\n'
             '  "secret_suspicions": [{"owner": "秘密归属者", "by": "本轮起了疑心的角色名", "evidence": "本轮叙事原文片段（引发怀疑的那句话/那个细节）"}],\n'
             '  "handle_releases": [{"owner": "秘密归属者", "from": "失去把柄的人", "to": "接过把柄的人（彻底失去则填空字符串）", "evidence": "本轮叙事原文片段"}],\n'
             '  "secret_touches": [{"owner": "秘密归属者", "touched": true}],\n'
@@ -1429,6 +1455,8 @@ def reflect(sid, reply):
             "- 亲属身份是固定事实：父子/母子/夫妻/兄弟姐妹等血缘与姻亲身份由作者设定，只能演化其情感状态（如加「关系紧张」「疏离」），绝对不得改写为另一种亲属身份（例如不得把「父亲」写成「姐夫」、把「母亲」写成「嫂子」）。\n"
             "- actions 覆盖本轮所有在场角色的一句行为摘要，用于展示\'这回合谁做了什么\'；这是回合级信息，可每轮整体覆盖。\n"
             "- secret_exposures 只填本轮叙事里**确实发生**了「某人得知了某秘密」的条目；仅凭角色起了疑心、或只是提到相关物品，都不算。\n"
+            "- secret_exposures 的「得知」必须是**信息实际发生了跨角色传递**：该角色本轮**亲眼看见**秘密事实（如看见伤痕、物证、现场）、**亲耳听见**对方自述或他人转述、**被当面告知**、或**亲手发现**了能坐实秘密的物证。除此之外一律不算暴露。\n"
+            "- **内心活动不算得知**：正文里写「某人心想他早就知道」「某人暗自看穿」「某人早已心知肚明」「某人在心里确认了」这类**心理描写、内心独白、回忆、猜透**，即使明写了他「知道」，也**不是**实际的信息传递，**绝不填 secret_exposures**——它们只代表该角色单方面的心证，可能填进 secret_suspicions（起疑），不得翻成暴露。判断的唯一标准是：这一轮里，秘密事实有没有**从一个人传到另一个人**；没有传递动作，就没有暴露。\n"
             "- secret_suspicions 填**线索逼近但尚未坐实**的条目：某人察觉对方言行反常、追问只得到含糊其辞的回答、发现了与旧事相关的物品或痕迹、或对某人的说法明显不信。只有当事人已经确知真相才算 secret_exposures，不算起疑。\n"
             "- secret_suspicions 的 by 不能是秘密归属者本人，也不能是已确知该秘密的人；同一处细节不要同时填进 secret_exposures 与 secret_suspicions，拿不准就填起疑（较轻），宁可让秘密晚一点被揭开。\n"
             "- handle_releases 只填本轮叙事里**确实发生**了「把柄消失或转手」的条目：例如药物/证据/信件被丢弃、被夺走、交给第三方、或当众说开后不再构成胁迫。to 为空字符串表示彻底消失。\n"
@@ -1541,10 +1569,25 @@ def reflect(sid, reply):
             logger.warn("secret", "曝光举证未通过，已丢弃：%s 得知 %s 的秘密"
                         % (by, owner))
             continue
+        # via 护栏（v0.17.3）：纪官必须声明「信息获取方式」且属实传类白名单。
+        # 缺 via 或 via 不在白名单（如纪官填了「猜透/心知肚明」），说明该「得知」
+        # 不是实际的信息传递，而是单方面心证——不能翻成暴露，降级为起疑。
+        via = (exp.get("via") or "").strip()
+        if via not in EXPOSURE_VIA_WHITELIST:
+            logger.warn("secret", "曝光 via 非法（%r），降级为起疑：%s 对 %s 的秘密"
+                        % (via, by, owner))
+            for s in snap.get("secrets", []):
+                if s.get("owner") != owner:
+                    continue
+                if by in (s.get("known_by") or []) or by in (s.get("holders") or []):
+                    continue
+                _record_suspicion(s, by, exp.get("evidence"), snap["scene"]["round"])
+                break
+            continue
         for s in snap.get("secrets", []):
             holders = s.setdefault("holders", list(s.get("known_by", [])))
             if s.get("owner") == owner and by not in holders:
-                _record_exposure(s, by, "叙事揭露", snap["scene"]["round"])
+                _record_exposure(s, by, via, snap["scene"]["round"])
                 _ledger_entry(snap, s, by, snap["scene"]["round"])
                 break
 
@@ -1691,14 +1734,29 @@ def reflect(sid, reply):
 
     # 场景信号并联（零额外 LLM 成本）：纪官从叙事里读出「场景其实已经变了」，
     # 补上 scene._triggered 关键词表枚举不完的洞（关键词漏触发 = 场景与叙事脱节）。
-    # 存进快照供下一轮 scene.apply 读取——scene 在生成前跑、reflect 在生成后跑，只能跨轮。
+    # v0.17.4：本轮就直接把 scene 追上叙事（不再留到下轮 scene.apply 消费）——
+    # 旧链路 scene 在生成前跑、reflect 在生成后跑，只能把 scene_shift 存进快照、
+    # 等下轮 scene.apply 才读，导致快照时间永远滞后正文一拍（正文已入夜、scene.time
+    # 还停在「清晨」，下一轮提示词才纠正）。纪官既已从正文读到「实际入夜」，本轮
+    # 落库就是安全的。time 经 scene._norm_time 清洗，避免纪官把描述句（夜幕降临）
+    # 写进结构化字段。
     ss = data.get("scene_shift")
     if isinstance(ss, dict) and ss.get("changed"):
+        sc = snap.setdefault("scene", {})
+        if (ss.get("place") or "").strip():
+            sc["place"] = (ss.get("place") or "").strip()
+        raw_time = (ss.get("time") or "").strip()
+        if raw_time:
+            sc["time"] = scene._norm_time(raw_time, "", sc.get("time", "")).strip()
+        if (ss.get("weather") or "").strip():
+            sc["weather"] = (ss.get("weather") or "").strip()
+        # 仍留一份 scene_shift 供下一轮 scene.apply 兜底：若下轮指令本身又触发
+        # 场景切换，scene.apply 会基于「已追平的 scene」再判，不会重复推进。
         snap["scene_shift"] = {
             "changed": True,
-            "place": (ss.get("place") or "").strip(),
-            "time": (ss.get("time") or "").strip(),
-            "weather": (ss.get("weather") or "").strip(),
+            "place": sc.get("place", ""),
+            "time": sc.get("time", ""),
+            "weather": sc.get("weather", ""),
         }
     else:
         snap.pop("scene_shift", None)

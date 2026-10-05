@@ -650,8 +650,10 @@
       <p class="lead">你是外部导演，不登场、不说话。选择同场的角色、设定开场场景，然后注入环境扰动，看这个迷你世界如何运转。</p>
       <label class="form-label">同场角色（默认全选）</label>
       <div class="npcs" id="npcs"></div>
-      <label class="form-label">开场场景（可选）</label>
-      <input id="scene" class="field" placeholder="例如：晚饭后，客厅">
+      <label class="form-label">开场地点（可选）</label>
+      <input id="scene" class="field" placeholder="例如：公寓的客厅">
+      <label class="form-label">开场时间（可选）</label>
+      <input id="scene-time" class="field" placeholder="例如：傍晚 / 深夜">
       <div class="actions">
         <button id="start" class="btn btn-primary">开始</button>
       </div>
@@ -683,15 +685,11 @@
       </div>
       <div class="panel">
         <div class="panel-head"><h3>现状</h3><span class="panel-toggle">▾</span></div>
-        <div class="panel-body panel-body-scroll"><div id="states"></div>
-          <div style="margin-top:6px;font-size:11px;color:var(--muted)">只记「现在是什么样」，随时会被后续剧情覆盖。</div>
-        </div>
+        <div class="panel-body panel-body-scroll"><div id="states"></div></div>
       </div>
       <div class="panel">
         <div class="panel-head"><h3>秘密</h3><span class="panel-toggle">▾</span></div>
-        <div class="panel-body"><div id="secrets"></div>
-          <div style="margin-top:6px;font-size:11px;color:var(--muted)">只知道谁藏着什么、进展到哪一步；具体内容与暴露后果不向导演公开。</div>
-        </div>
+        <div class="panel-body"><div id="secrets"></div></div>
       </div>
     </div>
   </aside>
@@ -791,7 +789,11 @@ async function startSession() {
   setupStatus.className = 'setup-status init';
   setupStatus.innerHTML = '<span class="init-spinner"></span>系统正在初始化，请稍等…';
   const cast = [...document.querySelectorAll('#npcs input:checked')].map(c => c.value);
-  const scene = document.getElementById('scene').value.trim();
+  const place = document.getElementById('scene').value.trim();
+  const time = document.getElementById('scene-time').value.trim();
+  // 地点与时间分开填写，后端按 parse_initial_scene 拆成 place/time 两个字段，
+  // 时间锚不再丢失（旧版混写进 place、time 恒空，正文只能自行脑补时间）。
+  const scene = [place, time].filter(Boolean).join('，');
   const res = await fetch('/api/session/new', {
     method: 'POST', headers: {'Content-Type': 'application/json'},
     body: JSON.stringify({cast, scene}),
@@ -1855,10 +1857,9 @@ if (openMenuBtn) openMenuBtn.addEventListener('click', e => {
 if (topnavEl) topnavEl.querySelectorAll('button').forEach(b => b.addEventListener('click', () => {
   topnavEl.classList.remove('show'); if (scrimEl) scrimEl.classList.add('hide');
 }));
-// 日志窗默认不自动连接：开始界面不应回放上一轮缓冲；进入世界后由 startSession 连接
-if (window.innerWidth < 720) {
-  rightRail.classList.add('collapsed');
-}
+// 日志窗默认不自动连接：开始界面不应回放上一轮缓冲；进入世界后由 startSession 连接。
+// 默认收起（含宽屏）：日志是给调试用的旁路信息，正式游玩不该第一眼看到；顶栏按钮可展开。
+rightRail.classList.add('collapsed');
 
 // ---- S3 剧本→设定 自动导入 ----
 const siModal = document.getElementById('script-import-modal');

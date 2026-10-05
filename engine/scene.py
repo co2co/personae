@@ -17,9 +17,19 @@ MOVE_KEYS = ["去", "回", "走到", "前往", "出门", "下楼", "上楼", "�
              "转去", "挪到", "步入", "拐进", "登上", "走回", "退到", "钻进",
              "切换", "换到", "转移到", "搬到", "挤进", "门内", "门外", "隔开"]
 # 时间类触发词：时间明显推移
-TIME_KEYS = ["第二天", "次日", "晚上", "清晨", "凌晨", "午后", "傍晚", "入夜", "天黑",
-             "天亮", "中午", "过了一会", "过了一阵", "几小时", "稍后", "转眼",
+TIME_KEYS = ["第二天", "次日", "晚上", "夜晚", "深夜", "半夜", "清晨", "凌晨", "午后",
+             "傍晚", "入夜", "天黑", "天亮", "中午", "正午", "早晨", "早上", "下午",
+             "黄昏", "黎明", "半夜", "过了一会", "过了一阵", "几小时", "稍后", "转眼",
              "不知过了多久", "隔天", "第二天早", "第二天晚"]
+
+# 开场场景字符串里的时间词：用于把「傍晚，公寓的客厅」这类混写拆成 (place, time)。
+# 比 TIME_KEYS 更贴近「时刻/时段」语义，不含「过了一会」这类过程词。
+# 排序按长词优先，避免「第二天早」被「第二天」抢先截断（用「最长匹配」而非先后）。
+INITIAL_TIME_KEYS = [
+    "第二天晚上", "第二天早上", "第二天上午", "第二天下午", "第二天", "次日", "深夜", "半夜",
+    "凌晨", "清晨", "早晨", "早上", "上午", "中午", "正午", "下午", "黄昏", "傍晚", "黎明",
+    "入夜", "天黑", "天亮", "夜晚", "晚上", "白天", "午后",
+]
 # 天气类触发词：环境扰动
 WEATHER_KEYS = ["下雨", "雨", "下雪", "雪", "刮风", "风", "打雷", "雷", "放晴", "晴",
                 "阴", "起雾", "雾", "天色", "天气", "降温", "升温"]
@@ -41,8 +51,10 @@ _PROMPT = """你是关系沙盘的“场景导演”。环境推手注入一条�
 输出 JSON 字段：
 - changed: 布尔。仅当指令明确要求切换地点、推移时间、改变天气，或有人进出时为真。
 - place: 新地点（无变化填原 place）。
-- time: 新时间（无变化填原 time）。
-- weather: 新天气（无变化填原 weather；可填 晴/雨/雪/阴/大风/雾 等）。
+- time: 新时间（无变化填原 time）。**必须是一个干净的「时刻/时段」名词**，例如
+  傍晚/夜晚/深夜/清晨/凌晨/午后/中午/正午/第二天/次日/入夜/天亮/天黑/黄昏/黎明/早晨/早上/上午/下午/白天。
+  严禁填入动作句、描写句或括号补充，例如「夜幕降临」「天色暗沉」「无（室内…）」「窗外夜色浓稠」这类都不允许。
+- weather: 新天气（无变化填原 weather；可填 晴/雨/雪/阴/大风/雾 等，同样只填干净名词，不要带括号描述）。
 - leave: 明确离开场景、不再在场的角色（必须来自 all_chars）。
 - arrive: 新进入场景的角色（必须来自 all_chars）。
 - reason: 一句话说明。
@@ -50,7 +62,9 @@ _PROMPT = """你是关系沙盘的“场景导演”。环境推手注入一条�
 约束（务必遵守）：
 1. 若指令仅切换地点/时间/天气（如“切换到阳台”“天黑了”“下起雨”），全员随世界一起移动，leave/arrive 必须为空数组。
 2. 仅当指令明确写某角色离开，或空间上与队伍分隔（如“让X离开”“X回房睡了”“X被挡在门外”“X留守门外”“两人分开，X留在原地”），才在 leave/arrive 填入；其中“被挡在门外/留在另一处/与队伍分开”也视为离场，可在 leave 填该角色，其余人随场景移动，不要因此把全员都移出。
-3. leave/arrive 名字必须严格来自 all_chars；无人进出则为空数组。只输出 JSON，不要任何解释文字。"""
+3. leave/arrive 名字必须严格来自 all_chars；无人进出则为空数组。只输出 JSON，不要任何解释文字。
+4. **将来时态不算当前变化**：指令写「即将到来的夜晚」「明天会下雨」「稍后去某地」这类**尚未发生**的事，只是铺垫或预告，不代表时间/天气/地点此刻已经改变——此时 changed 填 false，time/weather/place 保持原值，不得把「即将到来」当成「已经到来」。「夜晚快到了」「天快黑了」等同属将来时预告，同样不推进。
+5. **时间词原样采用**：指令里若出现明确时间词（如「第二天」「清晨」「入夜」「午后」），time 应**原样采用该词或其等价时段名词**，不得自由改写成别的时段——尤其「第二天」不得丢掉跨日语义、降级成「白天」「天亮」。「傍晚」不得被改写成「入夜」。"""
 
 # 停留超时触发时追加在 _PROMPT 之后：把可选的"是否变化"变成必须的"必须变化"，
 # 否则 LLM 倾向于返回 changed=false，防僵死保护会被架空。
@@ -59,6 +73,34 @@ _FORCE_HINT = """
 【强制推进】当前场景已连续停留 {stuck} 轮未发生变化。本轮必须让时间或环境发生一次
 可见推移（如天色由清晨转至正午/入夜、天气起变化、队伍转移到新地点），changed 必须为
 true；不得返回无变化。若实在无地点变化，也至少推进 time 或 weather。"""
+
+
+def parse_initial_scene(text):
+    """把开场场景字符串拆成 (place, time)。
+
+    玩家在开局输入框里常把时间与地点混写在一起（如「傍晚，公寓的客厅」「晚饭后，客厅」），
+    旧实现把整串塞进 place、time 恒空，导致时间锚丢失、正文只能靠模型自行脑补时间
+    （真实会话 256d924c：玩家给「傍晚」却丢失，正文一轮内自行从傍晚推到入夜）。
+
+    此处按「最长匹配」从文本里识别一个时间词填入 time，剩余部分（去标点）填 place。
+    识别不到时间词时 time 为空、place 为原文本——与旧行为一致，不破坏既有调用。
+    返回 (place, time)，两者均已 strip。
+    """
+    t = (text or "").strip()
+    if not t:
+        return "", ""
+    # 最长匹配：按长度降序，避免「第二天早」被「第二天」抢先命中
+    matched = None
+    for k in sorted(INITIAL_TIME_KEYS, key=len, reverse=True):
+        if k in t:
+            matched = k
+            break
+    if not matched:
+        return t, ""
+    place = t.replace(matched, "", 1)
+    # 去残留下来的分隔标点与空白，避免「傍晚，公寓的客厅」拆出「，公寓的客厅」或「，」
+    place = place.strip(" \t,，、。；;:：").strip()
+    return place, matched
 
 
 def _triggered(directive, snap):
@@ -150,7 +192,8 @@ def apply(sid, directive, snap):
 
     # 落实新场景
     snap["scene"]["place"] = (prop.get("place") or snap["scene"].get("place", "")).strip()
-    snap["scene"]["time"] = (prop.get("time") or snap["scene"].get("time", "")).strip()
+    snap["scene"]["time"] = _norm_time(
+        prop.get("time"), directive, snap["scene"].get("time", "")).strip()
     snap["scene"]["weather"] = (prop.get("weather") or snap["scene"].get("weather", "")).strip()
     snap["scene"]["same_scene"] = 0
 
@@ -191,3 +234,68 @@ def _parse(raw):
         return json.loads(s)
     except Exception:
         return None
+
+
+# 将来时/预告词：指令里出现这些词时，时间不能当作「已经推进」，只能算铺垫。
+# 用于 _norm_time 从指令提取时间词时过滤掉「尚未发生」的将来时。
+_FUTURE_MARKERS = ["即将", "快要", "快到了", "将", "马上", "待会", "稍后", "就要",
+                   "再等", "等会", "就要到", "快要到", "明天", "明晚", "明早"]
+
+
+def _norm_time(value, directive, fallback):
+    """把场景导演返回的 time 清洗成「干净的时段名词」。
+
+    场景导演（LLM）常把 time 自由发挥成描述句——「夜幕降临」「天色暗沉」
+    「无（室内，窗外夜色浓稠）」——直接落进 scene.time 会让时间锚变成一句废话，
+    后续 build_session 又得靠模型脑补（256d924c 事故的同类根因）。
+
+    清洗顺序（定义层，不改变语义）：
+    1. value 本身是干净时间词 → 直接采用。
+    2. value 里能提取出一个时间词（含描述串里夹带的）→ 用该词。
+    3. value 无干净词，但指令里含时间词且非将来时 → 采用指令里的词（去将来时）。
+    4. 都不行 → 回退 fallback（原 time），宁可不推进也不写废话。
+    """
+    def _clean(v):
+        if not v:
+            return None
+        v = v.strip()
+        # 长词优先，避免「第二天早」被「第二天」截断
+        for k in sorted(INITIAL_TIME_KEYS, key=len, reverse=True):
+            if k in v:
+                return k
+        return None
+
+    # 1/2：value 里取干净时间词
+    got = _clean(value)
+    if got:
+        return got
+    # 3：指令里取，但排除将来时态（「夜晚快到了」→ 不算已入夜）。
+    #    判定：时间词后紧邻将来时标记（快到了/快要/即将/将到…），或指令整体是
+    #    「时间词+到了」的预告句，则该时间词是预告而非当前，不采用。
+    d = directive or ""
+    if _is_future_time(d):
+        return fallback
+    got = _clean(d)
+    if got:
+        return got
+    return fallback
+
+
+def _is_future_time(d):
+    """判断指令里的时间词是否属「将来时预告」（尚未发生，不该推进当前时间）。
+
+    命中模式：时间词后紧邻「快到了/快要/即将/将/就要/马上/待会」等将来标记，
+    或「夜晚快到了」「天快黑了」这类「…快…了」预告句式。
+    """
+    d = d or ""
+    for k in sorted(INITIAL_TIME_KEYS, key=len, reverse=True):
+        if k in d:
+            # 取时间词之后紧邻的 3 个字，看是否命中将来标记
+            idx = d.find(k) + len(k)
+            tail = d[idx:idx + 3]
+            if any(m in tail for m in _FUTURE_MARKERS):
+                return True
+            # 「…快…了」句式：时间词后 4 字内含「快」+「了」
+            if "快" in d[idx:idx + 4] and "了" in d[idx:idx + 6]:
+                return True
+    return False

@@ -340,6 +340,15 @@ def build_session(cards_present, directive, world_hits, snap,
     sc = snap["scene"]
     weather = ("｜ 天气：" + sc["weather"]) if sc.get("weather") else ""
     rel = "\n".join(k + ": " + v for k, v in snap["relations"].items()) or "（初始）"
+    # 时间锚缺失时的兜底：不给「时间未明」这种会诱导模型自行脑补时间的字眼，
+    # 而是明确约束「本轮不得自行推进/杜撰时间」。旧版写「时间未明」，模型会为了
+    # 让环境自洽而自由补一段时间推进（如一轮内从傍晚推到入夜），正是会话 256d924c
+    # 「颠三倒四」的来源之一。时间推进权应归场景导演（scene.apply），叙事层不越权。
+    scene_time = sc.get("time") or ""
+    if scene_time:
+        time_clause = "（" + scene_time + "）"
+    else:
+        time_clause = "（时间未知——本轮不得自行推进或杜撰时间，保持时间悬置，待环境推手指令明确时间再写）"
     # 关联但无独立角色卡的"背景人物"（如某位仅被提及的亲属）：仅可作背景提及，
     # 其关系定位为既定事实，严禁模型改写或升级（小姨子→妻子类漂移在此被提示约束）
     card_names = set(cards_present.keys())
@@ -402,7 +411,7 @@ def build_session(cards_present, directive, world_hits, snap,
     blocks.append(
         state_block
         + "\n回合：" + str(sc["round"])
-        + "\n场景：" + sc.get("place", "") + "（" + (sc.get("time") or "时间未明") + "）" + weather
+        + "\n场景：" + sc.get("place", "") + time_clause + weather
         + "\n（以上关系为推演既定事实，写作时严格遵循，不得自行推断、改写或升级）"
     )
 

@@ -21,11 +21,15 @@ def _new_id():
     return uuid.uuid4().hex[:8]
 
 
-def new(cast, scene_place="", world_name=""):
+def new(cast, scene_place="", world_name="", scene_time=""):
     """开启一个沙盘世界。cast 为在场角色卡列表（全部为 NPC，环境推手不作为角色入场）。
 
     环境推手在原生机制里是外部导演/观察者：不登场、不说话，只注入环境扰动（切换场景、
     改变天气、指令某角色行动等），观察迷你世界如何运转。
+
+    scene_place / scene_time：开场地点的纯地点名与时间锚，已由 session_new 经
+    scene.parse_initial_scene 拆分（玩家混写「傍晚，客厅」时，时间词进 time、地点进 place）。
+    时间锚缺失会让模型只能靠世界书反向脑补时间（会话 256d924c 事故），故单独保留 time。
     """
     sid = _new_id()
     folder = SESS_DIR / sid
@@ -73,7 +77,7 @@ def new(cast, scene_place="", world_name=""):
 
     snap = {
         "present": present,
-        "scene": {"place": scene_place, "time": "", "weather": "", "round": 0, "same_scene": 0},
+        "scene": {"place": scene_place, "time": scene_time, "weather": "", "round": 0, "same_scene": 0},
         "relations": relations,
         # 权威关系基线：与 relations 一同固化自角色卡 relations 字段。
         # reflect 的「未在场冻结」与「亲属身份冻结」都以它为唯一可信源；

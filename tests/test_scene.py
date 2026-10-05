@@ -138,3 +138,69 @@ def test_leave_respected_on_door_split(patched):
     assert changed is True
     assert "角色甲" not in snap["present"]
     assert len(snap["present"]) == 4
+
+
+# ---- 开场场景拆分（v0.17.3：时间锚从混写字符串里识别出来）----
+
+def test_parse_initial_scene_splits_time_and_place():
+    """「傍晚，公寓的客厅」应拆成 place=公寓的客厅、time=傍晚。"""
+    assert scene.parse_initial_scene("傍晚，公寓的客厅") == ("公寓的客厅", "傍晚")
+
+
+def test_parse_initial_scene_time_only():
+    """只有时间、没有地点：place 为空、time 为时间词。"""
+    assert scene.parse_initial_scene("深夜") == ("", "深夜")
+
+
+def test_parse_initial_scene_place_only():
+    """没有时间词：place 为原文本、time 为空（与旧行为一致）。"""
+    assert scene.parse_initial_scene("公寓的客厅") == ("公寓的客厅", "")
+
+
+def test_parse_initial_scene_longest_match():
+    """最长匹配：「第二天早上」应整体命中，不被短词「第二天」截断。"""
+    assert scene.parse_initial_scene("第二天早上，仓库") == ("仓库", "第二天早上")
+
+
+def test_parse_initial_scene_empty():
+    """空串与空白：返回两个空串。"""
+    assert scene.parse_initial_scene("") == ("", "")
+    assert scene.parse_initial_scene("   ") == ("", "")
+
+
+# ---- 时间语义承接（v0.17.3：time 清洗成干净名词 + 将来时不推进）----
+
+def test_norm_time_keeps_clean_word():
+    """干净时间词原样保留。"""
+    assert scene._norm_time("夜晚", "", "傍晚") == "夜晚"
+
+
+def test_norm_time_extracts_from_desc():
+    """描述串里夹带时间词 → 提取出来（如「无（室内，窗外夜色浓稠）」不含词则回退）。"""
+    assert scene._norm_time("天色暗沉", "", "傍晚") == "傍晚"  # 无时间词 → 回退
+
+
+def test_norm_time_falls_back_on_descriptive_phrase():
+    """「夜幕降临」「天色暗沉」这类描述句 → 回退原 time，不写废话。"""
+    assert scene._norm_time("夜幕降临", "夜晚快到了", "傍晚") == "傍晚"
+
+
+def test_norm_time_takes_directive_word():
+    """value 无时间词、指令含确定时间词 → 采用指令里的词。"""
+    assert scene._norm_time("", "入夜后气温更低", "傍晚") == "入夜"
+
+
+def test_is_future_time_detects_future():
+    """「夜晚快到了」是将来时，不该推进。"""
+    assert scene._is_future_time("夜晚快到了，得趁这之前找蜡烛")
+
+
+def test_norm_time_ignores_future_marker():
+    """「明天会下雨」无时段词，_norm_time 不应推进（回退原 time）。"""
+    assert scene._norm_time("", "明天会下雨", "傍晚") == "傍晚"
+
+
+def test_is_future_time_not_future():
+    """确定的当前时间词不是将来时。"""
+    assert not scene._is_future_time("入夜后气温更低")
+    assert not scene._is_future_time("第二天，某角色第一个醒来")

@@ -69,6 +69,22 @@ def test_evidence_ok_rejects_missing_or_too_short():
     assert director._evidence_ok("绷带", reply) is False
 
 
+def test_evidence_ok_tolerates_punct_variance():
+    """v0.17.4：标点/引号差异不该漏记，但字面篡改仍拒绝。"""
+    reply = f"{A}低头说：「我早就知道了。」"
+    # 纪官引用时漏掉引号、句号截断——容忍，不因标点差异漏记
+    assert director._evidence_ok("我早就知道了", reply) is True
+    assert director._evidence_ok("我早就知道", reply) is True
+    # 把「我」篡改成角色名——字面篡改，仍拒绝
+    assert director._evidence_ok(f"{A}早就知道了", reply) is False
+
+
+def test_strip_punct_only_strips_punct():
+    """_strip_punct 只去标点，不动汉字字面。"""
+    assert director._strip_punct("「我早就知道了。」") == "我早就知道了"
+    assert director._strip_punct("看见、那道，抓痕。") == "看见那道抓痕"
+
+
 def test_no_semantic_wordlists_remain():
     """记录员模式契约：引擎不再持有语义词表，判定只靠举证。
 
@@ -114,6 +130,75 @@ def test_record_exposure_adds_holder():
     director._record_exposure(s, B, "叙事揭露", 3)
     assert B in s["known_by"] and B in s["holders"]
     assert s["state"] == "暴露"
+
+
+def test_exposure_requires_real_transfer_via(monkeypatch):
+    """v0.17.3：纪官报 secret_exposures 但 via 非实传类（或缺失）时，
+    不得翻成暴露，降级为起疑——防止「内心早已看穿」这类心理描写被误判成
+    「实际得知秘密」（会话 256d924c 事故：开场即暴露）。
+    """
+    snap = {"scene": {"round": 2}, "present": [A, B], "relations": {},
+            "actions": {}, "silent_rounds": {}, "goals": {}, "ledger": [],
+            "states": {}, "facts": [],
+            "secrets": [{"owner": A, "known_by": [], "holders": [],
+                         "content": "角色甲的秘密", "state": "潜伏",
+                         "suspicions": []}]}
+    reply = f"{A}心里一沉：他早就看穿了。"
+    # via 是「猜透」——单方面心证，不是实际信息传递
+    payload = {"secret_exposures": [
+        {"owner": A, "by": B, "via": "猜透", "evidence": "他早就看穿了"}]}
+    monkeypatch.setattr(director.llm, "complete",
+                        lambda *a, **k: __import__("json").dumps(payload, ensure_ascii=False))
+    monkeypatch.setattr(director.memory, "load", lambda sid: snap)
+    monkeypatch.setattr(director.memory, "save", lambda sid, s: None)
+    director.reflect("sid", reply)
+    s = snap["secrets"][0]
+    # 不翻暴露，仍是潜伏；降级为起疑
+    assert s["state"] == "潜伏"
+    assert B not in s.get("known_by", []) and B not in s.get("holders", [])
+    assert any(x.get("by") == B for x in s.get("suspicions", []))
+
+
+def test_exposure_via_whitelist_missing_downgrades(monkeypatch):
+    """纪官漏填 via 时同样降级为起疑，而非静默放行成暴露。"""
+    snap = {"scene": {"round": 2}, "present": [A, B], "relations": {},
+            "actions": {}, "silent_rounds": {}, "goals": {}, "ledger": [],
+            "states": {}, "facts": [],
+            "secrets": [{"owner": A, "known_by": [], "holders": [],
+                         "content": "角色甲的秘密", "state": "潜伏",
+                         "suspicions": []}]}
+    reply = f"{B}盯着{A}手臂上的伤疤。"
+    payload = {"secret_exposures": [
+        {"owner": A, "by": B, "evidence": "手臂上的伤疤"}]}  # 无 via
+    monkeypatch.setattr(director.llm, "complete",
+                        lambda *a, **k: __import__("json").dumps(payload, ensure_ascii=False))
+    monkeypatch.setattr(director.memory, "load", lambda sid: snap)
+    monkeypatch.setattr(director.memory, "save", lambda sid, s: None)
+    director.reflect("sid", reply)
+    s = snap["secrets"][0]
+    assert s["state"] == "潜伏"
+    assert B not in s.get("known_by", [])
+
+
+def test_exposure_via_whitelist_ok(monkeypatch):
+    """via 属实传类（如「看见」）时，正常翻成暴露。"""
+    snap = {"scene": {"round": 2}, "present": [A, B], "relations": {},
+            "actions": {}, "silent_rounds": {}, "goals": {}, "ledger": [],
+            "states": {}, "facts": [],
+            "secrets": [{"owner": A, "known_by": [], "holders": [],
+                         "content": "角色甲的秘密", "state": "潜伏",
+                         "suspicions": []}]}
+    reply = f"{B}看见{A}手臂上的伤疤。"
+    payload = {"secret_exposures": [
+        {"owner": A, "by": B, "via": "看见", "evidence": "看见角色甲手臂上的伤疤"}]}
+    monkeypatch.setattr(director.llm, "complete",
+                        lambda *a, **k: __import__("json").dumps(payload, ensure_ascii=False))
+    monkeypatch.setattr(director.memory, "load", lambda sid: snap)
+    monkeypatch.setattr(director.memory, "save", lambda sid, s: None)
+    director.reflect("sid", reply)
+    s = snap["secrets"][0]
+    assert s["state"] == "暴露"
+    assert B in s.get("known_by", [])
 
 
 # ---- 纪官输出格式漂移防御（v0.16.1，80 轮压测暴露）----

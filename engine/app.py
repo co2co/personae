@@ -379,17 +379,24 @@ def session_new():
     if not cast:
         logger.warn("session", "开局失败：未选择任何在场角色")
         return jsonify({"error": "至少需要选择一个在场角色"}), 400
-    scene = body.get("scene", "")
+    scene_raw = body.get("scene", "")
+    # 把玩家混写的「傍晚，公寓的客厅」拆成 (place, time)：时间词进 time、地点进 place。
+    # 旧实现整体塞进 place、time 恒空，时间锚丢失后正文只能靠世界书反向脑补时间
+    # （会话 256d924c 事故）。拆分后前端「场景：{place}（{time}）」展示保持不变。
+    scene_place, scene_time = scene.parse_initial_scene(scene_raw)
     # 世界名取首个在场角色的世界（与 /api/act 加载 lore 的逻辑保持一致）；
     # 卡未声明 world 时为空名，语义为「无世界书」（不播种秘密、不注入 lore）。
     world_name = store.load_card(cast[0]).get("world", "") if cast else ""
     try:
-        sid = memory.new(cast, scene_place=scene, world_name=world_name)
+        sid = memory.new(cast, scene_place=scene_place, world_name=world_name,
+                         scene_time=scene_time)
     except Exception as exc:
         logger.error("session", "创建会话失败：" + repr(exc))
         return jsonify({"error": str(exc)}), 500
     logger.info("session", "开启新会话：" + sid + " ｜ 在场 " + "、".join(cast)
-                + " ｜ 世界 " + world_name + (" ｜ 开场 " + scene if scene else ""))
+                + " ｜ 世界 " + world_name
+                + (" ｜ 地点 " + scene_place if scene_place else "")
+                + (" ｜ 时间 " + scene_time if scene_time else ""))
     # 关系网：角色卡手填 relations 为权威基线（已在 memory.new 播种）。
     # 缺口推断：任一在场角色在基线中完全无关系边即调用纪官补全（见 director.fill_relation_gaps）。
     # 推断关系一并纳入 relations_base（受 v0.7.6 亲属冻结保护）；手填齐全则零 LLM 开销。
@@ -628,15 +635,22 @@ def act():
         # 注：原始 token 已实时流式回传，此处不再回吐整段以免重复；
         # 校验后的 canonical 文本经末尾 done.reply 回传，前端据此对齐（极少剥离时无缝修正）。
 
-        memory.append_chat(sid, {"role": "user", "content": "【导演指令】" + directive})
-        memory.append_chat(sid, {"role": "assistant", "content": full})
-
         # 状态机回写：把本轮推演产生的后果（关系/目标/秘密揭露/行动状态）落回快照。
         # 行动状态（主动/无行动）由纪官依据行为摘要判定，见 director._update_silent_rounds。
         # 纪官是非流式 LLM 调用，耗时与正文相当；在进入前先回一条「同步中」状态，
         # 让前端把输入框显式切到「后台同步」提示，避免玩家误以为可输入下一回合。
         yield "data: " + json.dumps({"status": "正在同步本回合状态…"}, ensure_ascii=False) + "\n\n"
         director.reflect(sid, full)
+
+        # v0.17.4：正文落盘（append_chat）从 reflect 之前挪到之后，收口「一轮推演」的
+        # 事务边界。旧顺序是「先 append_chat 正文、再 reflect 回写状态」——若进程在两者
+        # 之间被杀，会出现 chat 有正文、snapshot 状态停在上一轮的不一致（正文推进了、
+        # 关系/秘密/行动全没记账，且状态丢失不可逆）。新顺序让「状态先落、正文后落」：
+        # 最坏是正文丢了（可重生成），不再丢不可逆的推演状态。reflect 只用内存 full
+        # 做举证核验，不读 chat 文件，故顺序调整无副作用。
+        memory.append_chat(sid, {"role": "user", "content": "【导演指令】" + directive})
+        memory.append_chat(sid, {"role": "assistant", "content": full})
+
         snap_now = memory.load(sid)
         exposed = [s for s in snap_now.get("secrets", []) if s.get("state") != "潜伏"]
         logger.info("director", "状态回写完成：关系 " + str(len(snap_now.get("relations", {}))) + " 条"

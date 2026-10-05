@@ -14,6 +14,34 @@ from pathlib import Path
 DATA_DIR = Path(__file__).parent / "data"
 EXAMPLES_DIR = DATA_DIR / "examples"
 
+# 进程级只读缓存：角色卡与世界书在会话内基本不变，但每轮推演会被反复
+# load_card / load_world 读盘（app.py 每轮为在场角色逐张 load、director 反复
+# load_characters/load_world）。带 mtime 校验的缓存：命中时比对文件修改时间，
+# 变了就重读、没变直接用内存——既省掉每轮磁盘 IO 与 JSON 解析，又不漏掉
+# 运行期导入/编辑新卡新世界的变化（长上下文后期尤其明显）。
+_cache = {}
+
+
+def _cached_read(path):
+    p = str(path)
+    try:
+        mtime = path.stat().st_mtime if path.exists() else None
+    except OSError:
+        mtime = None
+    hit = _cache.get(p)
+    if hit is not None and hit["mtime"] == mtime:
+        return hit["data"]
+    data = _read_json(path)
+    _cache[p] = {"mtime": mtime, "data": data}
+    return data
+
+
+def _invalidate(path):
+    _cache.pop(str(path), None)
+    # 同时失效其所在目录的列表签名缓存，否则新增/删除卡或世界后
+    # list_characters / list_worlds 仍返回旧名单（签名是「文件名+mtime」快照）。
+    _cache.pop(("listing", str(path.parent)), None)
+
 
 def _read_json(path):
     if not path.exists():
@@ -43,12 +71,28 @@ def _seed_examples():
 
 def list_characters():
     _seed_examples()
-    folder = DATA_DIR / "characters"
-    return sorted(p.stem for p in folder.glob("*.json"))
+    return _cached_listing(DATA_DIR / "characters")
+
+
+def _cached_listing(folder):
+    """带签名的目录列表缓存：以「文件名 + mtime」签名做键，文件集合变化才重扫。
+
+    list_characters / list_worlds 每轮被 director（背景人物判定、群演排除）调用，
+    逐轮 glob 目录 + stat 属于无谓开销；签名缓存把重复扫目录压成一次。
+    """
+    folder.mkdir(parents=True, exist_ok=True)
+    sig = tuple(sorted((p.stem, p.stat().st_mtime) for p in folder.glob("*.json")))
+    key = ("listing", str(folder))
+    hit = _cache.get(key)
+    if hit is not None and hit["sig"] == sig:
+        return hit["names"]
+    names = sorted(s for s, _ in sig)
+    _cache[key] = {"sig": sig, "names": names}
+    return names
 
 
 def load_card(name):
-    card = _read_json(DATA_DIR / "characters" / f"{name}.json")
+    card = _cached_read(DATA_DIR / "characters" / f"{name}.json")
     if card is None:
         raise FileNotFoundError(f"角色卡不存在: {name}")
     return card
@@ -63,27 +107,28 @@ def save_card(name, card):
     folder.mkdir(parents=True, exist_ok=True)
     data = dict(card)
     data["name"] = name
-    (folder / f"{name}.json").write_text(
-        json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+    p = folder / f"{name}.json"
+    p.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+    _invalidate(p)
 
 
 def delete_card(name):
     p = DATA_DIR / "characters" / f"{name}.json"
     if p.exists():
         p.unlink()
+        _invalidate(p)
 
 
 def list_worlds():
     _seed_examples()
-    folder = DATA_DIR / "worlds"
-    return sorted(p.stem for p in folder.glob("*.json"))
+    return _cached_listing(DATA_DIR / "worlds")
 
 
 def load_world_raw(name):
     name = (name or "").strip()
     if not name:
         return None
-    return _read_json(DATA_DIR / "worlds" / f"{name}.json")
+    return _cached_read(DATA_DIR / "worlds" / f"{name}.json")
 
 
 def load_world(name=""):
@@ -91,7 +136,7 @@ def load_world(name=""):
     name = (name or "").strip()
     if not name:
         return []
-    data = _read_json(DATA_DIR / "worlds" / f"{name}.json")
+    data = _cached_read(DATA_DIR / "worlds" / f"{name}.json")
     return (data or {}).get("entries", [])
 
 
@@ -103,8 +148,9 @@ def save_world(name, entries):
     folder = DATA_DIR / "worlds"
     folder.mkdir(parents=True, exist_ok=True)
     data = {"name": name, "entries": entries or []}
-    (folder / f"{name}.json").write_text(
-        json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+    p = folder / f"{name}.json"
+    p.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+    _invalidate(p)
 
 
 def delete_world(name):
@@ -116,6 +162,7 @@ def delete_world(name):
     if not p.exists():
         return False
     p.unlink()
+    _invalidate(p)
     return True
 
 
