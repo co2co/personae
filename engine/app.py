@@ -240,7 +240,8 @@ def test_world(name):
     if history is None:
         history = [body.get("text", "")]
     directive = body.get("directive", "")
-    hits = world_mod.scan(entries, history, directive=directive, character=None)
+    hits = world_mod.scan(entries, history, directive=directive, character=None,
+                          include_secret=True)
     return jsonify({"hits": hits, "total": len(entries)})
 
 
@@ -469,8 +470,11 @@ def act():
         world_name = cards_present[present[0]].get("world", "") if present else ""
         entries = store.load_world(world_name)
         history = [m.get("content", "") for m in memory.load_chat(sid)[-WORLDBOOK_SCAN_WINDOW:]]
+        # include_secret=True：秘密命中仍要返回（供 wb_meta 的「排除秘密」清单与编辑器
+        # 预览可见），但 scan 已让它们不占 max_entries 配额，不会挤掉真正注入的设定。
         hits_all = world_mod.scan(entries, history, directive=directive,
-                                 default_depth=RECENT_FOR_SCAN, character=None)
+                                 default_depth=RECENT_FOR_SCAN, character=None,
+                                 include_secret=True)
         world_hits = [e for e in hits_all if not e.get("secret")]
         before_hits = [e for e in world_hits if e.get("position", "before") == "before"]
         after_hits = [e for e in world_hits if e.get("position", "before") == "after"]

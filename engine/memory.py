@@ -38,6 +38,14 @@ def new(cast, scene_place="", world_name=""):
         for other, desc in (cards[c].get("relations") or {}).items():
             relations[f"{c} → {other}"] = desc
 
+    # 作者显式声明的亲属身份（角色卡可选字段 relations_kinship）。血缘是固定事实，
+    # 不从 relations 描述句里猜词——那里的身份词常指第三方，猜错会把正确关系改坏。
+    kinship = {}
+    for c in present:
+        for other, kin in (cards[c].get("relations_kinship") or {}).items():
+            if other and kin:
+                kinship[f"{c} → {other}"] = str(kin).strip()
+
     secrets = []
     for e in store.load_world(world_name):
         if e.get("secret") and e.get("character"):
@@ -72,6 +80,11 @@ def new(cast, scene_place="", world_name=""):
         # 若此处不固化，真实会话（卡片自带 relations）会跳过 app.py 的固化分支，
         # 导致 relations_base 为空、两道冻结闸静默失效（见 v0.7.7 修复说明）。
         "relations_base": dict(relations),
+        # 作者显式声明的亲属身份（来自角色卡可选字段 relations_kinship）：
+        # { "源 → 目标": "母亲" }。血缘是作者定义的固定事实，不该靠从描述句里猜词——
+        # 句中的身份词常指第三方，据此冻结会把正确关系改坏（见 director._preserve_kinship）。
+        # 缺省为空 dict：未声明的边退回「句首显式身份词」这条弱规则。
+        "kinship_base": dict(kinship),
         "actions": {},
         "secrets": secrets,
         "ledger": [],

@@ -17,7 +17,7 @@ ENV_PUSHER = "环境推手"
 # 引擎不做语义判定："正文里有没有发生一次发现"是语义问题，交给 LLM 判断；
 # 引擎只做结构校验，验证 LLM 上报的内容确实在正文里出现过（防幻觉）。
 # 早先用关键词词表做语义判定（INFO_VERBS + DISCOVERY_VERBS + secret.keys）时，
-# 末日题材的高频词（绷带/小臂/发烧/通风口/女儿）与"看见/察觉/露出"极易巧合共现，
+# 题材高频词（绷带/小臂/发烧/通风口/家人）与"看见/察觉/露出"极易巧合共现，
 # 实测 150 次判定放行 33 次（22%），校验形同虚设。详见 DEVLOG v0.5.8。
 # 下限只用于挡掉「一两个字碰巧命中」的伪举证（如只写「伤口」「他」），不是长度门槛。
 # 早前设为 8 会把真实短句误杀——压测实证纪官就死亡举证「没有脉搏。」（5 字，逐字出现在正文），
@@ -520,6 +520,10 @@ def seed_relations_from_cards(cards_present):
     优先级高于 LLM 自由生成——避免 LLM 把"小姨子"推成"妻子"之类漂移。
     卡片 relations 字段形如 { "角色A": "丈夫…", "角色B": "妹妹…" }，
     逐条转成 "{卡名} → {目标}": 描述。
+
+    可选的 relations_kinship 字段形如 { "角色B": "小姨子" }，供引擎精确冻结血缘身份：
+    它绕过词表猜测，作者直接声明「A 对 B 的亲属身份是什么」。写了这个字段，
+    该边的身份即被冻结且不再依赖描述文案的写法（见 _preserve_kinship）。
     """
     out = {}
     for c, card in (cards_present or {}).items():
@@ -533,40 +537,86 @@ def seed_relations_from_cards(cards_present):
     return out
 
 
+def seed_kinship_from_cards(cards_present):
+    """从角色卡可选的 relations_kinship 字段提取显式亲属身份声明。
+
+    返回 { "源 → 目标": 身份词 }，只含在 _KINSHIP_TOKENS 里出现的合法身份词。
+    血缘事实是作者定义的固定事实，不该靠从描述句里猜词——本字段让作者直说。
+    """
+    out = {}
+    for c, card in (cards_present or {}).items():
+        rels = card.get("relations_kinship") or {}
+        if not isinstance(rels, dict):
+            continue
+        for target, kin in rels.items():
+            if not target or not kin:
+                continue
+            kin = str(kin).strip()
+            if kin in _KINSHIP_TOKENS:
+                out[f"{c} → {target}"] = kin
+    return out
+
+
 # 亲属身份词表：关系定性里出现这些词即代表一种「亲属身份定位」。
 # 引擎强制冻结其身份——作者定义的血缘/姻亲关系（父子、母子等）是固定事实，
 # 模型只能演化情感/状态修饰，不得把「父亲」改写成「姐夫/嫂子」之类导致乱伦逻辑崩塌。
 # 注意：恋人/情人等「关系状态」不在冻结之列（沙盘本就要演好感→恋人），只冻结亲属身份。
+#
+# 词表只收**双字及以上**的完整身份词。早期版本混入「母」「子」「夫」「弟」等单字，
+# 而单字在中文里几乎只作为长词的碎片出现（母子/母性/夫人/兄弟），实测在 demo 的
+# 12 条关系里造成 8 条误判（如「A母子的生死」被判为「子」的身份声明），
+# 冻结机制反而把正确的「妻子」改写成「子，关系紧张」。故单字一律不作为身份词。
 _KINSHIP_TOKENS = [
     "父亲", "母亲", "儿子", "女儿", "丈夫", "妻子", "哥哥", "弟弟", "姐姐", "妹妹",
     "叔叔", "舅舅", "姑姑", "阿姨", "侄子", "外甥", "公公", "婆婆", "媳妇", "女婿",
     "爷爷", "奶奶", "孙子", "孙女", "外公", "外婆", "姐夫", "嫂子", "妹夫", "弟妹",
     "连襟", "妯娌", "养父", "养母", "继父", "继母", "兄长", "爸爸", "妈妈", "爹爹",
     "娘亲", "老婆", "老公", "老爸", "老妈",
-    "父", "母", "子", "女", "夫", "妻", "兄", "弟", "姐", "妹",
-    "叔", "舅", "姑", "姨", "侄", "甥", "爷", "奶", "孙", "公", "婆", "婿",
 ]
 _KINSHIP_TOKENS.sort(key=len, reverse=True)
 _KINSHIP_RE = re.compile("|".join(re.escape(t) for t in _KINSHIP_TOKENS))
 
+# 显式身份声明的形态：值以身份词**开头**，其后紧跟标点/空格/「是/为」等分隔。
+# 只认这种形态是因为关系定性句里通篇都是身份词（叙述某人不敢戳破父亲已死、某人是弟弟云云），
+# 从叙述句中间推断身份在语义上不成立——那句里的「父亲」指的是第三方，不是这条边的两端。
+# 作者想冻结某条边的身份，把身份词写在开头即可（"母亲：…""父亲，…"）；
+# 写在句中的叙述性身份词不触发冻结，交由模型自由演化。
+_KINSHIP_DECL_RE = re.compile(
+    r"^\s*(" + "|".join(re.escape(t) for t in _KINSHIP_TOKENS) + r")\s*[：:，,、。；;｜|—\-]|(?:是|为)\s*"
+)
+# 整值就是一个裸身份词时（模型常输出「父亲」这种极简定性）同样算显式声明。
+_KINSHIP_ONLY_RE = re.compile(
+    r"^\s*(" + "|".join(re.escape(t) for t in _KINSHIP_TOKENS) + r")\s*$"
+)
+
 
 def _first_kinship(text):
-    """返回文本里第一个亲属身份词（最长优先），无则 None。"""
+    """返回该关系值**显式声明**的亲属身份词，无则 None。
+
+    只认两种形态（见 _KINSHIP_DECL_RE / _KINSHIP_ONLY_RE）：身份词出现在值开头
+    紧跟分隔符，或整值就是该身份词。不从叙述句中间推断——句中出现的身份词
+    指的是第三方，不是这条边声明的身份。
+    """
     if not text:
         return None
-    m = _KINSHIP_RE.search(text)
-    return m.group(0) if m else None
+    for rx in (_KINSHIP_DECL_RE, _KINSHIP_ONLY_RE):
+        m = rx.match(text)
+        if m:
+            return m.group(1)
+    return None
 
 
-def _preserve_kinship(base_val, new_val):
-    """冻结亲属身份：若基线含亲属身份词，模型新值不得改写为另一种亲属身份。
+def _preserve_kinship(base_val, new_val, declared=None):
+    """冻结亲属身份：基线声明了亲属身份时，模型新值不得改写为另一种亲属身份。
 
-    - 基线无亲属身份词：放行（模型可自由定义非血缘关系，如同事、上下级）。
-    - 基线/新值亲属身份一致：放行（允许情感/状态修饰演化，如「父亲」→「父亲，关系紧张」）。
-    - 新值亲属身份与基线冲突（父子→姐夫）：用基线身份替换新值里的错误身份，
+    - declared 非空：以该权威身份为基准（作者用 relations_kinship 显式声明的），
+      基线描述里的身份词一律不采信。
+    - 基线未声明身份：放行（叙述句里的身份词不构成声明，模型可自由演化关系定性）。
+    - 基线/新值身份一致：放行（允许情感/状态修饰演化，如「父亲」→「父亲，关系紧张」）。
+    - 新值身份与基线冲突（父亲→姐夫）：用基线身份替换新值里的错误身份，
       保留模型写出的情感/状态修饰，既守住血缘事实又不丢剧情演化。
     """
-    bk = _first_kinship(base_val)
+    bk = declared or _first_kinship(base_val)
     if not bk:
         return new_val
     nk = _first_kinship(new_val)
@@ -1168,6 +1218,8 @@ def reflect(sid, reply):
 
     if isinstance(data.get("relations"), dict):
         base = snap.get("relations_base") or {}
+        # 作者显式声明的亲属身份（角色卡 relations_kinship），冻结基准优先于描述句推断。
+        kinship = snap.get("kinship_base") or {}
         present_set = set(present)
         for k, v in data["relations"].items():
             if not v:
@@ -1178,8 +1230,9 @@ def reflect(sid, reply):
             if len(ends) >= 2 and all(e in present_set for e in ends):
                 # 两端都在场（镜头内角色）：允许关系随剧情演化；
                 # 但若基线已确定亲属身份（父子/母子等），冻结身份、只允许情感状态修饰演化。
+                # 冻结基准优先取作者显式声明的 kinship_base，其次才从基线描述的句首身份词推断。
                 if k in base and base.get(k):
-                    v = _preserve_kinship(base[k], v)
+                    v = _preserve_kinship(base[k], v, declared=kinship.get(k))
                 snap["relations"][k] = v
             else:
                 # 涉及未在场/无卡关联人物（如某位仅被提及的亲属）：冻结为初始关系定位，

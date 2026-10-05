@@ -202,7 +202,7 @@ def run(rounds):
         before_hits = [e for e in matched if e.get("position", "before") == "before"]
         after_hits = [e for e in matched if e.get("position", "before") == "after"]
 
-        snap = {"present": [], "scene": {"place": "某公寓", "time": "夜晚", "round": r},
+        snap = {"present": [], "scene": {"place": "某处", "time": "夜晚", "round": r},
                 "relations": {}, "ledger": [], "facts": [], "states": {}, "secrets": []}
         messages = prompter_mod.build_session(
             {}, directive, before_hits, snap,

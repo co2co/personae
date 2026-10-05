@@ -38,5 +38,5 @@ def test_playthrough_saves_markdown():
         assert content, f"第 {i} 轮引擎生成内容为空（回归：present 校验剥空？）"
         assert r.get("present"), f"第 {i} 轮在场名单为空（回归：scene.apply 清空 present）"
         assert not str(content).startswith("[调用失败"), f"第 {i} 轮调用引擎失败：{content}"
-    assert len(rounds) == len(playthrough.DEFAULT_ARC)
+    assert len(rounds) == len(playthrough.DEFAULT_ARC_TEMPLATE)
     assert any(r.get("ending") for r in rounds), "至少一轮应标记为结局"

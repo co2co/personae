@@ -24,54 +24,71 @@ from pathlib import Path
 import requests
 
 BASE_DEFAULT = "http://127.0.0.1:5051"
-# 卡组取自引擎随附的 DEMO 剧本「丧尸末日」（旧压测卡组已随剧本删除）。
-# 世界书由 /api/session/new 按首张卡的 world 字段自动加载，无需另行指定。
-CAST = ["陆衡", "林清", "王秀兰", "王晨"]
-# 与世界书「临时庇护所」条目保持一致（地铁口附近的公寓单元），使世界书条目能被
-# 关键词命中并注入，压测才能真实检验「世界书是否生效」。
-SCENE = "地铁口附近的公寓单元，众人临时落脚，楼下街道满是游荡的丧尸"
+# 卡组运行时从引擎 /api/characters 取（普适性红线：不硬编码任何剧本的角色名，
+# 换剧本即换卡组，本脚本无须改动）。世界书由 /api/session/new 按首张卡的
+# world 字段自动加载，无需另行指定。
+SCENE = "城郊仓库单元，众人临时落脚，门外街道不安静"
 TITLE = "长上下文极限压测"
 
 # 30 轮长弧：覆盖 秘密曝光 / 起疑(线索逼近) / 场景切换 / 分头行动(镜头跟随) /
 # 关系演化 / 抉择冲突，且刻意不设 ending=True，以检验结局判定是否「不该误触发」。
-# 弧线设计要点：
-#   R4-R6   王晨咬伤的线索逐步逼近（检验起疑而非直接坐实）
-#   R9-R11  旧队尸体出现、陆衡反应异常（检验第二条秘密的线索逼近）
-#   R14     明确分头行动（检验镜头跟随 focus）
-#   R17/R22-R24  两条秘密先后被证实（检验曝光与后果账本）
-ARC = [
-    "陆衡清点屋内物资，分配守夜班次，定下谁都不许私自出门的规矩。",
-    "王秀兰主动揽下烧水和分装食物的活，边干边留神陆衡的脸色，找机会搭话。",
-    "王晨嫌安排太严，当众顶了陆衡一句，说凭什么什么都得听你的。",
-    "林清替王晨换药，拆开绷带时发现他小臂上有一圈很深的牙印，不像普通刮伤。",
-    "林清追问这伤到底是怎么来的，王秀兰抢着说是路上蹭的，王晨低头不吭声。",
-    "陆衡注意到王晨袖口卷得严实、一直捂着手臂，让他把手伸出来看看。",
-    "门外传来抓挠声，众人熄灯静默，黑暗里谁也不敢先开口。",
-    "天亮后队伍决定转移，陆衡领头，王晨吊在队尾，故意落后十几步。",
-    "路上经过一辆翻倒的军车，车旁横着几具穿着同样制服的干尸。",
-    "陆衡在那几具尸体前站了很久，脸色发白，被林清看在眼里。",
-    "林清问他认得这些人，陆衡只说走吧，别看了。",
-    "队伍在废弃加油站休整，王秀兰把省下来的半块饼干塞给陆衡。",
-    "王晨发起烧来，林清要再检查他的伤口，王秀兰死死拦着不让碰。",
-    "林清把王秀兰单独拉进加油站后间的储物室，关上门，其他人留在外面等。",
-    "储物室里，林清压低声音说那不是刮伤，你比我清楚，瞒着会害了所有人。",
-    "王秀兰红了眼，说我要是说了，你们会把他扔下。",
-    "陆衡听见争吵推门进来，要求王晨把手臂露出来，当着他的面说清楚。",
-    "王晨终于承认自己被咬了，众人陷入沉默。",
-    "王秀兰跪下求陆衡别丢下孩子，说她什么都愿意做。",
-    "林清翻出自己那支仅剩的抗生素，说能不能撑过去只能看运气。",
-    "夜里轮到林清守夜，陆衡睡不着，两人隔着半截货架说起话来。",
-    "林清问陆衡，白天那几具穿制服的尸体，是谁的人。",
-    "陆衡沉默很久，说曾经是我的队伍，十二个人，只剩我一个。",
-    "林清追问他们是怎么没的，你从没说过。",
-    "陆衡说我一次决断慢了，他们替我挡在后面，我一个人跑了出来。",
-    "林清没再问下去，只说这事我不会跟别人讲，你自己也别再背着了。",
-    "天没亮王晨症状加重，开始说胡话，喊着要去找爸爸。",
-    "王秀兰抱着儿子求林清再想想办法，林清说只能赌剩下的时间。",
-    "陆衡做出决定：带上王晨继续走，但把他绑在推车上看管，谁也不许靠近。",
-    "王晨清醒过来听见这个安排，冲着陆衡吼说你就是想扔下我。",
+# 弧线用 {A}{B}{C}{D} 占位，运行时按实际 cast 顺序替换（见 build_arc）。
+# 剧情内核与题材无关：一条「隐瞒伤情」的秘密被线索逐步逼近并证实，
+# 一条「旧事往事」的第二秘密 likewise——用于检验秘密链条后半段是否活着。
+ARC_TEMPLATE = [
+    "{A}清点屋内物资，分配守夜班次，定下谁都不许私自出门的规矩。",
+    "{C}主动揽下烧水和分装食物的活，边干边留神{A}的脸色，找机会搭话。",
+    "{D}嫌安排太严，当众顶了{A}一句，说凭什么什么都得听你的。",
+    "{B}替{D}换药，拆开绷带时发现他小臂上有一圈很深的勒痕，不像普通磕碰。",
+    "{B}追问这痕迹到底是怎么来的，{C}抢着说是路上蹭的，{D}低头不吭声。",
+    "{A}注意到{D}袖口卷得严实、一直捂着手臂，让他把手伸出来看看。",
+    "门外传来撞击声，众人熄灯静默，黑暗里谁也不敢先开口。",
+    "天亮后队伍决定转移，{A}领头，{D}吊在队尾，故意落后十几步。",
+    "路上经过一辆翻倒的卡车，车旁横着几具早已凉透的遗骸。",
+    "{A}在那几具遗骸前站了很久，脸色发白，被{B}看在眼里。",
+    "{B}问他认得这些人，{A}只说走吧，别看了。",
+    "队伍在路边小店休整，{C}把省下来的半块饼干塞给{A}。",
+    "{D}发起烧来，{B}要再检查他的伤，{C}死死拦着不让碰。",
+    "{B}把{C}单独拉进后间的储物室，关上门，其他人留在外面等。",
+    "储物室里，{B}压低声音说那不是磕碰，你比我清楚，瞒着会害了所有人。",
+    "{C}红了眼，说我要是说了，你们会把他扔下。",
+    "{A}听见争吵推门进来，要求{D}把手臂露出来，当着他的面说清楚。",
+    "{D}终于承认自己那晚受了伤，众人陷入沉默。",
+    "{C}跪下求{A}别丢下孩子，说她什么都愿意做。",
+    "{B}翻出自己那支仅剩的药剂，说能不能撑过去只能看运气。",
+    "夜里轮到{B}守夜，{A}睡不着，两人隔着半截货架说起话来。",
+    "{B}问{A}，白天那几具穿着一样衣裳的人，是谁的人。",
+    "{A}沉默很久，说曾经是我的队伍，十二个人，只剩我一个。",
+    "{B}追问他们是怎么没的，你从没说过。",
+    "{A}说我一次决断慢了，他们替我挡在后面，我一个人跑了出来。",
+    "{B}没再问下去，只说这事我不会跟别人讲，你自己也别再背着了。",
+    "天没亮{D}症状加重，开始说胡话，喊着要去找家人。",
+    "{C}抱着孩子求{B}再想想办法，{B}说只能赌剩下的时间。",
+    "{A}做出决定：带上{D}继续走，但把他绑在推车上看管，谁也不许靠近。",
+    "{D}清醒过来听见这个安排，冲着{A}吼说你就是想扔下我。",
     "队伍重新上路，天亮时抵达一处河堤，谁也没再提昨晚的事。",
 ]
+
+
+def fetch_cast(base_url, timeout=30):
+    """从引擎取当前可用角色名（取前 4 名）。取不到则报错退出。
+
+    普适性红线：压测卡组必须跟随磁盘上的实际剧本，不能在脚本里写死人名。
+    """
+    resp = requests.get(base_url + "/api/characters", timeout=timeout)
+    resp.raise_for_status()
+    names = resp.json()
+    if not names:
+        raise SystemExit("引擎未返回任何角色卡：先在界面导入或使用随包 demo。")
+    return names[:4]
+
+
+def build_arc(cast):
+    """把 ARC_TEMPLATE 里的 {A}{B}{C}{D} 占位替换为实际角色名。"""
+    mapping = {}
+    for i, key in enumerate("ABCD"):
+        mapping["{" + key + "}"] = cast[i] if i < len(cast) else cast[-1]
+    return [t.format(**mapping) for t in ARC_TEMPLATE]
 
 
 def act(base_url, sid, directive, timeout=300):
@@ -125,19 +142,22 @@ def brief(value, n=60):
     return str(value)[:n]
 
 
-def run(base_url, rounds, timeout):
-    arc = ARC[:rounds] if rounds <= len(ARC) else ARC * (rounds // len(ARC) + 1)
+def run(base_url, rounds, timeout, cast=None, scene=None):
+    cast = cast or fetch_cast(base_url)
+    arc = build_arc(cast)
+    arc = arc[:rounds] if rounds <= len(arc) else arc * (rounds // len(arc) + 1)
     arc = arc[:rounds]
 
     new = requests.post(base_url + "/api/session/new",
-                        json={"cast": CAST, "scene": SCENE}, timeout=60).json()
+                        json={"cast": cast, "scene": scene or SCENE},
+                        timeout=60).json()
     sid = new["session"]
     records, errors = [], []
 
     try:
         for i, directive in enumerate(arc, 1):
             rec = {"round": i, "directive": directive,
-                   "named": extract_named(directive, CAST)}
+                   "named": extract_named(directive, cast)}
             try:
                 reply, done, elapsed = act(base_url, sid, directive, timeout)
             except Exception as exc:
@@ -467,9 +487,14 @@ def main():
     ap.add_argument("--rounds", type=int, default=30)
     ap.add_argument("--timeout", type=int, default=300)
     ap.add_argument("--out-dir", default=None)
+    ap.add_argument("--cast", default=None,
+                    help="逗号分隔的卡组名；缺省从 /api/characters 自动取前 4 名")
+    ap.add_argument("--scene", default=None, help="开场场景；缺省用内置中性场景")
     args = ap.parse_args()
 
-    sid, records, errors = run(args.base, args.rounds, args.timeout)
+    cast = [s.strip() for s in args.cast.split(",")] if args.cast else None
+    sid, records, errors = run(args.base, args.rounds, args.timeout,
+                               cast=cast, scene=args.scene)
     summary = analyze(records, errors)
     meta = {"title": TITLE, "sid": sid, "rounds": len(records),
             "time": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")}

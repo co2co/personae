@@ -22,7 +22,7 @@ def _fake_complete(messages, **kw):
         "place": "城东",
         "time": "",
         "weather": "（未设定）",
-        "leave": ["老周", "林晚", "阿杰", "苏曼", "高洋"],
+        "leave": ["角色甲", "角色丙", "角色戊", "角色丁", "角色乙"],
         "arrive": [],
         "reason": "全员突围撤离，各自离开便利店",
     })
@@ -32,36 +32,36 @@ def _fake_complete(messages, **kw):
 def patched(monkeypatch):
     monkeypatch.setattr(scene.llm, "complete", _fake_complete)
     monkeypatch.setattr(scene.store, "list_characters",
-                        lambda: ["老周", "林晚", "阿杰", "苏曼", "高洋"])
+                        lambda: ["角色甲", "角色丙", "角色戊", "角色丁", "角色乙"])
     monkeypatch.setattr(scene.store, "load_card", lambda n: {"short_goal": ""})
 
 
 def _snap():
     return {
         "scene": {"place": "便利店后仓", "time": "", "weather": "", "round": 1, "same_scene": 3},
-        "present": ["老周", "林晚", "阿杰", "苏曼", "高洋"],
+        "present": ["角色甲", "角色丙", "角色戊", "角色丁", "角色乙"],
         "secrets": [], "relations": {}, "goals": {}, "ledger": [],
     }
 
 
 def test_scene_apply_keeps_present_on_move_together(patched):
     snap = _snap()
-    changed, prop = scene.apply("sid", "老周带所有人从后窗突围撤离，目标城东", snap)
+    changed, prop = scene.apply("sid", "角色甲带所有人从后窗突围撤离，目标城东", snap)
     assert changed is True
     # 关键回归：leave 覆盖全员且无 arrive -> 视为随世界移动，present 不得清空
-    assert snap["present"] == ["老周", "林晚", "阿杰", "苏曼", "高洋"]
+    assert snap["present"] == ["角色甲", "角色丙", "角色戊", "角色丁", "角色乙"]
 
 
 def test_scene_apply_explicit_single_leave_respected(patched):
     # 显式单人离场仍应生效（leave 仅含部分在场者）
     def _fake2(messages, **kw):
         return json.dumps({"changed": True, "place": "便利店后仓", "time": "",
-                           "weather": "（未设定）", "leave": ["苏曼"], "arrive": [],
-                           "reason": "苏曼出去找女儿"})
+                           "weather": "（未设定）", "leave": ["角色丁"], "arrive": [],
+                           "reason": "角色丁出去找女儿"})
     scene.llm.complete = _fake2
     snap = _snap()
-    changed, prop = scene.apply("sid", "苏曼出去找女儿", snap)
-    assert "苏曼" not in snap["present"]
+    changed, prop = scene.apply("sid", "角色丁出去找女儿", snap)
+    assert "角色丁" not in snap["present"]
     assert len(snap["present"]) == 4
 
 
@@ -84,7 +84,7 @@ def test_same_scene_accumulates_when_llm_reports_no_change(patched):
     seen = []
     for _ in range(4):
         # "去" 命中 MOVE_KEYS：每轮都会触发一次场景判定
-        scene.apply("sid", "老周带人去城东", snap)
+        scene.apply("sid", "角色甲带人去城东", snap)
         seen.append(snap["scene"]["same_scene"])
     # 前三轮累加到阈值；第四轮因超时触发强制推进，失败后冷却归零
     assert seen[:3] == [1, 2, 3], f"停留计数未累加（防僵死保护失效）：{seen}"
@@ -102,7 +102,7 @@ def test_force_hint_used_on_timeout_and_cooldown_after_failure(patched):
     scene.llm.complete = _capture
     snap = _snap()          # same_scene=3，已达 AUTO_TIME_THRESHOLD
     # 指令不含任何触发词，仅靠停留超时触发
-    changed, _ = scene.apply("sid", "老周沉默地握紧螺丝刀", snap)
+    changed, _ = scene.apply("sid", "角色甲沉默地握紧螺丝刀", snap)
     assert captured.get("prompt"), "已超时却未调用场景导演"
     assert "强制推进" in captured["prompt"], "超时触发未追加强制推进提示"
     assert changed is False
@@ -112,13 +112,13 @@ def test_force_hint_used_on_timeout_and_cooldown_after_failure(patched):
 def test_triggered_on_spatial_door_split():
     """T2 根因修复：空间分隔指令（门内/门外/分开）应触发场景判定，而非静默跳过。
 
-    原 R16「苏曼挤进门内找女儿，老周被挡在门外，两边分开」不命中任一触发词，
+    原 R16「角色丁挤进门内找家人，角色甲被挡在门外，两边分开」不命中任一触发词，
     _triggered 返回 (False, False) -> scene LLM 不调 -> present 恒为全员。
     """
     snap = _snap()
     snap["scene"]["same_scene"] = 0
     triggered, force = scene._triggered(
-        "苏曼挤进门内找女儿，老周被挡在门外，两边分开", snap)
+        "角色丁挤进门内找家人，角色甲被挡在门外，两边分开", snap)
     assert triggered is True
     assert force is False
 
@@ -128,13 +128,13 @@ def test_leave_respected_on_door_split(patched):
     被挡在门外的角色应从在场名单移除（其余人随场景移动）。
     """
     def _fake_door(messages, **kw):
-        return json.dumps({"changed": True, "place": "避难所门内", "time": "",
-                           "weather": "（未设定）", "leave": ["老周"], "arrive": [],
-                           "reason": "老周被挡在门外，与苏曼分开"})
+        return json.dumps({"changed": True, "place": "门内", "time": "",
+                           "weather": "（未设定）", "leave": ["角色甲"], "arrive": [],
+                           "reason": "角色甲被挡在门外，与角色丁分开"})
     scene.llm.complete = _fake_door
     snap = _snap()
     changed, prop = scene.apply(
-        "sid", "苏曼挤进门内找女儿，老周被挡在门外，两边分开", snap)
+        "sid", "角色丁挤进门内找家人，角色甲被挡在门外，两边分开", snap)
     assert changed is True
-    assert "老周" not in snap["present"]
+    assert "角色甲" not in snap["present"]
     assert len(snap["present"]) == 4

@@ -33,13 +33,18 @@ def _resolve_recursive(entries, matched, character):
     """把 matched 中条目 content 的 #name# 引用展开：引用的同名条目（enabled、通过 character
     过滤）被拉入。BFS + visited（对象 id）防环，避免互相引用死循环。
 
-    matched 直接被原地扩展；返回扩展后的列表（调用方负责排序与截断）。
+    返回 (引用拉入的非秘密条目, 引用拉入的秘密条目)：
+    - 被引的秘密条目单独返回，不进主列表——秘密不注入 prompt（见 scan 的 include_secret）。
+    - 非秘密的被引条目**排到主列表末尾之后**：被引用者是依赖项，优先级由引用方决定，
+      不应凭自身 priority 挤掉引用方的其他命中。
+    matched 直接被原地扩展；调用方负责排序与截断。
     """
     by_name = {e["name"]: e for e in entries if e.get("name")}
     if not by_name:
-        return matched
+        return matched, []
     seen = {id(e) for e in matched}
     queue = list(matched)
+    ref_plain, ref_secret = [], []
     while queue:
         cur = queue.pop(0)
         for ref in _NAME_REF.findall(cur.get("content", "")):
@@ -51,12 +56,14 @@ def _resolve_recursive(entries, matched, character):
             if character is not None and tgt.get("character") and tgt["character"] != character:
                 continue
             seen.add(id(tgt))
-            matched.append(tgt)
+            (ref_secret if tgt.get("secret") else ref_plain).append(tgt)
             queue.append(tgt)
-    return matched
+    # 被引条目排在 matched 之后（matched 已按 priority 排序），保持「引用方优先」次序
+    return matched + ref_plain, ref_secret
 
 
-def scan(entries, history, directive="", default_depth=4, character=None, max_entries=8):
+def scan(entries, history, directive="", default_depth=4, character=None, max_entries=8,
+         include_secret=True):
     """返回命中条目，按 priority 从高到低，最多 max_entries 条。
 
     history: 聊天记录文本列表（调用方通常传最近若干条）。
@@ -65,10 +72,14 @@ def scan(entries, history, directive="", default_depth=4, character=None, max_en
     character: 过滤带 character 字段的条目（与在场角色无关的世界书不剧透）；
                None 表示不过滤（沙盘多角色模式 / 编辑预览均用此值）。
 
-    秘密条目（secret）不在此处剔除——由调用方从命中中筛掉，秘密走角色块提示。
+    include_secret: 秘密条目（secret）是否参与 max_entries 配额。秘密**不进 prompt**，
+    调用方（app.py）会在 scan 之后把秘密剔除，所以它们默认**不占配额**——否则秘密挤掉
+    真正要注入的设定（实测 8 条里秘密占 3，把「逼近的尸潮」静默挤掉）。
+    命中预览（编辑器）需要看到秘密，故传 True。
     """
     history = list(history or [])
     matched = []
+    secret_matched = []
     for e in entries:
         if not e.get("enabled", True):
             continue
@@ -85,12 +96,16 @@ def scan(entries, history, directive="", default_depth=4, character=None, max_en
             d = default_depth
         window = (history[-d:] if d < len(history) else history) + ([directive] if directive else [])
         if _hit_keys(e, window):
-            matched.append(e)
+            (secret_matched if e.get("secret") else matched).append(e)
     matched.sort(key=lambda e: -e.get("priority", 100))
     # 递归扫描：命中条目 content 里的 #name# 引用会拉入被引条目（BFS 防环）
-    matched = _resolve_recursive(entries, matched, character)
-    matched.sort(key=lambda e: -e.get("priority", 100))
-    return matched[:max_entries]
+    # 被引的非秘密条目排到命中条目之后，秘密被引条目单独返回（不占注入配额）。
+    matched, ref_secret = _resolve_recursive(entries, matched, character)
+    out = matched[:max_entries]
+    if include_secret:
+        # 预览模式：秘密一并返回（命中到的在前，被引用到的在后），但仍不挤掉设定。
+        out = out + secret_matched + ref_secret
+    return out
 
 
 def render(hits):

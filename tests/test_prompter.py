@@ -12,7 +12,7 @@ def _hist(rounds):
     """构造 rounds 轮假历史：每轮 = [user 指令, assistant 长叙事]。"""
     h = []
     for i in range(rounds):
-        h.append({"role": "user", "content": "【导演指令】第%d轮：小队沿地点%d前进，遭遇尸群" % (i, i)})
+        h.append({"role": "user", "content": "【导演指令】第%d轮：小队沿地点%d前进，遭遇冲突" % (i, i)})
         h.append({"role": "assistant", "content": ("这是第%d轮的较长叙事正文，描述小队在废墟中的行动与对话。" % i) * 30})
     return h
 
@@ -20,9 +20,9 @@ def _hist(rounds):
 MIN_SNAP = {
     "scene": {"round": 1, "place": "城东道路", "time": "夜", "weather": ""},
     "relations": {}, "ledger": [], "secrets": [],
-    "goals": {}, "present": ["老周", "苏曼"],
+    "goals": {}, "present": ["角色甲", "角色丁"],
 }
-CARDS = {n: {"name": n} for n in ["老周", "苏曼"]}
+CARDS = {n: {"name": n} for n in ["角色甲", "角色丁"]}
 
 
 def test_compress_empty():
@@ -66,7 +66,7 @@ def test_build_session_long_history_stable():
     """60 轮历史下，压缩后 prompt tok 应显著低于无窗口（探针无窗口≈18425）。"""
     h = _hist(60)
     msgs = prompter.build_session(
-        CARDS, "苏曼拦下军车", [], MIN_SNAP,
+        CARDS, "角色丁拦下军车", [], MIN_SNAP,
         history=h, focus={"subjects": []})
     tok = sum(prompter.count_tokens(m.get("content", "")) for m in msgs)
     # 压缩后窗口外仅在摘要块，应远低于无窗口的线性膨胀

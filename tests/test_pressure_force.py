@@ -25,6 +25,7 @@ if str(ENGINE) not in sys.path:
 
 import director  # noqa: E402
 import prompter  # noqa: E402
+from fixtures import A, B, C, D  # noqa: E402
 
 
 def _secret(owner, pressure=5, state="潜伏", susp=None, holders=None, known=None):
@@ -39,7 +40,7 @@ def _secret(owner, pressure=5, state="潜伏", susp=None, holders=None, known=No
     }
 
 
-def _snap(present, secrets, focus=None, place="地铁口公寓"):
+def _snap(present, secrets, focus=None, place="街角仓库"):
     return {
         "present": list(present),
         "scene": {"place": place, "time": "", "round": 3, "weather": ""},
@@ -57,28 +58,28 @@ def _snap(present, secrets, focus=None, place="地铁口公寓"):
 # --- 1. pressure_targets ---
 
 def test_targets_pick_rival_from_suspicions_first():
-    snap = _snap(["陆衡", "林清", "王晨"], [
-        _secret("陆衡", susp=[{"by": "王晨", "clue": "说不通"}, {"by": "林清", "clue": "追问"}]),
+    snap = _snap(["角色甲", "角色乙", "角色丁"], [
+        _secret("角色甲", susp=[{"by": "角色丁", "clue": "说不通"}, {"by": "角色乙", "clue": "追问"}]),
     ])
-    assert director.pressure_targets(snap) == [("陆衡", "王晨")]
+    assert director.pressure_targets(snap) == [("角色甲", "角色丁")]
 
 
 def test_targets_fall_back_to_holders_when_no_suspicion():
-    snap = _snap(["陆衡", "林清"], [_secret("陆衡", holders=["林清"])])
-    assert director.pressure_targets(snap) == [("陆衡", "林清")]
+    snap = _snap(["角色甲", "角色乙"], [_secret("角色甲", holders=["角色乙"])])
+    assert director.pressure_targets(snap) == [("角色甲", "角色乙")]
 
 
 def test_targets_none_when_rival_absent():
     # 对手不在场时仍保留归属者（由其自己露出痕迹），rival 为 None
-    snap = _snap(["陆衡", "林清"], [_secret("陆衡", susp=[{"by": "王晨"}]), ])
-    assert director.pressure_targets(snap) == [("陆衡", None)]
+    snap = _snap(["角色甲", "角色乙"], [_secret("角色甲", susp=[{"by": "角色丁"}]), ])
+    assert director.pressure_targets(snap) == [("角色甲", None)]
 
 
 def test_targets_skip_low_pressure_exposed_and_offstage_owner():
-    snap = _snap(["陆衡", "林清", "王秀兰"], [
-        _secret("陆衡", pressure=3),                                  # 未到高压档
-        _secret("林清", pressure=5, state="暴露", susp=[{"by": "陆衡"}]),  # 已公开
-        _secret("王晨", pressure=5, susp=[{"by": "陆衡"}]),             # 归属者不在场
+    snap = _snap(["角色甲", "角色乙", "角色丙"], [
+        _secret("角色甲", pressure=3),                                  # 未到高压档
+        _secret("角色乙", pressure=5, state="暴露", susp=[{"by": "角色甲"}]),  # 已公开
+        _secret("角色丁", pressure=5, susp=[{"by": "角色甲"}]),             # 归属者不在场
     ])
     assert director.pressure_targets(snap) == []
 
@@ -86,43 +87,43 @@ def test_targets_skip_low_pressure_exposed_and_offstage_owner():
 # --- 2. compute_focus 强制并入 ---
 
 def test_focus_merges_pressure_pair():
-    secrets = [_secret("王秀兰", susp=[{"by": "王晨"}])]
-    snap = _snap(["陆衡", "林清", "王秀兰", "王晨"], secrets)
-    focus = director.compute_focus("陆衡独自上楼查看", snap)
+    secrets = [_secret("角色丙", susp=[{"by": "角色丁"}])]
+    snap = _snap(["角色甲", "角色乙", "角色丙", "角色丁"], secrets)
+    focus = director.compute_focus("角色甲独自上楼查看", snap)
     assert focus and focus.get("forced") is True
-    assert set(focus["subjects"]) == {"陆衡", "王秀兰", "王晨"}
-    assert "林清" not in focus["subjects"]   # 无关者仍留在镜头外
+    assert set(focus["subjects"]) == {"角色甲", "角色丙", "角色丁"}
+    assert "角色乙" not in focus["subjects"]   # 无关者仍留在镜头外
 
 
 def test_focus_lock_does_not_collapse_to_full_present_v2():
     """旧行为是覆盖全体时退化为 None；新设计锁定镜头，收敛为只聚焦高压双方。"""
-    secrets = [_secret("王秀兰", susp=[{"by": "王晨"}])]
-    snap = _snap(["陆衡", "王秀兰", "王晨"], secrets)
-    focus = director.compute_focus("陆衡和王秀兰上楼查看", snap)
+    secrets = [_secret("角色丙", susp=[{"by": "角色丁"}])]
+    snap = _snap(["角色甲", "角色丙", "角色丁"], secrets)
+    focus = director.compute_focus("角色甲和角色丙上楼查看", snap)
     assert focus is not None
     assert focus["forced"] is True
     assert focus["sticky"] is True
-    assert set(focus["subjects"]) == {"王秀兰", "王晨"}   # 无关者陆衡被请出镜头
+    assert set(focus["subjects"]) == {"角色丙", "角色丁"}   # 无关者角色甲被请出镜头
 
 
 def test_focus_untouched_without_pressure():
-    snap = _snap(["陆衡", "王秀兰", "王晨"], [_secret("王秀兰", pressure=1)])
-    focus = director.compute_focus("陆衡独自上楼查看", snap)
-    assert focus == {"subjects": ["陆衡"], "place": "地铁口公寓", "sticky": False}
+    snap = _snap(["角色甲", "角色丙", "角色丁"], [_secret("角色丙", pressure=1)])
+    focus = director.compute_focus("角色甲独自上楼查看", snap)
+    assert focus == {"subjects": ["角色甲"], "place": "街角仓库", "sticky": False}
 
 
 def test_no_focus_no_force():
     # 无指令点名时不凭空造镜头，压力交给全局强制段承担
-    secrets = [_secret("王秀兰", susp=[{"by": "王晨"}])]
-    snap = _snap(["陆衡", "王秀兰", "王晨"], secrets)
+    secrets = [_secret("角色丙", susp=[{"by": "角色丁"}])]
+    snap = _snap(["角色甲", "角色丙", "角色丁"], secrets)
     assert director.compute_focus("", snap) is None
 
 
 # --- 3. prompter 全局强制段 ---
 
 def test_prompt_has_global_pressure_block():
-    secrets = [_secret("王秀兰", susp=[{"by": "王晨"}])]
-    snap = _snap(["陆衡", "王秀兰", "王晨"], secrets)
+    secrets = [_secret("角色丙", susp=[{"by": "角色丁"}])]
+    snap = _snap(["角色甲", "角色丙", "角色丁"], secrets)
     cards = {n: {"description": "描述", "personality": "", "core_desire": "", "core_fear": ""}
              for n in snap["present"]}
     msgs = prompter.build_session(cards, "继续搜物资", [], snap)
@@ -130,13 +131,13 @@ def test_prompt_has_global_pressure_block():
     assert "[本轮必须发生的事]" in system
     # 取最后一次出现：角色块内的分档提示会先引用一次该标题作为指引
     tail = system.split("[本轮必须发生的事]")[-1]
-    assert "王秀兰" in tail and "王晨" in tail
+    assert "角色丙" in tail and "角色丁" in tail
     # 真正的全局段须位于输出格式之后（近因最强），否则会被前段指令压掉
     assert system.rindex("[本轮必须发生的事]") > system.index("[输出格式]")
 
 
 def test_prompt_has_no_block_when_pressure_low():
-    snap = _snap(["陆衡", "王秀兰", "王晨"], [_secret("王秀兰", pressure=2)])
+    snap = _snap(["角色甲", "角色丙", "角色丁"], [_secret("角色丙", pressure=2)])
     cards = {n: {"description": "描述"} for n in snap["present"]}
     msgs = prompter.build_session(cards, "继续搜物资", [], snap)
     assert "[本轮必须发生的事]" not in msgs[0]["content"]
@@ -151,18 +152,18 @@ if __name__ == "__main__":
 def test_exposed_secret_pressure_resets():
     """状态字面量是「暴露」不是「曝光」：早前守卫写成 == "曝光" 从未生效，
     导致已公开的秘密压力挂在上限空转（压测实证挂 5 空转 4 轮）。"""
-    snap = _snap(["陆衡", "王秀兰", "王晨"], [
-        {"owner": "王秀兰", "state": "暴露", "pressure": 5},
+    snap = _snap(["角色甲", "角色丙", "角色丁"], [
+        {"owner": "角色丙", "state": "暴露", "pressure": 5},
     ])
-    director._update_secret_pressure(snap, [{"owner": "王秀兰", "touched": False}])
+    director._update_secret_pressure(snap, [{"owner": "角色丙", "touched": False}])
     assert snap["secrets"][0]["pressure"] == 0
     assert director.pressure_targets(snap) == []
 
 
 def test_legacy_full_expose_state_also_resets():
     """历史快照可能出现「全曝光」，同样视为已公开。"""
-    snap = _snap(["陆衡", "王秀兰", "王晨"], [
-        {"owner": "王秀兰", "state": "全曝光", "pressure": 5},
+    snap = _snap(["角色甲", "角色丙", "角色丁"], [
+        {"owner": "角色丙", "state": "全曝光", "pressure": 5},
     ])
     director._update_secret_pressure(snap, [])
     assert snap["secrets"][0]["pressure"] == 0
@@ -170,21 +171,21 @@ def test_legacy_full_expose_state_also_resets():
 
 def test_only_one_secret_forced_at_a_time():
     """多条同时顶格时只逼最久未碰的一条——三条并下达会互相打架、全部僵住。"""
-    snap = _snap(["陆衡", "王秀兰", "王晨", "林清"], [
-        {"owner": "王秀兰", "state": "潜伏", "pressure": 5},
-        {"owner": "王晨", "state": "潜伏", "pressure": 5},
-        {"owner": "林清", "state": "潜伏", "pressure": 5},
+    snap = _snap(["角色甲", "角色丙", "角色丁", "角色乙"], [
+        {"owner": "角色丙", "state": "潜伏", "pressure": 5},
+        {"owner": "角色丁", "state": "潜伏", "pressure": 5},
+        {"owner": "角色乙", "state": "潜伏", "pressure": 5},
     ])
     targets = director.pressure_targets(snap)
     assert len(targets) == 1
-    assert targets[0][0] == "王秀兰"          # 压力相同则取快照中最靠前的一条（确定）
+    assert targets[0][0] == "角色丙"          # 压力相同则取快照中最靠前的一条（确定）
 
 
 def test_higher_pressure_wins_the_slot():
-    snap = _snap(["陆衡", "王秀兰", "王晨", "林清"], [
-        {"owner": "王秀兰", "state": "潜伏", "pressure": 5},
-        {"owner": "王晨", "state": "潜伏", "pressure": 5},
-        {"owner": "林清", "state": "潜伏", "pressure": 3},
+    snap = _snap(["角色甲", "角色丙", "角色丁", "角色乙"], [
+        {"owner": "角色丙", "state": "潜伏", "pressure": 5},
+        {"owner": "角色丁", "state": "潜伏", "pressure": 5},
+        {"owner": "角色乙", "state": "潜伏", "pressure": 3},
     ])
     assert len(director.pressure_targets(snap)) == 1
 
@@ -193,44 +194,44 @@ def test_higher_pressure_wins_the_slot():
 
 def test_pressure_locks_focus_when_no_directive_naming():
     """导演指令未点名任何人（focus=None）但高压秘密在场：镜头锁定高压双方，不退化。"""
-    snap = _snap(["陆衡", "林清", "王秀兰", "王晨"], [
-        _secret("陆衡", pressure=5, susp=[{"by": "林清"}]),
+    snap = _snap(["角色甲", "角色乙", "角色丙", "角色丁"], [
+        _secret("角色甲", pressure=5, susp=[{"by": "角色乙"}]),
     ])
     focus = director.compute_focus("众人各自收拾行装", snap)
     assert focus is not None
     assert focus["forced"] is True
     assert focus["sticky"] is True
-    assert set(focus["subjects"]) == {"陆衡", "林清"}
+    assert set(focus["subjects"]) == {"角色甲", "角色乙"}
 
 
 def test_pressure_lock_does_not_collapse_to_full_present():
     """并入后覆盖全体在场者时：旧逻辑返回 None（自然推演），新逻辑收敛为只聚焦高压双方。"""
-    snap = _snap(["陆衡", "林清", "王秀兰"], [
-        _secret("陆衡", pressure=5, susp=[{"by": "林清"}]),
+    snap = _snap(["角色甲", "角色乙", "角色丙"], [
+        _secret("角色甲", pressure=5, susp=[{"by": "角色乙"}]),
     ])
-    # 指令点名王秀兰，并入陆衡、林清后覆盖全体 3 人
-    focus = director.compute_focus("王秀兰走到窗边张望", snap)
+    # 指令点名角色丙，并入角色甲、角色乙后覆盖全体 3 人
+    focus = director.compute_focus("角色丙走到窗边张望", snap)
     assert focus is not None, "覆盖全体时不得退化为 None"
     assert focus["forced"] is True
-    assert set(focus["subjects"]) == {"陆衡", "林清"}   # 无关者王秀兰被请出镜头
+    assert set(focus["subjects"]) == {"角色甲", "角色乙"}   # 无关者角色丙被请出镜头
 
 
 def test_pressure_lock_persists_next_round_without_follow_word():
     """高压锁定跨轮延续：下轮指令既没点名、也无指代代词，仍黏住焦点（不依赖 _FOLLOW_WORDS）。"""
-    snap = _snap(["陆衡", "林清", "王秀兰", "王晨"], [
-        _secret("陆衡", pressure=5, susp=[{"by": "林清"}]),
-    ], focus={"subjects": ["陆衡", "林清"], "place": "地铁口公寓",
+    snap = _snap(["角色甲", "角色乙", "角色丙", "角色丁"], [
+        _secret("角色甲", pressure=5, susp=[{"by": "角色乙"}]),
+    ], focus={"subjects": ["角色甲", "角色乙"], "place": "街角仓库",
               "sticky": True, "forced": True})
     focus = director.compute_focus("门外的动静似乎停了", snap)
     assert focus is not None
-    assert set(focus["subjects"]) == {"陆衡", "林清"}
+    assert set(focus["subjects"]) == {"角色甲", "角色乙"}
 
 
 def test_pressure_lock_releases_after_collision():
     """碰撞发生后压力归零，forced 消失，镜头恢复普通逻辑（不再被锁定）。"""
-    snap = _snap(["陆衡", "林清", "王秀兰"], [
-        _secret("陆衡", pressure=0, susp=[{"by": "林清"}]),
-    ], focus={"subjects": ["陆衡", "林清"], "place": "地铁口公寓",
+    snap = _snap(["角色甲", "角色乙", "角色丙"], [
+        _secret("角色甲", pressure=0, susp=[{"by": "角色乙"}]),
+    ], focus={"subjects": ["角色甲", "角色乙"], "place": "街角仓库",
               "sticky": True, "forced": True})
     # 压力 0，不构成高压 -> pressure_targets 为空 -> 镜头按普通指令逻辑走（这里指令无点名，返回 None）
     focus = director.compute_focus("众人沉默", snap)

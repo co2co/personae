@@ -1,23 +1,31 @@
-"""亲密描写尺度铁律（铁律⑧）特化测试。
+"""亲密与性描写铁律（铁律⑧）特化测试。
 
-验证 v0.11.0 后新增的「亲密描写尺度」约束在 build_session 里的确定性表现。
+验证铁律⑧ 在 build_session 里的确定性表现。
 注：单元测试无法真实调用 LLM 验证「模型拒答/越线」，故聚焦在可确定性验证的层面——
-约束是否存在、是否双向（放行+红线）、是否全局默认、是否守住普适性红线。
+约束是否存在、是否双向（写实要求+硬红线）、是否全局默认、是否守住普适性红线。
 
-运行：tests/venv/Scripts/python.exe -m pytest tests/test_intimacy_scale.py -q
+v0.15.0 起铁律⑧ 改为「中性折衷标准」：不预设露骨上限也不强制克制，
+只要求「剧情推进到亲密场景时须正面写实、禁止隐喻一带而过」，硬红线仅保留未成年一条。
+本文件的断言与该措辞绑定，改铁律文案须同步本文件。
+
+普适性红线：全文件只用中性占位，不绑定任何具体剧本角色名或题材词。
 """
 import sys
-sys.path.insert(0, "engine")
+from pathlib import Path
 
-import prompter
+ENGINE = Path(__file__).resolve().parent.parent / "engine"
+if str(ENGINE) not in sys.path:
+    sys.path.insert(0, str(ENGINE))
 
+import prompter  # noqa: E402
+from fixtures import A, B  # noqa: E402
 
 MIN_SNAP = {
     "scene": {"round": 1, "place": "某处", "time": "夜", "weather": ""},
     "relations": {}, "ledger": [], "secrets": [],
-    "goals": {}, "present": ["角色甲", "角色乙"],
+    "goals": {}, "present": [A, B],
 }
-CARDS = {n: {"name": n} for n in ["角色甲", "角色乙"]}
+CARDS = {n: {"name": n} for n in [A, B]}
 
 
 def _system_prompt(snap=None, cards=None):
@@ -26,58 +34,70 @@ def _system_prompt(snap=None, cards=None):
     return msgs[0]["content"]
 
 
-def test_scale_law_present():
-    """铁律⑧「亲密描写尺度」必须存在于 system prompt。"""
+def test_law_present():
+    """铁律⑧「亲密与性描写」必须存在于 system prompt。"""
     sys_p = _system_prompt()
-    assert "亲密描写尺度" in sys_p
+    assert "亲密与性描写" in sys_p
 
 
-def test_scale_law_is_bidirectional():
-    """约束必须双向：既有放行许可（成年人+自愿），又有硬红线（未成年/非自愿/露骨）。"""
+def test_law_requires_realistic_depiction():
+    """写实侧：须正面写实、禁止隐喻/环境侧写/文学化一带而过。"""
     sys_p = _system_prompt()
-    # 放行侧：成年人 + 自愿 + 关系驱动
-    assert "成年人" in sys_p
-    assert "自愿" in sys_p
-    assert "关系自然发展" in sys_p
-    # 红线侧：未成年性化 / 非自愿胁迫 / 露骨堆砌
+    assert "身临其境" in sys_p
+    assert "正面写实" in sys_p
+    assert "禁止用隐喻" in sys_p
+
+
+def test_law_is_scale_neutral():
+    """尺度中性：不预设上限，也不强制克制（v0.15.0 折衷标准的核心）。"""
+    sys_p = _system_prompt()
+    assert "不预设上限" in sys_p
+    assert "不强制克制" in sys_p
+
+
+def test_law_hard_redline_is_minor_only():
+    """硬红线仅保留未成年一条；不得再出现已废弃的「非自愿/胁迫」措辞。"""
+    sys_p = _system_prompt()
+    assert "硬红线" in sys_p
     assert "未成年" in sys_p
-    assert "非自愿" in sys_p
-    assert "胁迫" in sys_p
-    assert "露骨" in sys_p
+    # v0.15.0 已移除的旧措辞（当时误当作红线，实为越界限制）
+    assert "非自愿" not in sys_p
+    assert "胁迫" not in sys_p
 
 
-def test_scale_law_is_global_default():
-    """全局默认写死一条线：不依赖任何角色卡字段、任何剧本/世界书都生效。
+def test_law_is_global_default():
+    """全局默认：不依赖任何角色卡字段、任何剧本/世界书都生效。
 
     即：空角色卡（无 description/personality 等）、空世界书命中、空秘密，
-    铁律⑧仍须出现。
+    铁律⑧ 仍须出现。
     """
-    empty_cards = {n: {} for n in ["甲", "乙"]}
+    empty_cards = {n: {} for n in [A, B]}
     empty_snap = {
         "scene": {"round": 1, "place": "", "time": "", "weather": ""},
         "relations": {}, "ledger": [], "secrets": [],
-        "goals": {}, "present": ["甲", "乙"],
+        "goals": {}, "present": [A, B],
     }
     sys_p = _system_prompt(snap=empty_snap, cards=empty_cards)
-    assert "亲密描写尺度" in sys_p
+    assert "亲密与性描写" in sys_p
 
 
-def test_scale_law_neutral_wording():
+def test_law_neutral_wording():
     """普适性红线：措辞不得含具体角色名 / 剧本题材词。"""
     sys_p = _system_prompt()
-    # 历史已删剧本角色名 / 剧本题材词均不得出现（引擎不绑定任何具体剧本）
-    banned = ["王晨", "陆衡", "王秀兰", "林清", "苏晚", "顾庭深", "林见秋", "许照",
-              "方哲", "陈默", "林瑶", "周凯",
-              "丧尸", "末日", "庄园", "民宿"]
+    banned = ["苏晚", "顾庭深", "林见秋", "许照", "方哲", "陈默", "林瑶", "周凯",
+              "丧尸", "末日", "庄园", "民宿", "避难所"]
     for b in banned:
         assert b not in sys_p, "提示词出现禁用名/题材词：%s" % b
 
 
-def test_scale_law_uses_neutral_placeholder_only():
-    """铁律⑧自身必须只用中性占位（如「角色」「双方」「成年人」），不含任何专名。"""
+def test_law_uses_neutral_placeholder_only():
+    """铁律⑧ 自身必须只用中性表述，不含任何专名。
+
+    窗口取 120 字：铁律⑧ 正文约 110 字，够覆盖整条；窗口再大会吃到后面的
+    「本轮在场角色：角色甲」句，那是列表而非铁律内容。
+    """
     sys_p = _system_prompt()
     idx = sys_p.find("⑧")
-    law8 = sys_p[idx:idx + 200]
-    # 出现「未成年人」等词是允许的（这是红线表述，不是专名），但不得含具体姓名
-    for name in ["角色甲", "角色乙"]:
+    law8 = sys_p[idx:idx + 120]
+    for name in [A, B]:
         assert name not in law8, "铁律⑧混入专名：%s" % name

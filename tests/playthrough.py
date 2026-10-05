@@ -1,11 +1,14 @@
 """走查驱动 + markdown 落盘。
 
 复用引擎 HTTP API，按脚本化的"环境扰动弧"逐轮推进，把每轮
-「你（导演）发过去的环境扰动」与「引擎生成的内容」写入
+→「你（导演）发过去的环境扰动」与「引擎生成的内容」写入
 tests/runs/<时间戳>_<剧本>.md，直到剧本 ending（弧末标记）。
 
 纯 HTTP，不依赖引擎内部模块；可作为库被 pytest 调用，也可独立运行
 （见 run_playthrough.py）。
+
+普适性红线：卡组运行时从 /api/characters 取，扰动弧用 {A}..{E} 占位，
+不在脚本里写死任何剧本的角色名或题材词——换剧本无须改本文件。
 """
 
 import json
@@ -15,31 +18,61 @@ from pathlib import Path
 import requests
 
 BASE_DEFAULT = "http://127.0.0.1:5000"
-DEFAULT_CAST = ["老周", "林晚", "阿杰", "苏曼", "高洋"]
-DEFAULT_SCENE = "城郊便利店后仓，卷帘门紧闭，门外尸群持续抓挠"
-DEFAULT_TITLE = "末日丧尸生存"
+DEFAULT_SCENE = "城郊仓库后间，卷帘门紧闭，门外撞击声不停"
+DEFAULT_TITLE = "默认走查"
 DEFAULT_MODEL_NOTE = "tencent/Hy4-preview（真实 LLM）"
 
 # 脚本化环境扰动弧：驱动故事走向结局。最后一步 ending=True 标记为结局。
 # 每一步的 directive 即"你"以环境推手身份注入的扰动；notes 仅作走查备注。
-DEFAULT_ARC = [
-    {"directive": "老周清点后仓物资，分配守夜班次，定下谁都不许私自出门的规矩。",
+# {A}..{E} 为角色占位，运行时按实际 cast 顺序替换。
+DEFAULT_ARC_TEMPLATE = [
+    {"directive": "{A}清点后间物资，分配守夜班次，定下谁都不许私自出门的规矩。",
      "notes": "建立秩序，定调主心骨"},
-    {"directive": "苏曼压低声音说，城东避难所可能还有活人，她想冒险出去找女儿。",
-     "notes": "埋下寻女目标"},
-    {"directive": "林晚替高洋换药，拆开绷带时，发现他小臂有一圈咬伤。",
-     "notes": "触发高洋秘密曝光"},
-    {"directive": "阿杰发现自己私藏的罐头被翻出，他反手拿高洋的咬伤把柄，逼林晚就范。",
+    {"directive": "{D}压低声音说，城东一带可能还有活人，她想冒险出去找家人。",
+     "notes": "埋下外出行程目标"},
+    {"directive": "{C}替{B}换药，拆开绷带时，发现他小臂有一圈勒痕。",
+     "notes": "触发秘密曝光"},
+    {"directive": "{E}发现自己私藏的物资被翻出，他反手拿{B}的伤情把柄，逼{C}就范。",
      "notes": "把柄胁迫 → 关系张力"},
-    {"directive": "门外尸群猛撞卷帘门，门轴开始变形，随时会破。",
+    {"directive": "门外猛撞卷帘门，门轴开始变形，随时会破。",
      "notes": "升级威胁"},
-    {"directive": "老周当机立断：趁尸群集中撞门，带所有人从后窗突围成撤离队形，目标城东。",
+    {"directive": "{A}当机立断：趁门外集中撞门，带所有人从后窗突围成撤离队形，目标城东。",
      "notes": "关键决策"},
-    {"directive": "破门瞬间，队伍冲入尸群，老周断后，苏曼拼命拉住女儿的方向——",
+    {"directive": "破门瞬间，队伍冲出门外，{A}断后，{D}拼命拉住家人的方向——",
      "notes": "高潮，逼近结局"},
-    {"directive": "天亮时，幸存者跌跌撞撞踏上通往城东的路，身后的便利店只剩一道门框。",
+    {"directive": "天亮时，一行人跌跌撞撞踏上通往城东的路，身后的仓库只剩一道门框。",
      "ending": True, "notes": "结局"},
 ]
+
+ARC_SLOTS = ["{A}", "{B}", "{C}", "{D}", "{E}"]
+
+
+def fetch_cast(base_url, size=5, timeout=30):
+    """从引擎取当前可用角色名（取前 size 名）。取不到则报错退出。
+
+    普适性红线：走查卡组必须跟随磁盘上的实际剧本，不能在脚本里写死人名。
+    """
+    resp = requests.get(base_url + "/api/characters", timeout=timeout)
+    resp.raise_for_status()
+    names = resp.json()
+    if not names:
+        raise SystemExit("引擎未返回任何角色卡：先在界面导入或使用随包 demo。")
+    return names[:size]
+
+
+def build_arc(cast, template=None):
+    """把弧线模板里的 {A}..{E} 占位替换为实际角色名。"""
+    tpl = template or DEFAULT_ARC_TEMPLATE
+    mapping = {}
+    for i, slot in enumerate(ARC_SLOTS):
+        mapping[slot] = cast[i] if i < len(cast) else cast[-1]
+    out = []
+    for step in tpl:
+        s = dict(step)
+        s["directive"] = step.get("directive", "").format(**mapping)
+        out.append(s)
+    return out
+
 
 def _act(base_url, sid, directive, timeout=120):
     """调用 /api/act 并消费 SSE，返回 (reply, done_payload)。"""
@@ -110,9 +143,9 @@ def run_playthrough(base_url=BASE_DEFAULT, cast=None, scene=None, arc=None,
     - 把每轮"环境扰动 + 引擎生成"写入 tests/runs/<时间戳>_<title>.md
     - 默认跑完删除会话（keep_session=True 则保留以便 UI 继续）
     """
-    cast = cast or DEFAULT_CAST
+    cast = cast or fetch_cast(base_url)
     scene = scene or DEFAULT_SCENE
-    arc = arc or DEFAULT_ARC
+    arc = arc or build_arc(cast)
 
     new = requests.post(base_url + "/api/session/new",
                         json={"cast": cast, "scene": scene}, timeout=30).json()

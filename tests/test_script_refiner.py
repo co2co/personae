@@ -4,7 +4,7 @@
 以及用 monkeypatch 模拟 llm.complete 的端到端 refine。
 
 真实线上 LLM 提炼已在 2026-10-02 用矽基流动 DeepSeek-V4-Flash 多次验证
-（末日车库、空间站「鹊桥」等剧本，角色/世界书字段与 secret 标记均正确），
+（多种题材剧本，角色/世界书字段与 secret 标记均正确），
 故此处不重复消耗额度，仅留一个手动跳过的真实 e2e 占位。
 """
 import sys
@@ -96,6 +96,6 @@ def test_refine_injection_dropped(monkeypatch):
 import pytest
 @pytest.mark.skip(reason="需线上 LLM，手动跑：POST /api/import/from-script 真实剧本验证")
 def test_real_e2e_against_live():
-    out = r.refine_script("末日来临，退役兵老秦带着养女小满躲进地下车库……")
+    out = r.refine_script("一座小城陷入混乱，退役兵老秦带着养女小满躲进地下车库……")
     assert out["world"]["name"]
     assert out["characters"]

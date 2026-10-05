@@ -28,17 +28,17 @@ def test_memory_new_seeds_relations_base(monkeypatch):
     为唯一可信源；若 memory.new 不固化，真实会话（卡片有 relations 时跳过 app.py
     固化分支）会让 relations_base 为空，两道闸静默失效。
 
-    卡片与世界书用内存 mock 提供（旧剧本「丧尸末日」已删），不依赖磁盘文件。
+    卡片与世界书用内存 mock 提供，不依赖磁盘文件。
     """
     cards = {
-        "陈锋": {"name": "陈锋", "relations": {"夏雨": "妻子"},
+        "角色甲": {"name": "角色甲", "relations": {"角色乙": "妻子"},
                 "core_desire": "", "core_fear": "", "short_goal": ""},
-        "夏雨": {"name": "夏雨", "relations": {"陈锋": "丈夫"},
+        "角色乙": {"name": "角色乙", "relations": {"角色甲": "丈夫"},
                 "core_desire": "", "core_fear": "", "short_goal": ""},
     }
     monkeypatch.setattr(memory.store, "load_card", lambda name: cards[name])
     monkeypatch.setattr(memory.store, "load_world", lambda name: [])
-    sid = memory.new(["陈锋", "夏雨"], scene_place="安全屋", world_name="丧尸末日")
+    sid = memory.new(["角色甲", "角色乙"], scene_place="安全屋", world_name="测试世界")
     try:
         snap = memory.load(sid)
         rel = snap.get("relations", {})
@@ -47,7 +47,7 @@ def test_memory_new_seeds_relations_base(monkeypatch):
         assert base, "relations_base 不应为空（v0.7.7 修复点）"
         assert base == rel, "relations_base 应与 seeded relations 一致"
         # 亲属身份键应在基线中
-        assert director._first_kinship(base.get("陈锋 → 夏雨", "")) == "妻子"
+        assert director._first_kinship(base.get("角色甲 → 角色乙", "")) == "妻子"
     finally:
         import shutil
         from pathlib import Path
@@ -65,13 +65,13 @@ def test_memory_new_seeds_relations_base(monkeypatch):
 
 def test_seed_relations_from_cards():
     cards = {
-        "林梦雅": {"relations": {"周牧野": "丈夫", "林梦琪": "妹妹", "林泽宇": "侄子"}},
-        "周牧野": {"relations": {"林梦雅": "妻子", "林梦琪": "小姨子"}},
+        "角色甲": {"relations": {"角色乙": "丈夫", "角色丙": "妹妹", "角色丁": "侄子"}},
+        "角色乙": {"relations": {"角色甲": "妻子", "角色丙": "小姨子"}},
     }
     base = director.seed_relations_from_cards(cards)
-    assert base.get("林梦雅 → 林梦琪") == "妹妹"
-    assert base.get("周牧野 → 林梦琪") == "小姨子"
-    assert base.get("林梦雅 → 周牧野") == "丈夫"
+    assert base.get("角色甲 → 角色丙") == "妹妹"
+    assert base.get("角色乙 → 角色丙") == "小姨子"
+    assert base.get("角色甲 → 角色乙") == "丈夫"
 
 
 # ---------------------------------------------------------------------------
@@ -79,33 +79,33 @@ def test_seed_relations_from_cards():
 # ---------------------------------------------------------------------------
 
 def test_reflect_freezes_offscreen_relation(monkeypatch):
-    """模型试图把未在场/无卡的林梦琪升为「妻子」，必须被冻结为基线小姨子；
-    镜头内（周牧野/林梦雅 都在场）的关系允许演化。"""
+    """模型试图把未在场/无卡的角色丙升为「妻子」，必须被冻结为基线小姨子；
+    镜头内（角色乙/角色甲 都在场）的关系允许演化。"""
     def fake_complete(messages, **kwargs):
         return json.dumps({
             "relations": {
-                "周牧野 → 林梦琪": "妻子，占有欲强烈",
-                "周牧野 → 林梦雅": "妻子，关系紧张（镜头内演化）",
+                "角色乙 → 角色丙": "妻子，占有欲强烈",
+                "角色乙 → 角色甲": "妻子，关系紧张（镜头内演化）",
             },
             "actions": {}, "goals": {},
         }, ensure_ascii=False)
     monkeypatch.setattr(director.llm, "complete", fake_complete)
 
     snap = {
-        "present": ["周牧野", "林梦雅"],
-        "relations": {"周牧野 → 林梦琪": "小姨子", "周牧野 → 林梦雅": "妻子"},
-        "relations_base": {"周牧野 → 林梦琪": "小姨子", "周牧野 → 林梦雅": "妻子"},
+        "present": ["角色乙", "角色甲"],
+        "relations": {"角色乙 → 角色丙": "小姨子", "角色乙 → 角色甲": "妻子"},
+        "relations_base": {"角色乙 → 角色丙": "小姨子", "角色乙 → 角色甲": "妻子"},
         "secrets": [], "goals": {}, "actions": {}, "ledger": [],
     }
     monkeypatch.setattr(director.memory, "load", lambda sid: snap)
     monkeypatch.setattr(director.memory, "save", lambda sid, s: None)
 
-    director.reflect("sid-x", "周牧野握了握林梦雅的手")
+    director.reflect("sid-x", "角色乙握了握角色甲的手")
 
     # 未在场关联人物：冻结为基线，不得升级为妻子
-    assert snap["relations"]["周牧野 → 林梦琪"] == "小姨子", snap["relations"]
+    assert snap["relations"]["角色乙 → 角色丙"] == "小姨子", snap["relations"]
     # 镜头内角色：关系允许随剧情演化
-    assert snap["relations"]["周牧野 → 林梦雅"] == "妻子，关系紧张（镜头内演化）"
+    assert snap["relations"]["角色乙 → 角色甲"] == "妻子，关系紧张（镜头内演化）"
 
 
 # ---------------------------------------------------------------------------
@@ -113,44 +113,44 @@ def test_reflect_freezes_offscreen_relation(monkeypatch):
 # ---------------------------------------------------------------------------
 
 def test_background_names_excludes_present():
-    """relations 里出现但不在在场名单的角色 = 背景人物（如林梦琪）。"""
-    snap = {"present": ["周牧野", "林梦雅"],
-            "relations": {"周牧野 → 林梦琪": "小姨子",
-                          "林梦雅 → 林梦琪": "妹妹",
-                          "周牧野 → 林梦雅": "妻子"}}
+    """relations 里出现但不在在场名单的角色 = 背景人物（如角色丙）。"""
+    snap = {"present": ["角色乙", "角色甲"],
+            "relations": {"角色乙 → 角色丙": "小姨子",
+                          "角色甲 → 角色丙": "妹妹",
+                          "角色乙 → 角色甲": "妻子"}}
     offs = director.background_names_from_relations(snap, snap["present"])
-    assert offs == ["林梦琪"]
+    assert offs == ["角色丙"]
 
 
 def test_offscreen_dialogue_flagged():
     """背景人物获得独立台词块（对白/独白）-> 失责。"""
-    offs = ["林梦琪"]
-    reply = "周牧野看着窗外。\n林梦琪：其实我早就知道了，姐夫。\n林梦雅叹了口气。"
+    offs = ["角色丙"]
+    reply = "角色乙看着窗外。\n角色丙：其实我早就知道了，姐夫。\n角色甲叹了口气。"
     viol, hits = director.detect_offscreen_activity(reply, offs)
     assert viol is True
-    assert any("林梦琪" in h for h in hits)
+    assert any("角色丙" in h for h in hits)
 
 
 def test_offscreen_action_subject_flagged():
-    """第三人称里背景人物作主语且有动作 -> 失责（如「林梦琪从门后走出」）。"""
-    offs = ["林梦琪"]
-    reply = "周牧野沉默不语。林梦琪从门后走出，静静望着二人。林梦雅握紧了手。"
+    """第三人称里背景人物作主语且有动作 -> 失责（如「角色丙从门后走出」）。"""
+    offs = ["角色丙"]
+    reply = "角色乙沉默不语。角色丙从门后走出，静静望着二人。角色甲握紧了手。"
     viol, hits = director.detect_offscreen_activity(reply, offs)
     assert viol is True
-    assert any(h.startswith("林梦琪") for h in hits)
+    assert any(h.startswith("角色丙") for h in hits)
 
 
 def test_offscreen_mentioned_by_present_ok():
     """在场角色以谈论方式带过背景人物 -> 不失责（允许的背景提及）。"""
-    offs = ["林梦琪"]
-    reply = "林梦雅低声说：我妹妹梦琪最近总一个人待着，怪让人担心的。周牧野点点头。"
+    offs = ["角色丙"]
+    reply = "角色甲低声说：我妹妹梦琪最近总一个人待着，怪让人担心的。角色乙点点头。"
     viol, hits = director.detect_offscreen_activity(reply, offs)
     assert viol is False, hits
 
 
 def test_offscreen_no_background_clean():
     """无背景人物时自检直接通过。"""
-    viol, hits = director.detect_offscreen_activity("周牧野走了出去。", [])
+    viol, hits = director.detect_offscreen_activity("角色乙走了出去。", [])
     assert viol is False and hits == []
 
 
@@ -177,30 +177,114 @@ def test_preserve_kinship_mother_sister_in_law_blocked():
     """母亲被改写成嫂子时，应回退为母亲。"""
     corrected = director._preserve_kinship("母亲", "嫂子，复杂情感萌芽")
     assert corrected.startswith("母亲"), corrected
-    assert "复杂情感" in corrected, corrected
+
+
+# --- 亲属身份冻结的误判防护（v0.15.x 修复）---
+
+def test_kinship_single_char_tokens_removed():
+    """词表不得含单字身份词。
+
+    单字（母/子/夫/弟…）在中文里几乎只作长词碎片（母子/母性/夫人/兄弟）出现，
+    早期版本收录导致「以A母子的生死为筹码」被当成对 B 的身份声明「子」，
+    冻结机制反过来把模型写对的「妻子」改坏成「子，关系紧张」。
+    """
+    assert not [t for t in director._KINSHIP_TOKENS if len(t) == 1], \
+        "身份词表混入单字词：%s" % [t for t in director._KINSHIP_TOKENS if len(t) == 1]
+
+
+def test_kinship_not_inferred_from_narrative_midtext():
+    """身份词出现在叙述句中间不得判为身份声明。
+
+    句中的身份词常指第三方（如「她不敢戳破父亲已死」里的父亲是别处的人），
+    据此冻结会把关系改坏。只认句首声明。
+    """
+    narrative_cases = [
+        "以她的母子的生死为筹码",           # 「母子」非身份声明
+        "对其扶持的回答是不屑一顾",          # 无身份词
+        "他不敢戳破「父亲大概率已死」的真相",   # 引号内第三方
+        "唯一念想的儿子",                   # 修饰语位置
+        "母亲她不敢承认这件事",              # 身份词后无分隔符
+    ]
+    for v in narrative_cases:
+        assert director._first_kinship(v) is None, \
+            "叙述句被误判为身份声明：%r -> %r" % (v, director._first_kinship(v))
+
+
+def test_kinship_explicit_declaration_forms():
+    """句首身份声明（含裸身份词）必须被识别，否则冻结机制形同虚设。"""
+    assert director._first_kinship("母亲：她不敢承认") == "母亲"
+    assert director._first_kinship("父亲，严厉") == "父亲"
+    assert director._first_kinship("儿子，唯一的念想") == "儿子"
+    assert director._first_kinship("父亲") == "父亲"     # 裸身份词
+    assert director._first_kinship("母亲") == "母亲"
+
+
+def test_preserve_kinship_narrative_baseline_does_not_freeze():
+    """基线是叙述句（未显式声明身份）→ 放行，不得把模型写对的身份改坏。"""
+    baseline = "对其扶持的回答是不屑一顾，对母亲的选择既鄙夷又无可奈何"
+    assert director._preserve_kinship(baseline, "妻子，暗中结盟") == "妻子，暗中结盟"
+
+
+def test_seed_kinship_from_cards_explicit():
+    """作者用 relations_kinship 显式声明的血缘身份应被提取。"""
+    cards = {
+        "角色甲": {"relations": {"角色乙": "唯一的念想"},
+                "relations_kinship": {"角色乙": "母亲"}},
+        "角色乙": {"relations": {"角色甲": "唯一的对手"},
+                "relations_kinship": {"角色甲": "儿子"}},
+    }
+    got = director.seed_kinship_from_cards(cards)
+    assert got == {"角色甲 → 角色乙": "母亲", "角色乙 → 角色甲": "儿子"}, got
+
+
+def test_seed_kinship_ignores_non_kinship_words():
+    """非法身份词（同事/恋人等非亲属）不进血缘表——非亲属关系不该被冻结。"""
+    cards = {"角色甲": {"relations": {"角色乙": "同事"},
+                       "relations_kinship": {"角色乙": "同事"}}}
+    assert director.seed_kinship_from_cards(cards) == {}
+
+
+def test_preserve_kinship_declared_overrides_baseline():
+    """显式声明优先于描述句推断：模型漂移按声明的身份拉回。"""
+    baseline = "唯一的念想，对儿子坚持寻父的执念既心痛又恐惧"   # 句中「儿子」不是身份声明
+    assert director._first_kinship(baseline) is None, "前置条件：句中身份词不应被识别"
+    corrected = director._preserve_kinship(baseline, "妻子，讨好", declared="母亲")
+    assert corrected == "母亲，讨好", corrected
+
+
+def test_preserve_kinship_declared_allows_emotional_evolution():
+    """显式声明身份一致时，仍允许情感/状态修饰演化。"""
+    corrected = director._preserve_kinship("唯一的念想", "母亲，关系紧张", declared="母亲")
+    assert corrected == "母亲，关系紧张", corrected
+
+
+def test_preserve_kinship_declared_overrides_model_wrong_identity():
+    """显式声明为「母亲」时，模型写「儿子」属身份漂移，须拉回「母亲」并保留修饰。"""
+    corrected = director._preserve_kinship("唯一的念想", "儿子，复杂情感萌芽", declared="母亲")
+    assert corrected == "母亲，复杂情感萌芽", corrected
 
 
 def test_offscreen_flashback_action_detected():
-    """背景人物在闪回里成为主动主语（老高笑/老高塞糖）应被判失责。
+    """背景人物在闪回里成为主动主语（角色丙笑/角色丙塞糖）应被判失责。
 
-    复现跨剧本对照验证中丧尸末日 R2/R4 的真实失责样本。
+    复现跨剧本对照验证中的真实失责样本。
     """
-    offs = ["老高"]
-    reply = ("李想望着墙角的旧照片。老高笑的样子浮上心头。"
-             "老高每次出完任务回来，都从兜里摸出一颗水果糖，塞进她手心里。")
+    offs = ["角色丙"]
+    reply = ("角色甲望着墙角的旧照片。角色丙笑的样子浮上心头。"
+             "角色丙每次出完任务回来，都从兜里摸出一颗水果糖，塞进她手心里。")
     viol, hits = director.detect_offscreen_activity(reply, offs)
     assert viol is True, hits
-    assert any(h.startswith("老高") for h in hits)
+    assert any(h.startswith("角色丙") for h in hits)
 
 
 # ---------------------------------------------------------------------------
-# 5. 关系缺口自动推断（周晓杰漏网 bug 修复）
+# 5. 关系缺口自动推断（漏网 bug 修复）
 # ---------------------------------------------------------------------------
 
 def test_fill_relation_gaps_infers_for_uncovered(monkeypatch):
     """缺口补全：在场角色在基线中完全无关系边时，应触发纪官推断并写回 relations/relations_base。
 
-    复现周晓杰漏网 bug 的修复逻辑——旧版仅在「全部卡的 relations 合并为空」时才推断，
+    复现该漏网 bug 的修复逻辑——旧版仅在「全部卡的 relations 合并为空」时才推断，
     导致「大部分有、个别缺」（子卡空且不被父母提及）漏网。
     """
     def fake_init(cards):
@@ -214,7 +298,7 @@ def test_fill_relation_gaps_infers_for_uncovered(monkeypatch):
 
     snap = {
         "present": ["父", "母", "子"],
-        # 基线只含父母互指，子完全无边的（= 周晓杰原始漏网条件）
+        # 基线只含父母互指，子完全无边的（= 原始漏网条件）
         "relations": {"父 → 母": "妻子", "母 → 父": "丈夫"},
         "relations_base": {"父 → 母": "妻子", "母 → 父": "丈夫"},
     }
@@ -237,12 +321,12 @@ def test_fill_relation_gaps_skips_when_complete(monkeypatch):
     monkeypatch.setattr(director.store, "load_card", lambda n: {"name": n, "relations": {}})
 
     snap = {
-        "present": ["周牧野", "林梦雅"],
-        "relations": {"周牧野 → 林梦雅": "妻子", "林梦雅 → 周牧野": "丈夫"},
-        "relations_base": {"周牧野 → 林梦雅": "妻子", "林梦雅 → 周牧野": "丈夫"},
+        "present": ["角色乙", "角色甲"],
+        "relations": {"角色乙 → 角色甲": "妻子", "角色甲 → 角色乙": "丈夫"},
+        "relations_base": {"角色乙 → 角色甲": "妻子", "角色甲 → 角色乙": "丈夫"},
     }
     gap = director.fill_relation_gaps(snap)
     assert gap == [], gap
     assert called["n"] == 0, "齐全卡不应调用推断"
-    assert snap["relations"] == {"周牧野 → 林梦雅": "妻子", "林梦雅 → 周牧野": "丈夫"}
+    assert snap["relations"] == {"角色乙 → 角色甲": "妻子", "角色甲 → 角色乙": "丈夫"}
 
