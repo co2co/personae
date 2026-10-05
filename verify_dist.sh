@@ -45,9 +45,14 @@ assert "$([ ! -d "$TARGET/engine/venv" ] && echo 1 || echo 0)" "不含 venv/（z
 assert "$([ ! -d "$TARGET/engine/data/sessions" ] && echo 1 || echo 0)" "不含 engine/data/sessions/"
 assert "$([ ! -e "$TARGET/engine/data/state.json" ] && echo 1 || echo 0)" "不含 engine/data/state.json"
 
-for f in engine/app.py engine/run.bat engine/install.bat engine/requirements.txt engine/static/index.html engine/data/config.json engine/data/characters engine/data/worlds; do
+# 方向 B（v0.13.2 起）：data/characters 与 data/worlds 整体排除（私人剧本不进包），
+# 首次运行自行导入、save_card/save_world 会 mkdir 建目录。随包的官方 demo 在
+# data/examples/characters 与 data/examples/worlds（新手上手体验用），故断言改为这二者。
+for f in engine/app.py engine/run.bat engine/install.bat engine/requirements.txt engine/static/index.html engine/data/config.json engine/data/examples/characters engine/data/examples/worlds; do
   assert "$([ -e "$TARGET/$f" ] && echo 1 || echo 0)" "含 $f"
 done
+assert "$([ ! -e "$TARGET/engine/data/characters" ] && echo 1 || echo 0)" "不含 engine/data/characters/（私人剧本，方向 B 排除）"
+assert "$([ ! -e "$TARGET/engine/data/worlds" ] && echo 1 || echo 0)" "不含 engine/data/worlds/（私人剧本，方向 B 排除）"
 
 echo
 echo "=== [3] 注入 venv（python -m venv + .pth 指向项目 site-packages，模拟 install.bat；离线、零复制）==="
