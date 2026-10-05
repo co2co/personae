@@ -4,14 +4,15 @@
 低于导演指令与镜头约束；压测实证 pressure 连续 7 轮封顶（=5）却毫无碰撞——
 当事人常常根本不在镜头里（镜头外不许被写），写了也出不来。
 
-补丁：① 高压档提级为全局强制段 [本轮必须发生的事]（与导演指令同级、置提示词末尾）；
-      ② 高压秘密的双方由镜头层强制并入 focus subjects（必要时镜头退化为自然推演）。
+补丁：① 高压档提级为全局提醒段 [可选提醒·秘密发酵]（软提醒、置提示词末尾、玩家指令优先）；
+      ② 高压秘密的双方不再由镜头层强制（v0.18.3 已删除 _merge_pressure_into_focus，
+         v0.18.4 起提醒段同步软化为「可选」，碰撞交由小空间群像叙事自然命中）。
 
 覆盖：
   1. director.pressure_targets：高压未曝光秘密取归属者 + 在场对手（起疑者优先）；
      低压 / 已曝光 / 归属者不在场一律不取。
-  2. director.compute_focus：高压双方被并入镜头；并入后覆盖全体则退化为 None。
-  3. prompter.build_session：高压时提示词末尾出现全局强制段，且点名碰撞双方。
+  2. director.compute_focus：玩家点名 / 群体词 / 纯环境三种情况镜头行为（高压不再强制）。
+  3. prompter.build_session：高压时提示词末尾出现软提醒段，且点名双方。
 """
 
 import sys
@@ -84,7 +85,7 @@ def test_targets_skip_low_pressure_exposed_and_offstage_owner():
     assert director.pressure_targets(snap) == []
 
 
-# --- 2. compute_focus 强制并入 ---
+# --- 2. compute_focus 高压不强制并入（玩家指令优先） ---
 
 def test_focus_merges_pressure_pair():
     """玩家点名角色甲 -> 镜头只跟随角色甲，高压不强制并入（玩家指令优先）。"""
@@ -114,13 +115,13 @@ def test_focus_untouched_without_pressure():
 
 
 def test_no_focus_no_force():
-    # 无指令点名时不凭空造镜头，压力交给全局强制段承担
+    # 无指令点名时不凭空造镜头，压力交给全局提醒段承担（软提醒，不强制造镜头）
     secrets = [_secret("角色丙", susp=[{"by": "角色丁"}])]
     snap = _snap(["角色甲", "角色丙", "角色丁"], secrets)
     assert director.compute_focus("", snap) is None
 
 
-# --- 3. prompter 全局强制段 ---
+# --- 3. prompter 全局提醒段 ---
 
 def test_prompt_has_global_pressure_block():
     secrets = [_secret("角色丙", susp=[{"by": "角色丁"}])]
@@ -129,19 +130,19 @@ def test_prompt_has_global_pressure_block():
              for n in snap["present"]}
     msgs = prompter.build_session(cards, "继续搜物资", [], snap)
     system = msgs[0]["content"]
-    assert "[本轮必须发生的事]" in system
+    assert "[可选提醒·秘密发酵]" in system
     # 取最后一次出现：角色块内的分档提示会先引用一次该标题作为指引
-    tail = system.split("[本轮必须发生的事]")[-1]
+    tail = system.split("[可选提醒·秘密发酵]")[-1]
     assert "角色丙" in tail and "角色丁" in tail
     # 真正的全局段须位于输出格式之后（近因最强），否则会被前段指令压掉
-    assert system.rindex("[本轮必须发生的事]") > system.index("[输出格式]")
+    assert system.rindex("[可选提醒·秘密发酵]") > system.index("[输出格式]")
 
 
 def test_prompt_has_no_block_when_pressure_low():
     snap = _snap(["角色甲", "角色丙", "角色丁"], [_secret("角色丙", pressure=2)])
     cards = {n: {"description": "描述"} for n in snap["present"]}
     msgs = prompter.build_session(cards, "继续搜物资", [], snap)
-    assert "[本轮必须发生的事]" not in msgs[0]["content"]
+    assert "[可选提醒·秘密发酵]" not in msgs[0]["content"]
 
 
 if __name__ == "__main__":
@@ -191,7 +192,7 @@ def test_higher_pressure_wins_the_slot():
     assert len(director.pressure_targets(snap)) == 1
 
 
-# --- 高压锁定镜头：不得退化为自然推演 ---
+# --- 高压不再锁定镜头（玩家指令优先） ---
 
 def test_pressure_locks_focus_when_no_directive_naming():
     """指令含群体词「众人」= 玩家显式点名全体 -> 尊重玩家，不锁定高压，返回自然推演。"""

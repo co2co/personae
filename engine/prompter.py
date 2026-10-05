@@ -142,27 +142,28 @@ def _ferment_hint(secret, forced=False):
     p = secret.get("pressure") or 0
     if p >= 5:
         if forced:
-            # 高压档已提级为全局强制段（见 _global_pressure_block），此处只留一句指引，
+            # 高压档已提级为全局提醒段（见 _global_pressure_block），此处只留一句指引，
             # 避免两段措辞打架、也避免角色块内的长文案被导演指令压掉后无人兜底。
-            return "这条秘密沉得太久了：本轮必须撞出结果，具体要求见[本轮必须发生的事]。"
-        return ("这条秘密也沉寂太久了：本轮必须让它露出痕迹——一次失态、一句说漏嘴、"
-                "一个回避动作，且必须被在场某人注意到。")
+            return "这条秘密沉得太久了：若有自然机会可露出痕迹，具体要求见[可选提醒·秘密发酵]。"
+        return ("这条秘密也沉寂太久了：若有自然机会，可让它露出痕迹——一次失态、一句说漏嘴、"
+                "一个回避动作，被在场某人注意到即可。")
     if p >= 3:
-        return ("这条秘密已经沉寂太久：本轮必须让它在行为层面露出痕迹——一次失态、"
-                "一句说漏嘴、一个回避动作，且必须被在场某人注意到。")
+        return ("这条秘密已经沉寂太久：若有自然机会，可在行为层面露出痕迹——一次失态、"
+                "一句说漏嘴、一个回避动作，被在场某人注意到即可。")
     return ""
 
 
 def _global_pressure_block(snap, cards_present):
-    """高压秘密的全局强制段：与导演指令同级，位于输出格式之后（近因最强）。
+    """高压秘密的全局提醒段：与导演指令同级，位于输出格式之后（近因最强）。
 
     角色块内的分档文案只是「该角色诸多提示中的一句」，会被导演指令与镜头约束压掉——
-    压测实证：pressure 连续 7 轮封顶仍无碰撞。故高压档单独提级为全局强制段：
-    点名双方、指定碰撞形式。
+    压测实证：pressure 连续 7 轮封顶仍无碰撞。故高压档单独提级为全局提醒段：
+    点名双方、给出碰撞方向。
 
-    注（v0.18.3）：镜头层的高压强制（_merge_pressure_into_focus）已移除——镜头只由玩家
-    指令驱动，高压不再抢镜头。本段成为压力唯一的「提级」出口，仍保留「须碰撞」的强语义，
-    是否随玩家体验优先一并软化（改为软提醒）待 simon 定。
+    注（v0.18.4）：镜头层的高压强制（_merge_pressure_into_focus）已移除——镜头只由玩家
+    指令驱动，高压不再抢镜头。本段随之软化为「软提醒」：只提示「这条秘密沉太久了、若有
+    自然机会可让它在行为层面露头」，不再强令「必须撞出结果、不得略过」。玩家指令优先，
+    碰撞交由小空间群像的叙事自然命中。
     """
     targets = pressure_targets(snap, list(cards_present))
     if not targets:
@@ -171,18 +172,19 @@ def _global_pressure_block(snap, cards_present):
     for owner, rival in targets:
         if rival:
             lines.append(
-                "- " + owner + " 那条秘密已经沉得太久：本轮 " + owner + " 与 " + rival
-                + " 必须发生实质碰撞——当面追问、发现物证、被逼到半招供，三选一。"
-                  "两人须在同一场景内互相在场，不得写成各在一处、也不得由第三人转述。")
+                "- " + owner + " 与 " + rival + " 之间有条秘密已经沉得太久。"
+                  "若本轮叙事自然把他们带到同一场景，可让它在行为层面露个头——"
+                  "一次当面追问、一份被发现的物证、或一句半招供；若不合叙事，不强求。")
         else:
             lines.append(
-                "- " + owner + " 那条秘密已经沉得太久，而眼前无人逼近：本轮必须由 "
-                + owner + " 自己露出来——失态、说漏嘴、或留下可被发现的物证，"
-                  "且必须被在场某人注意到。")
-    return ("[本轮必须发生的事]\n以下秘密已经沉寂太久，本轮必须撞出进展：\n"
+                "- " + owner + " 有条秘密已经沉得太久，眼前无人逼近。"
+                  "若本轮有自然机会，可让它自己露出痕迹——一次失态、一句说漏嘴、"
+                  "或一件可被发现的物证；若不合叙事，不强求。")
+    return ("[可选提醒·秘密发酵]\n以下秘密已经沉寂多轮，若与导演指令不冲突、且叙事自然，"
+            "可让它们在本轮行为层面露出一点痕迹：\n"
             + "\n".join(lines)
-            + "\n本段与导演指令同级：不得以镜头分配、他人戏份或叙事节奏为由略过，"
-              "也不得让当事人本轮依旧毫无相关举动。")
+            + "\n以上仅为可选提醒，优先级低于导演指令与镜头分配；"
+              "若本轮叙事不需要、或时机不对，可完全略过。")
 
 
 def build_session(cards_present, directive, world_hits, snap,
@@ -203,7 +205,7 @@ def build_session(cards_present, directive, world_hits, snap,
         blocks.append("[世界设定]\n" + "\n".join("- " + e["content"] for e in world_hits))
 
     char_blocks = []
-    # 本轮被提级到[本轮必须发生的事]的秘密（同时最多一条）：角色块内的指引要与它对齐，
+    # 本轮被提级到[可选提醒·秘密发酵]的秘密（同时最多一条）：角色块内的指引要与它对齐，
     # 否则非提级条目也会指向一个不存在的段落。
     forced_owners = {o for o, _ in pressure_targets(snap, list(cards_present))}
     # 镜头外角色降权：本轮有镜头焦点时，不在焦点内的角色的旧短期目标不再作为驱动力注入，
@@ -484,7 +486,7 @@ def build_session(cards_present, directive, world_hits, snap,
     )
     if focus_block:
         blocks.append(focus_block)
-    # 高压秘密的全局强制段（置最后，近因最强；与导演指令同级）
+    # 高压秘密的全局提醒段（置最后，近因最强；软提醒，玩家指令优先）
     pressure_block = _global_pressure_block(snap, cards_present)
     if pressure_block:
         blocks.append(pressure_block)

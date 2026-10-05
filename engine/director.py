@@ -1206,7 +1206,7 @@ def fill_relation_gaps(snap):
 SILENT_THRESHOLD = 2
 # 秘密发酵压力上限：封顶以免长期无进展时无限加压，把剧情逼成机械碰撞。
 PRESSURE_MAX = 5
-# 高压档：达到该值即从「角色块内的一句提示」升级为全局强制（提级文案 + 强制进镜头）。
+# 高压档：达到该值即从「角色块内的一句提示」升级为全局软提醒（提级文案，玩家指令优先，不再强制进镜头）。
 PRESSURE_FORCE = PRESSURE_MAX
 # 同时只强制一条碰撞：多条并下达会互相打架，结果是全部僵住（见 pressure_targets）。
 PRESSURE_FORCE_LIMIT = 1
