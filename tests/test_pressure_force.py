@@ -87,23 +87,24 @@ def test_targets_skip_low_pressure_exposed_and_offstage_owner():
 # --- 2. compute_focus 强制并入 ---
 
 def test_focus_merges_pressure_pair():
+    """玩家点名角色甲 -> 镜头只跟随角色甲，高压不强制并入（玩家指令优先）。"""
     secrets = [_secret("角色丙", susp=[{"by": "角色丁"}])]
     snap = _snap(["角色甲", "角色乙", "角色丙", "角色丁"], secrets)
     focus = director.compute_focus("角色甲独自上楼查看", snap)
-    assert focus and focus.get("forced") is True
-    assert set(focus["subjects"]) == {"角色甲", "角色丙", "角色丁"}
-    assert "角色乙" not in focus["subjects"]   # 无关者仍留在镜头外
+    assert focus is not None
+    assert focus.get("forced") is not True
+    assert focus["subjects"] == ["角色甲"]          # 只聚焦玩家点名的角色甲
 
 
 def test_focus_lock_does_not_collapse_to_full_present_v2():
-    """旧行为是覆盖全体时退化为 None；新设计锁定镜头，收敛为只聚焦高压双方。"""
+    """玩家点名角色甲+角色丙 -> 镜头聚焦这两人，高压不强制收敛、不强制并入。"""
     secrets = [_secret("角色丙", susp=[{"by": "角色丁"}])]
     snap = _snap(["角色甲", "角色丙", "角色丁"], secrets)
     focus = director.compute_focus("角色甲和角色丙上楼查看", snap)
     assert focus is not None
-    assert focus["forced"] is True
-    assert focus["sticky"] is True
-    assert set(focus["subjects"]) == {"角色丙", "角色丁"}   # 无关者角色甲被请出镜头
+    assert focus.get("forced") is not True
+    assert focus["sticky"] is False
+    assert set(focus["subjects"]) == {"角色甲", "角色丙"}   # 尊重玩家点名
 
 
 def test_focus_untouched_without_pressure():
@@ -193,38 +194,42 @@ def test_higher_pressure_wins_the_slot():
 # --- 高压锁定镜头：不得退化为自然推演 ---
 
 def test_pressure_locks_focus_when_no_directive_naming():
-    """导演指令未点名任何人（focus=None）但高压秘密在场：镜头锁定高压双方，不退化。"""
+    """指令含群体词「众人」= 玩家显式点名全体 -> 尊重玩家，不锁定高压，返回自然推演。"""
     snap = _snap(["角色甲", "角色乙", "角色丙", "角色丁"], [
         _secret("角色甲", pressure=5, susp=[{"by": "角色乙"}]),
     ])
     focus = director.compute_focus("众人各自收拾行装", snap)
-    assert focus is not None
-    assert focus["forced"] is True
-    assert focus["sticky"] is True
-    assert set(focus["subjects"]) == {"角色甲", "角色乙"}
+    assert focus is None                          # 群体点名 -> 自然推演，玩家优先
 
 
 def test_pressure_lock_does_not_collapse_to_full_present():
-    """并入后覆盖全体在场者时：旧逻辑返回 None（自然推演），新逻辑收敛为只聚焦高压双方。"""
+    """玩家点名角色丙 -> 镜头只跟随角色丙，高压不强制并入（玩家指令优先）。"""
     snap = _snap(["角色甲", "角色乙", "角色丙"], [
         _secret("角色甲", pressure=5, susp=[{"by": "角色乙"}]),
     ])
-    # 指令点名角色丙，并入角色甲、角色乙后覆盖全体 3 人
     focus = director.compute_focus("角色丙走到窗边张望", snap)
-    assert focus is not None, "覆盖全体时不得退化为 None"
-    assert focus["forced"] is True
-    assert set(focus["subjects"]) == {"角色甲", "角色乙"}   # 无关者角色丙被请出镜头
+    assert focus is not None
+    assert focus.get("forced") is not True
+    assert focus["subjects"] == ["角色丙"]        # 尊重玩家点名，不并入高压双方
 
 
-def test_pressure_lock_persists_next_round_without_follow_word():
-    """高压锁定跨轮延续：下轮指令既没点名、也无指代代词，仍黏住焦点（不依赖 _FOLLOW_WORDS）。"""
+def test_pressure_no_focus_force_when_truly_unnamed():
+    """指令完全没点名任何角色（纯环境描述）-> 高压不再兜底撑镜头（玩家体验优先）。"""
+    snap = _snap(["角色甲", "角色乙", "角色丙", "角色丁"], [
+        _secret("角色甲", pressure=5, susp=[{"by": "角色乙"}]),
+    ])
+    focus = director.compute_focus("夜色更深了，仓库外传来脚步声", snap)
+    assert focus is None                       # 高压不强制进镜头，交由叙事自然命中
+
+
+def test_pressure_no_lock_persist_next_round():
+    """高压不再跨轮黏住镜头：下轮指令没点名，就自然推演（不依赖 forced/sticky 延续）。"""
     snap = _snap(["角色甲", "角色乙", "角色丙", "角色丁"], [
         _secret("角色甲", pressure=5, susp=[{"by": "角色乙"}]),
     ], focus={"subjects": ["角色甲", "角色乙"], "place": "街角仓库",
               "sticky": True, "forced": True})
     focus = director.compute_focus("门外的动静似乎停了", snap)
-    assert focus is not None
-    assert set(focus["subjects"]) == {"角色甲", "角色乙"}
+    assert focus is None                       # 高压不再锁定镜头
 
 
 def test_pressure_lock_releases_after_collision():

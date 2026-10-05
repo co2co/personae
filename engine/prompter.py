@@ -158,8 +158,11 @@ def _global_pressure_block(snap, cards_present):
 
     角色块内的分档文案只是「该角色诸多提示中的一句」，会被导演指令与镜头约束压掉——
     压测实证：pressure 连续 7 轮封顶仍无碰撞。故高压档单独提级为全局强制段：
-    点名双方、指定碰撞形式；镜头层另由 _merge_pressure_into_focus 保证二人在场内，
-    两段配合才能把「压力」真正撞成戏。
+    点名双方、指定碰撞形式。
+
+    注（v0.18.3）：镜头层的高压强制（_merge_pressure_into_focus）已移除——镜头只由玩家
+    指令驱动，高压不再抢镜头。本段成为压力唯一的「提级」出口，仍保留「须碰撞」的强语义，
+    是否随玩家体验优先一并软化（改为软提醒）待 simon 定。
     """
     targets = pressure_targets(snap, list(cards_present))
     if not targets:

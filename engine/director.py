@@ -295,6 +295,10 @@ def _evidence_transfer(evidence, by, owner):
 # 缺少"镜头"概念，导致模型在指令点名子集后仍默认全员出场、并偏爱更戏剧的留存组。
 _FOLLOW_WORDS = ["两人", "俩人", "2人", "他们", "他俩", "这俩", "那俩", "二人",
                 "双方", "两个", "他们俩", "这二人", "那二人"]
+# 群体点名：玩家显式把镜头交给全体在场者（「众人讨论」「大家商量」）。这类指令是玩家
+# 明确的操控意图，须尊重、不得被高压秘密强制覆盖——否则不了解机制的玩家会以为引擎
+# 不遵循指令（见会话 97589153 事故：导演指令「众人讨论去处」被高压镜头压成二人戏）。
+_GROUP_WORDS = ["众人", "大家", "所有人", "全员", "每个人", "大家伙", "众人皆"]
 
 
 def compute_focus(directive, snap):
@@ -306,28 +310,36 @@ def compute_focus(directive, snap):
       避免"2人逐渐深入"这类后续指令丢失焦点、镜头跳回初始位置。
     - 指令点名全体或无人 -> None，表示自然推演、全员在场皆可写。
     place 取快照当前场景地点（scene.apply 已更新为新地点）。
+
+    玩家体验优先（v0.18.3 裁定）：镜头只由玩家的指令驱动，秘密发酵压力（pressure）不再
+    对镜头施加任何强制——不强制并入、不强制锁定、不兜底撑镜头。引擎定位是小空间群像，
+    空间本就局限，高压双方迟早会在某轮自然同场，碰撞由叙事自然命中，无需镜头层「导演」。
+    压力只剩「提级文案」这一个提示出口（见 prompter），不再抢玩家的方向盘。
     """
     present = snap.get("present", [])
     if not present or not directive:
         return None
-    base = None
     named = [n for n in present if n in directive]
     prev = snap.get("focus") or {}
+
+    # 群体点名：玩家显式把镜头交给全体在场者 -> 自然推演。
+    if any(w in directive for w in _GROUP_WORDS):
+        return None
+
+    # 玩家点名具体子集 -> 镜头跟随该子集。
     if 0 < len(named) < len(present):
-        base = {"subjects": named, "place": snap["scene"].get("place", ""), "sticky": False}
-    elif (prev.get("forced") and prev.get("sticky")):
-        # 上轮因高压秘密锁定了镜头：本轮即便指令没点名、也没指代代词，仍黏住那对焦点人物，
-        # 直到碰撞发生（压力归零后 forced 自然消失）。否则导演一句「众人各自行动」就会把
-        # 还没撞开的高压镜头打散，张力又断线。这里不依赖 _FOLLOW_WORDS，是高压锁定专属延续。
+        return {"subjects": named, "place": snap["scene"].get("place", ""), "sticky": False}
+
+    # 玩家点名全体（列出所有在场者名）-> 自然推演。
+    if named:
+        return None
+
+    # 指令完全没点名任何角色：仅指代代词延续上轮焦点（非高压锁定，高压不再有镜头强制）。
+    if prev and any(w in directive for w in _FOLLOW_WORDS):
         subs = prev.get("subjects", [])
         if subs and all(s in present for s in subs):
-            base = {"subjects": subs, "place": snap["scene"].get("place", ""), "sticky": True}
-    elif prev and any(w in directive for w in _FOLLOW_WORDS):
-        subs = prev.get("subjects", [])
-        if subs and all(s in present for s in subs):
-            base = {"subjects": subs, "place": snap["scene"].get("place", ""), "sticky": True}
-    # 高压秘密的双方强制进镜头：否则当事人被判「镜头外不许写」，压力永远撞不出来
-    return _merge_pressure_into_focus(base, snap, present)
+            return {"subjects": subs, "place": snap["scene"].get("place", ""), "sticky": True}
+    return None
 
 
 def brief(sid, directive):
@@ -1285,51 +1297,6 @@ def pressure_targets(snap, present=None):
     return [(o, r) for _, o, r in out[:PRESSURE_FORCE_LIMIT]]
 
 
-def _merge_pressure_into_focus(focus, snap, present):
-    """镜头让位于高压碰撞：把高压秘密的双方强制锁定为镜头主角。
-
-    压测实证：pressure 连续 7 轮封顶却毫无碰撞——根因是发酵文案只写在角色块内，
-    优先级低于导演指令与镜头约束，且当事人常常根本不在镜头里（在镜头外就不许被写）。
-    故高压档由镜头层兜底：把双方拉进镜头。
-
-    关键设计（用户裁定）：高压秘密在场的轮次，镜头**不得退化为自然推演**。否则一旦
-    导演指令没点名任何人、或并入后覆盖全体在场者，镜头就塌回「全员可写」，压力段失去
-    镜头锚点，又回到「当事人淹没在群像里、谁都没被真正对准」的老路。锁定镜头保证张力
-    与剧情连贯推进，符合观众/玩家「焦点人物该被对准」的心理预期。
-
-    三条退化路径逐一封堵：
-    1. focus 为 None（无人点名）但高压秘密在场 -> 锁定高压双方为镜头，sticky=True。
-    2. 并入后覆盖全体在场者 -> 不再返回 None，改为仅聚焦高压双方（把无关者请出镜头）。
-    3. 高压双方里没有任何一人在场 -> 才真正无戏可演，返回原 focus。
-    """
-    targets = pressure_targets(snap, present)
-    if not targets:
-        return focus
-    owner, rival = targets[0]
-    pair = [n for n in (owner, rival) if n and n in present]
-
-    if focus is None:
-        # 无人点名：高压秘密自己撑起一个镜头，且标记 sticky 以便下轮延续。
-        return {"subjects": pair, "place": snap.get("scene", {}).get("place", ""),
-                "sticky": True, "forced": True}
-
-    subs = list(focus.get("subjects") or [])
-    forced = False
-    for n in pair:
-        if n and n in present and n not in subs:
-            subs.append(n)
-            forced = True
-    if not forced:
-        return focus
-    # 覆盖全体在场者时不再退化：收敛为只聚焦高压双方，把无关者请出镜头。
-    if all(p in subs for p in present):
-        subs = pair
-    merged = dict(focus)
-    merged["subjects"] = subs
-    merged["forced"] = True
-    # 高压轮次锁定延续：下轮即便指令不再点名，也要黏住这对焦点人物，直到碰撞发生。
-    merged["sticky"] = True
-    return merged
 # 状态层键上限：超出淘汰最久未更新的键（状态是覆盖式的，键数本由对象数决定，此为兜底）。
 STATE_CAP = 20
 # 人物位置表上限：只存「谁在哪里」的当前值，一角色一位置，后写覆盖前写。
