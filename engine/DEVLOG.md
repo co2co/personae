@@ -13,6 +13,7 @@
 - `VERSION` 升 v0.17.2；提交 + tag `v0.17.2`；产出 `personae-v0.17.2.zip`，删除 v0.17.1 旧包。
 - **测试基础设施修复**：`tests/stress_longcontext.py` 的 `build_arc` 占位映射键误写成 `"{A}"`，`t.format(**mapping)` 必抛 `KeyError: 'A'`——该压测脚本自加入起从未真正跑通过。已修正为 `mapping[key]` 并补空卡组保护；同时新增本轮机制的观测采集（`aux` 名单 / `offscreen_violated` / `scene_shift`）与「删正文」回归哨兵（极短回复 <200 字、以句号或逗号开头的残句），报告新增对应小节。
 - **提示词普适性修复**：reflect 提示词中 aux_updates 改名说明写入了具体人名示例，违反引擎普适性红线（不在 S5 黑名单故未自动拦截）。已全部改为中性占位，并把 `replaces` 触发条件写死：职务/身份/外貌类称呼一旦本轮得知姓名**必须**走合并，旧称呼须逐字照抄已登记名单；`director.py` 注释中同批具体人名一并中性化。
+- **分发包泄漏修复**：`DEVLOG.md` / `TODO.md` 此前随包分发，内含私人剧本的具体角色名、关系与题材词（引擎普适性红线在源码层已守住，日志层漏了）。已按 `FACT-MEMO.md` 的先例加入 `EXCLUDE_FILES`，`engine/README.md` 中对二者的引用同步改为「只存在于开发工作树」。包体 32 → 30 条目。
 - **README 版本引用**：`当前版本见 engine/VERSION（v0.13.1）` 的括号硬编码已陈旧 4 个版本，改为不复写版本号（`engine/VERSION` 为唯一真相源）。
 - 验证：确定性单测 196 passed / 1 skipped / 1 deselected；10 轮端到端压测（真 LLM）0 异常、0 空回复、present 违例 0、极短回复 0、残句 0；群演定向探针两遍均「泛称 → 本名」合并成功且不新增重复 chip（第二遍正文无「我叫X」，证明由纪官主动填 `replaces` 而非引擎兜底）。报告见 `tests/runs/`。
 

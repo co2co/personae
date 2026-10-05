@@ -34,9 +34,11 @@ engine/
 ├── requirements.txt  Flask / requests
 ├── INSTALL.md        安装指南（面向分发用户，先看这个）
 ├── VERSION         版本号
-├── DEVLOG.md       开发日志（架构决策 + 版本记录，必读）
 └── worldbook-guide.md  世界书用户手册（含例子与走查）
 ```
+
+> 开发日志 `DEVLOG.md` 与待办 `TODO.md` 只存在于开发工作树，**不随分发包提供**
+> （内含具体剧本的角色名与题材词，属引擎普适性红线）。
 
 ## 运行
 
@@ -64,4 +66,4 @@ python app.py          # 默认 http://127.0.0.1:5000
 - **关系网 / 目标**：由 director 在每轮 reflect 中从叙事回写（actions / goals / relations）。
 - **present 校验**：生成后剥离非在场角色（含已离场者、环境推手）的台词块，避免出戏。
 
-详细的版本演进、架构决策与待办见 `DEVLOG.md`；世界书用法见 `worldbook-guide.md`。
+世界书用法见 `worldbook-guide.md`；版本演进与架构决策见开发工作树中的 `DEVLOG.md`（不随分发提供）。

@@ -36,6 +36,11 @@ EXCLUDE_SUBPATHS = {
 # 内部设计备忘：不随分发（写给开发者复装用，用户不需要也不该看到已移除机制的细节）
 EXCLUDE_FILES = {
     "FACT-MEMO.md",
+    # 开发日志 / 待办：含私人剧本的具体角色名、关系与题材词（引擎普适性红线：
+    # 引擎面向任意剧本，这些名字一个都不该出现在分发物里）。与 FACT-MEMO 同理，
+    # 属只留工作树的内部文档。engine/README.md 中对二者的引用已同步改为不随包提供。
+    "DEVLOG.md",
+    "TODO.md",
 }
 
 # Windows 保留设备名（CON/PRN/AUX/NUL/COM1-9/LPT1-9）。
