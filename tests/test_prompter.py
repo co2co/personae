@@ -104,31 +104,19 @@ def test_build_session_long_history_stable():
         ratio * 100, tok, raw)
 
 
-# --- 分段格式契约（v0.16.0 压测发现：模型改用散文引号致 5 处机制静默失效）---
+# --- 分段格式：v0.17.0 已移除该契约（simon 定：损害叙事观感）---
 
-def test_build_session_declares_speaker_block_format():
-    """build_session 必须显式声明「角色名：」分段格式。
+def test_build_session_has_no_speaker_block_contract():
+    """不得再强制「角色名：」分段格式。
 
-    引擎有 5 处机制靠行首「角色名：」匹配台词块（validate_present 剥离、
-    detect_offscreen_activity、已故者开口检测、_AUX_SPEAKER_RE、镜头裁剪）。
-    压测实测：未声明时模型 30/30 轮改用散文引号，这 5 处全部静默失效。
+    v0.16.1 曾加 [分段格式] 块修 5 处机制，但 simon 亲测发现**叙事正文观感明显下降**：
+    原本以散文为主体的正文（大段环境/动作/心理描写 + 引号对白）被压成
+    「角色甲：（动作）台词」的流水账。叙事质量优先于机制完整度，故 v0.17.0 整体移除。
+
+    依赖该格式的机制已改用不依赖格式的判据（见 test_aux_registration.py 的散文形态用例）。
     """
     sysmsg = "\n".join(m["content"] for m in prompter.build_session(
         CARDS, "继续", [], MIN_SNAP))
-    assert "[分段格式]" in sysmsg
-    assert "角色名" in sysmsg
-    # 必须明确禁用引号替代分段——那正是压测观察到的失败模式
-    assert "引号" in sysmsg
-
-
-def test_speaker_block_uses_neutral_placeholders():
-    """形式示例只能用中性占位，不得写入任何具体剧本角色名（引擎普适性红线）。"""
-    sysmsg = "\n".join(m["content"] for m in prompter.build_session(
-        CARDS, "继续", [], MIN_SNAP))
-    i = sysmsg.find("[分段格式]")
-    block = sysmsg[i:i + 500]
-    assert "角色甲" in block or "角色乙" in block, "分段格式示例应给出行首样例"
-    # 复用 test_universality 的黑名单，不在本文件重复列出（护栏自身豁免）
-    from test_universality import BANNED
-    for b in BANNED:
-        assert b not in block, "分段格式示例混入具体剧本名/题材词：%s" % b
+    assert "[分段格式]" not in sysmsg, "分段格式契约已移除，不得重新引入"
+    # 输出格式块本身应保留（它承载的是叙事要求，不是格式强制）
+    assert "[输出格式]" in sysmsg

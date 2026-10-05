@@ -897,6 +897,98 @@ function renderSnapshot(snap) {
 
 }
 
+// 重新拉取快照并刷新左栏（用于其他就地刷新场景）
+async function refreshSnapshot() {
+  try {
+    const r = await fetch('/api/snapshot?session=' + encodeURIComponent(SID));
+    const snap = await r.json();
+    if (snap && snap.scene) renderSnapshot(snap);
+  } catch (e) { /* 刷新失败不影响主流程 */ }
+}
+
+// 注入一轮扰动：POST /api/act 走 SSE 流式返回
+//   delta  = 叙事增量，边收边显示
+//   status = 后台阶段提示（纪官同步等），据此禁用输入框
+//   done   = 本轮结束，附带 snapshot / scene_change / ending_candidate
+async function send() {
+  const text = input.value.trim();
+  if (!text || sendBtn.disabled) return;
+  input.value = '';
+  sendBtn.disabled = true;
+  statusEl.textContent = '生成中…';
+  bubble('user', text);
+
+  const resp = await fetch('/api/act', {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({session: SID, input: text}),
+  });
+  const reader = resp.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '', node = null, acc = '';
+  while (true) {
+    const {done, value} = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, {stream: true});
+    const parts = buffer.split('\n\n');
+    buffer = parts.pop();
+    for (const part of parts) {
+      const line = part.trim();
+      if (!line.startsWith('data:')) continue;
+      const data = JSON.parse(line.slice(5).trim());
+      if (data.error) { statusEl.textContent = '错误：' + data.error; break; }
+      if (data.status) {
+        statusEl.textContent = data.status;
+        // 纪官同步阶段：输入框显式切换到「后台同步」提示，禁止玩家误解为可输入下一回合
+        const syncing = data.status.indexOf('同步') >= 0;
+        if (syncing) {
+          input.placeholder = '后台正在进行本回合叙事状态同步…';
+          input.disabled = true;
+        }
+      }
+      if (data.delta) {
+        if (!node) node = bubble('assistant', '');
+        acc += data.delta;
+        node.textContent = acc;
+        stageEl.scrollTop = stageEl.scrollHeight;
+      }
+      if (data.done) {
+        if (data.reply) { if (!node) node = bubble('assistant', ''); node.textContent = data.reply; acc = data.reply; }
+        // 纪官同步结束，恢复输入框默认状态，允许玩家进入下一回合
+        input.placeholder = INPUT_PLACEHOLDER_DEFAULT;
+        input.disabled = false;
+        if (data.snapshot) {
+          renderSnapshot(data.snapshot);
+        }
+        if (data.ending_candidate) showEndingCandidate(data.ending_candidate);
+        if (data.scene_change) {
+          const sc = data.scene_change;
+          let line = '—— 场景切换：' + sc.place + (sc.time ? '（' + sc.time + '）' : '）');
+          if (sc.leave.length) line += ' ｜ ' + sc.leave.join('、') + ' 离开';
+          if (sc.arrive.length) line += ' ｜ ' + sc.arrive.join('、') + ' 到场';
+          bubbleSystem(line);
+          statusEl.textContent = '场景切换：' + sc.place + (sc.time ? '（' + sc.time + '）' : '');
+        }
+        else statusEl.textContent = '完成';
+      }
+    }
+  }
+  sendBtn.disabled = false;
+  // 兜底复原：无论正常结束还是中途异常，都恢复输入框默认状态
+  input.placeholder = INPUT_PLACEHOLDER_DEFAULT;
+  input.disabled = false;
+}
+
+// 主流程按钮绑定。缺任何一个都会让界面「点了没反应」且不报错，
+// 因此集中放在这里，不要在别处分散绑定。
+document.getElementById('start').onclick = startSession;
+sendBtn.onclick = send;
+input.addEventListener('keydown', e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } });
+
+// ---- 系统设置（模型与生成 + 帮助与文档，统一入口） ----
+// 已保存的 LLM 提供商（持久化到 config.providers，每项 {key,name,base_url,api_key,model}）
+let cfgProviders = [];      // 提供商清单
+let cfgActiveKey = "";      // 当前生效的提供商 key
+let cfgOpen = {};           // 展开状态：key -> bool
 function renderProviders() {
   const box = document.getElementById('cfg-providers');
   if (!cfgProviders.length) {

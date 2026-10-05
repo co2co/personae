@@ -502,28 +502,92 @@ def discover_aux_speakers(reply, exclude):
     exclude：已知名字集合（在场角色 + 角色卡库 + 已登记 aux + 背景人物 + 环境推手），
     这些不算新群演。返回去重后的新名字列表（已排除常见叙事节拍词/元信息前缀/
     泛称描述词/自称消解后的别名，仅保留疑似人名的片段）。
+
+    **两种叙事形态都要认**（v0.17.0 移除「角色名：」分段格式契约后，模型回归散文主体）：
+      ① 分段形：`苏青：（喘息）我是护士`  —— 行首「名字：」
+      ② 散文形：`“苏青。”她抬起头` / `苏青喊道：……` —— 引号紧跟名字，或「名字 + 说话动词」
+    只认 ① 时，散文体下该机制完全失效（临时群演无法登记、跨回合连续性丢失）。
     """
     if not reply:
         return []
     out, seen = [], set(exclude or [])
+    # ② 散文形：**「人名 + 冒号/说话动词 + 引号」**（如「老陈说：“水够吗？”」）
+    #
+    #    【为什么不认「引号紧跟名字」】v0.17.0 实测误判率极高：模型写的
+    #    「“角色乙，”角色甲没有抬头」（引号内是人名）与「“从今天起，”他的声音不高」
+    #    （引号内是台词内容）在字面上无法区分，一轮正文能误抓十几个碎片
+    #    （「从今天起」「我腿软」「真的要去吗」…），会把群演注册表填满垃圾。
+    #
+    #    【为什么不认「名字 + 说话动词」宽松匹配】中文无词边界，「角落里老陈咳了
+    #    一声」这类前缀会让贪婪匹配切出「角落里老」，非贪婪又漏掉「老陈」，
+    #    试过非贪婪/后向断言/窗口扫描均不可靠。中文人名边界本身不可机械判定。
+    #
+    #    **代价（明确接受）**：模型若写成「那个陌生人咳了一声。“水够吗？”」，
+    #    该群演本轮不登记、下一轮才被发现。漏检的代价只是群演晚一轮进左栏；
+    #    而误检的代价是左栏出现「从今天起」这种根本不存在的角色——后者大得多。
+    #    旁路仍在：导演可用【引入角色】指令显式登记（parse_aux_introductions，
+    #    不依赖任何正文形态），这是散文剧本下最可靠的入口。
+    prose_said = re.compile(
+        r"([\u4e00-\u9fff]{2,3}?)\s*(?:低声|沉声|冷声|轻声|大声|哑声|颤声|急声)?\s*"
+        r"(?:说道|说|道|问道|问|答道|答|喊道|喊|叫道|开口|嘟囔|呢喃)\s*"
+        r"[：:]?\s*[“\"]")
+    # 说话动词与语气状语可能已被贪婪匹配吃进名字（「角色丙说」「角色丙低声」）——从尾部切掉。
+    _AUX_VERB_TAIL = ("说道", "说", "道", "问道", "问", "答道", "答",
+                      "喊道", "喊", "叫道", "叫", "开口", "嘟囔", "呢喃",
+                      "低声", "沉声", "冷声", "轻声", "大声", "哑声", "颤声", "急声")
+    # 候选**前缀**污染：代词与常见动作/方位词开头的一律不是人名（「他转向角色丙」→ 切掉「他转向」）。
+    # 用反复剥离而非一次替换——中文里「他转向」「她递给」可能叠着多层。
+    _AUX_PREFIX_NOISE = (
+        "他转向", "她转向", "他们", "她们", "转向", "看向", "望向", "递给", "递出",
+        "走向", "走近", "靠近", "退开", "转身", "抬头", "低头", "回头",
+        "拉起", "推开", "拿起", "放下", "转向", "朝着", "对着", "向着",
+        "然后", "接着", "随后", "于是", "同时", "接着",
+        "他", "她", "它", "我", "你", "有人", "众人",
+    )
+    # 代词/泛指：不作为人名候选（「她低声说」「有人喊道」）
+    _AUX_PRONOUNS = {
+        "她", "他", "它", "我", "你", "您", "咱", "谁", "这", "那", "其", "有人",
+    }
     for ln in reply.split("\n"):
         m = _AUX_SPEAKER_RE.match(ln.strip())
-        if not m:
-            continue
-        name = m.group(1).strip()
-        if not name or name in seen or name in _AUX_BEAT_WORDS:
-            continue
-        # 泛称描述（年轻女子、中年男人、老翁）不是人名，不登记为群演。
-        # 用**包含**匹配：「年轻女子」不是词表里的词，但含修饰性后缀「女子」。
-        # 职业词只做**全等**——「李医生」「王医生」含「医生」但都是真名字，不能误伤。
-        if any(w in name for w in _AUX_GENERIC_MODIFIERS):
-            continue
-        if name in _AUX_GENERIC_WORDS or name in _AUX_PROFESSION_WORDS:
-            continue
-        if len(name) > 6 or len(name) < 2:
-            continue
-        out.append(name)
-        seen.add(name)
+        cands = []
+        if m:
+            cands.append(m.group(1).strip())          # ① 分段形：行首「名字：」
+        else:
+            cands.extend(g.strip() for g in prose_said.findall(ln))  # ② 散文形
+        for name in cands:
+            # 切掉被贪婪匹配吃进来的说话动词/状语尾部（「角色丙说」「角色丙低声」）
+            changed = True
+            while changed and len(name) > 2:
+                changed = False
+                for v in _AUX_VERB_TAIL:
+                    if name.endswith(v) and len(name) - len(v) >= 2:
+                        name = name[:-len(v)]
+                        changed = True
+            # 切掉被吃进来的**前缀**（「他转向角色丙」→「角色丙」）：代词与常见动词/方位词
+            # 开头的候选一定是被前文污染的，不可能是人名。
+            changed = True
+            while changed and len(name) > 2:
+                changed = False
+                for pre in _AUX_PREFIX_NOISE:
+                    if name.startswith(pre) and len(name) - len(pre) >= 2:
+                        name = name[len(pre):]
+                        changed = True
+            if not name or name in seen or name in _AUX_BEAT_WORDS:
+                continue
+            if name in _AUX_PRONOUNS:
+                continue
+            # 泛称描述（年轻女子、中年男人、老翁）不是人名，不登记为群演。
+            # 用**包含**匹配：「年轻女子」不是词表里的词，但含修饰性后缀「女子」。
+            # 职业词只做**全等**——「李医生」「王医生」含「医生」但都是真名字，不能误伤。
+            if any(w in name for w in _AUX_GENERIC_MODIFIERS):
+                continue
+            if name in _AUX_GENERIC_WORDS or name in _AUX_PROFESSION_WORDS:
+                continue
+            if len(name) > 6 or len(name) < 2:
+                continue
+            out.append(name)
+            seen.add(name)
     # 自称消解：模型先用泛称起段、自报姓名后改用本名时，两者只算一个人（见 _resolve_aux_aliases）
     kept, dropped = _resolve_aux_aliases(reply, out)
     if dropped:
@@ -635,15 +699,22 @@ def detect_offscreen_activity(reply, background_names):
     """自检「背景人物是否被活动化」——simon 验收标准：引擎把背景人物写成活动角色即失责。
 
     仅检测、不删正文（背景被在场角色提及本身是允许的，误删风险高）。返回 (是否失责, 命中行列表)。
-    命中两类：
-      ① 背景人物获得独立台词块（'背景名：' 起头）——被写了对白/独白；
-      ② 第三人称段落以背景人物为主语并含动作/出场信号（如「X从门后走出」）——被写成主角行动。
+    命中三类（**三判据互补，不依赖输出格式**——v0.17.0 已移除「角色名：」分段格式契约，
+    模型回归散文主体写法，故不能只靠行首匹配）：
+      ① 独立台词块（'背景名：' 起头）——被写了对白/独白；
+      ② 第三人称分句以背景名为主语且含动作/出场信号（如「X从门后走出」）——被写成主角行动；
+      ③ **引号紧跟背景名**（如「“老王，走吧。”」）——被写成对白。这是散文写法下
+         背景人物获得台词的唯一形态，缺了它该检测在散文体下完全失效。
     """
     if not reply or not background_names:
         return False, []
     names_sorted = sorted(set(background_names), key=len, reverse=True)
     pat = re.compile(r"^(?:" + "|".join(re.escape(n) for n in names_sorted) + r")\s*[:：]")
     action_re = re.compile(r"[走跑走进出开看说笑问拿放抱亲吻摸扯拉推挡站坐躺靠冲望回头转转身来到去迎送探伸]")
+    # ③ 引号紧跟背景名：中文引号“” 与英文引号 "" 都算；名字后允许带标点
+    quoted = re.compile(
+        r"[“\"](?:" + "|".join(re.escape(n) for n in names_sorted) + r")"
+        r"\s*[，。！？…、]?\s*[”\"]")
     hits = []
     for ln in reply.split("\n"):
         s = ln.strip()
@@ -652,7 +723,10 @@ def detect_offscreen_activity(reply, background_names):
         if pat.match(ln):                      # ① 独立台词块（对白/独白）
             hits.append(s)
             continue
-        # ② 第三人称分句：以背景名作主语且含动作/出场信号（兼顡整段混写无换行的情况）
+        if quoted.search(s):                  # ③ 引号紧跟背景名（散文体下的对白）
+            hits.append(s)
+            continue
+        # ② 第三人称分句：以背景名作主语且含动作/出场信号（兼顾整段混写无换行的情况）
         for seg in re.split(r"[。！？；\n]", s):
             seg = seg.strip()
             if not seg:
