@@ -37,11 +37,22 @@ BANNED = [
 # 护栏自身所在文件：黑名单必须写在这里，故豁免
 GUARD_FILES = {"test_universality.py"}
 # test_intimacy_scale.py 亦持有黑名单（校验提示词不含具体名），属正当引用
+# 前缀「_」为一次性工具脚本（压测探针等），跑完即删、不入库，绑定真实卡组是它们的用途本身
 ALLOW_FILES = GUARD_FILES | {"test_intimacy_scale.py"}
 
 
+def _is_tool_script(rel):
+    return rel.startswith("_")
+
+
 def _py_files():
-    return [p for p in TESTS_DIR.rglob("*.py") if p.name not in ALLOW_FILES]
+    out = []
+    for p in TESTS_DIR.rglob("*.py"):
+        rel = p.relative_to(TESTS_DIR).as_posix()
+        if p.name in ALLOW_FILES or _is_tool_script(rel):
+            continue
+        out.append(p)
+    return out
 
 
 def test_tests_have_no_hardcoded_character_or_genre_names():

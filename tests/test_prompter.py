@@ -71,3 +71,33 @@ def test_build_session_long_history_stable():
     tok = sum(prompter.count_tokens(m.get("content", "")) for m in msgs)
     # 压缩后窗口外仅在摘要块，应远低于无窗口的线性膨胀
     assert tok < 12000, "长历史 prompt tok=%d 未有效压缩" % tok
+
+
+# --- 分段格式契约（v0.16.0 压测发现：模型改用散文引号致 5 处机制静默失效）---
+
+def test_build_session_declares_speaker_block_format():
+    """build_session 必须显式声明「角色名：」分段格式。
+
+    引擎有 5 处机制靠行首「角色名：」匹配台词块（validate_present 剥离、
+    detect_offscreen_activity、已故者开口检测、_AUX_SPEAKER_RE、镜头裁剪）。
+    压测实测：未声明时模型 30/30 轮改用散文引号，这 5 处全部静默失效。
+    """
+    sysmsg = "\n".join(m["content"] for m in prompter.build_session(
+        CARDS, "继续", [], MIN_SNAP))
+    assert "[分段格式]" in sysmsg
+    assert "角色名" in sysmsg
+    # 必须明确禁用引号替代分段——那正是压测观察到的失败模式
+    assert "引号" in sysmsg
+
+
+def test_speaker_block_uses_neutral_placeholders():
+    """形式示例只能用中性占位，不得写入任何具体剧本角色名（引擎普适性红线）。"""
+    sysmsg = "\n".join(m["content"] for m in prompter.build_session(
+        CARDS, "继续", [], MIN_SNAP))
+    i = sysmsg.find("[分段格式]")
+    block = sysmsg[i:i + 500]
+    assert "角色甲" in block or "角色乙" in block, "分段格式示例应给出行首样例"
+    # 复用 test_universality 的黑名单，不在本文件重复列出（护栏自身豁免）
+    from test_universality import BANNED
+    for b in BANNED:
+        assert b not in block, "分段格式示例混入具体剧本名/题材词：%s" % b
