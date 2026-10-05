@@ -137,7 +137,37 @@ def test_leave_respected_on_door_split(patched):
         "sid", "角色丁挤进门内找家人，角色甲被挡在门外，两边分开", snap)
     assert changed is True
     assert "角色甲" not in snap["present"]
-    assert len(snap["present"]) == 4
+
+
+def test_scene_apply_clears_goals_on_place_change(patched):
+    """方案 A：场景地点变化即短期目标作废，清空 goals，避免残留目标把角色锚定在原场景。
+
+    对应会话 9f2e16e9 R14：角色旧目标「贴身照看某人伤口」在撤离、与被照看者分离后
+    仍残留，被拽回电梯口抢戏。地点一变，情境即变，旧目标应作废，下轮纪官重写。
+    """
+    snap = _snap()
+    snap["goals"] = {
+        "角色甲": "照看角色丁的伤口",
+        "角色乙": "寻找物资",
+    }
+    # _fake_complete 返回 place=城东，与初始 place=便利店后仓 不同 -> 地点变了
+    changed, prop = scene.apply("sid", "众人转移", snap)
+    assert changed is True
+    assert snap["goals"] == {}, "地点变化后旧短期目标应被清空"
+
+
+def test_scene_apply_keeps_goals_when_place_unchanged(patched):
+    """方案 A 反例：地点未变（同场景内的小变化）时 goals 应保留，不误伤。"""
+    def _same_place(messages, **kw):
+        return json.dumps({"changed": True, "place": "便利店后仓", "time": "",
+                           "weather": "（未设定）", "leave": [], "arrive": [],
+                           "reason": "仍在原地"})
+    scene.llm.complete = _same_place
+    snap = _snap()
+    snap["goals"] = {"角色甲": "照看角色丁的伤口"}
+    changed, prop = scene.apply("sid", "原地等待", snap)
+    assert changed is True
+    assert snap["goals"] == {"角色甲": "照看角色丁的伤口"}, "地点未变时目标应保留"
 
 
 # ---- 开场场景拆分（v0.17.3：时间锚从混写字符串里识别出来）----

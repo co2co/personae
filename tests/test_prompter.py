@@ -106,6 +106,37 @@ def test_build_session_long_history_stable():
 
 # --- 分段格式：v0.17.0 已移除该契约（simon 定：损害叙事观感）---
 
+def test_focus_out_of_shot_goal_suppressed():
+    """方案 B：有镜头焦点时，镜头外角色的残留目标不注入，避免其被旧目标拽回抢戏。
+
+    对应会话 9f2e16e9 R14：焦点锁定某角色，镜头外角色的旧目标「贴身照看某人伤口」
+    却仍作为「当前意图」注入，导致其无视镜头约束、追到电梯口救治。
+    """
+    snap = dict(MIN_SNAP)
+    snap["goals"] = {
+        "角色甲": "照看角色丁的伤口",
+        "角色丁": "寻找物资",
+    }
+    msgs = prompter.build_session(
+        CARDS, "继续", [], snap,
+        focus={"subjects": ["角色丁"], "place": "地库"})
+    sysmsg = "\n".join(m["content"] for m in msgs)
+    # 镜头外角色（角色甲）的残留目标不得作为「当前意图」出现
+    assert "照看角色丁的伤口" not in sysmsg
+    # 镜头内角色（角色丁）的目标仍应注入
+    assert "寻找物资" in sysmsg
+
+
+def test_no_focus_keeps_all_goals():
+    """方案 B 反例：无焦点（自然推演）时所有角色目标照常注入，不误伤。"""
+    snap = dict(MIN_SNAP)
+    snap["goals"] = {"角色甲": "照看角色丁的伤口", "角色丁": "寻找物资"}
+    msgs = prompter.build_session(CARDS, "继续", [], snap, focus=None)
+    sysmsg = "\n".join(m["content"] for m in msgs)
+    assert "照看角色丁的伤口" in sysmsg
+    assert "寻找物资" in sysmsg
+
+
 def test_build_session_has_no_speaker_block_contract():
     """不得再强制「角色名：」分段格式。
 

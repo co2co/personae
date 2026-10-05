@@ -191,11 +191,19 @@ def apply(sid, directive, snap):
         return False, prop
 
     # 落实新场景
-    snap["scene"]["place"] = (prop.get("place") or snap["scene"].get("place", "")).strip()
+    old_place = snap["scene"].get("place", "")
+    new_place = (prop.get("place") or old_place).strip()
+    snap["scene"]["place"] = new_place
     snap["scene"]["time"] = _norm_time(
         prop.get("time"), directive, snap["scene"].get("time", "")).strip()
     snap["scene"]["weather"] = (prop.get("weather") or snap["scene"].get("weather", "")).strip()
     snap["scene"]["same_scene"] = 0
+    # 场景地点变化即短期目标作废：goal 是「当前情境下的短期意图」，地点一变情境即变，
+    # 旧目标（如「贴身照看某人伤口」）会把角色错误锚定在原场景、无视本轮已转移到新地点
+    # 的事实（会话 9f2e16e9 R14：角色被旧目标拽回电梯口救治已离场的同伴）。清空后下轮
+    # 纪官基于新场景重新生成目标，避免残留锚定。
+    if new_place and new_place != old_place:
+        snap["goals"] = {}
 
     # 落实場名单变化（安全网：去重、仅合法卡、离开者须当前在场、到达者须未在场）
     present = list(snap["present"])

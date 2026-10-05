@@ -203,8 +203,13 @@ def build_session(cards_present, directive, world_hits, snap,
     # 本轮被提级到[本轮必须发生的事]的秘密（同时最多一条）：角色块内的指引要与它对齐，
     # 否则非提级条目也会指向一个不存在的段落。
     forced_owners = {o for o, _ in pressure_targets(snap, list(cards_present))}
+    # 镜头外角色降权：本轮有镜头焦点时，不在焦点内的角色的旧短期目标不再作为驱动力注入，
+    # 否则其残留目标（如「贴身照看某人伤口」）会把角色拽回镜头里抢戏（会话 9f2e16e9 R14）。
+    focus_subs = set((focus or {}).get("subjects") or [])
     for name, card in cards_present.items():
         goal = snap["goals"].get(name, "")
+        if focus_subs and name not in focus_subs:
+            goal = ""  # 镜头外：本轮不展开，旧目标不驱动其行动
         hint = ""
         # 秘密提示：逐条检查本角色相关的秘密状态，注入对应提示（须嵌套在 per-character 循环内）
         for s in snap["secrets"]:
