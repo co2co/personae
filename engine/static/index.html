@@ -688,6 +688,10 @@
         <div class="panel-body panel-body-scroll"><div id="states"></div></div>
       </div>
       <div class="panel">
+        <div class="panel-head"><h3>人物位置</h3><span class="panel-toggle">▾</span></div>
+        <div class="panel-body panel-body-scroll"><div id="locations"></div></div>
+      </div>
+      <div class="panel">
         <div class="panel-head"><h3>秘密</h3><span class="panel-toggle">▾</span></div>
         <div class="panel-body"><div id="secrets"></div></div>
       </div>
@@ -874,6 +878,12 @@ function renderSnapshot(snap) {
   document.getElementById('states').innerHTML = Object.entries(snap.states || {})
     .map(([k, v]) => `<div class="rel-row">${k}：${(v && v.value) || '（未知）'}</div>`)
     .join('') || '<div class="rel-row">（尚未确立任何状态）</div>';
+
+  // 人物位置（谁在哪里）：与「现状」分离的独立唯一真相源，分队/离场时
+  // 逐人展示实际位置，避免同一角色在物件状态里被写成两处。
+  document.getElementById('locations').innerHTML = Object.entries(snap.locations || {})
+    .map(([k, v]) => `<div class="rel-row">${k}：${(v && v.place) || '（未知）'}</div>`)
+    .join('') || '<div class="rel-row">（尚未记录任何位置）</div>';
 
   // 刻意不渲染：relations / actions / goals。
   // 这三者都是「引擎算出来的中间结果」而非「世界本身」——关系定性、每回合行为

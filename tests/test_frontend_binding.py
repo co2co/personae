@@ -70,7 +70,7 @@ class TestFrontendMainFlowBound(unittest.TestCase):
         """
         html = _read_index()
         # 只查左栏快照渲染用到的 id，范围可控、误报低。
-        for pid in ("present", "scene-line", "states", "secrets"):
+        for pid in ("present", "scene-line", "states", "locations", "secrets"):
             self.assertIn('id="%s"' % pid, html, "左栏缺少 #%s 容器" % pid)
         for pid in ("actions", "goals", "facts"):
             self.assertNotIn(

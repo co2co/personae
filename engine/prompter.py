@@ -408,6 +408,17 @@ def build_session(cards_present, directive, world_hits, snap,
               "（例如门已封死就不得写成通行无阻）。这些状态可被后续剧情改变，"
               "一旦改变以本轮指令与叙事为准。"
         )
+    # 人物位置：谁在哪里是物理事实，须与状态键分离（见 director.update_locations）。
+    # 分队/离场时镜头所在（scene.place）与各角色实际位置不同，此处给出逐人位置，
+    # 防止模型把「已困电梯的人」又写回「在卧室里」造成空间矛盾（会话 9f2e16e9 事故）。
+    loc_lines = ["- " + k + "：" + (v.get("place") or "")
+                 for k, v in (snap.get("locations") or {}).items() if v]
+    if loc_lines:
+        blocks.append(
+            "[人物位置（不可违背）]\n" + "\n".join(loc_lines)
+            + "\n以上为各角色本轮所处的位置；除非本轮指令或叙事明确推动其移动，"
+              "否则角色不得凭空出现在别处，更不得同一角色同时身处两地。"
+        )
     blocks.append(
         state_block
         + "\n回合：" + str(sc["round"])

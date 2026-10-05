@@ -160,7 +160,7 @@ _SECRET_PUBLIC_FIELDS = ("owner", "state", "known_by", "suspicions")
 # 都要用；白名单的职责是「哪些字段可以外发」，不是「哪些字段当前在渲染」。
 _SNAPSHOT_PUBLIC_FIELDS = (
     "present", "scene", "relations", "actions", "goals",
-    "secrets", "ledger", "states", "silent_rounds", "aux",
+    "secrets", "ledger", "states", "silent_rounds", "aux", "locations",
 )
 
 

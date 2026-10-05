@@ -6,6 +6,21 @@
 
 ---
 
+## 2026-10-06 版本 v0.18.0（结构化人物位置层：谁在哪里成为唯一真相源）
+
+- 版本判定 **MINOR**（v0.17.6 → v0.18.0）：新增结构化字段 `locations` 与纪官上报通道 `location_updates`，是新增机制能力，非错误修正。
+- **事故**（会话 9f2e16e9 R14）：快照同时存在「苏婉：昏迷在电梯角落」(R14) 与「卧室门：紧闭，苏婉在屋内」(R12)，同一角色同时"在"电梯和卧室。根因——人物位置没有结构化归属，散落在三处：`scene.place`（镜头位置）/ 物件状态键 value 里的嵌套引用（「卧室门」value 塞"苏婉在屋内"）/ 纪官违规造的角色裸名键。分队移动后旧键过期，无人负责联动清理，引擎 states 是独立 KV 覆盖式刷新、无跨键一致性检测。
+- **修复**：把「谁在哪里」从物件状态里剥离，成为一等公民状态——
+  - `engine/director.py`：新增 `update_locations(snap, items, round_no)` + `LOCATION_CAP=40`。一角色一当前位置，后写覆盖前写，天然消解「同时两处」。键归并复用 `_STATE_NOISE` 去助词/标点（不剥「情绪/状态」后缀，那是角色名不是伤情键）。
+  - `reflect` prompt：新增 `location_updates` 字段与规则（who+place，只填 moved 的角色，同一角色只报一条）；`state_updates` 规则**明令禁止把人物位置写进物件/环境键**（根源所在）；reflect 回喂「既有位置」供纪官沿用、防造同义键。
+  - `engine/prompter.py`：注入「[人物位置（不可违背）]」块，与「当前状态」并列——分队/离场时逐人位置独立于镜头所在（scene.place），防止模型把「已困电梯的人」写回「在卧室」。
+  - `engine/app.py`：`_SNAPSHOT_PUBLIC_FIELDS` 加入 `locations`。
+  - `engine/static/index.html`：左栏新增「人物位置」面板（在「现状」之后），逐人渲染 `locations`，与「现状」面板分离、一眼可辨。
+- **兼容性**：旧会话无 `locations` 字段，prompter/前端均用 `snap.get("locations") or {}` 兜底，首轮 reflect 归档 `location_updates` 时 `setdefault` 自动建立，无需迁移。
+- **测试**：`tests/test_director.py` +5（逐人覆盖 / 分队独立 / 空值占位丢弃 / 同义键归并 / reflect 归档落库）；`tests/test_frontend_binding.py` 面板 id 检查加入 `locations`。全量确定性测试 228 passed / 1 skipped / 1 deselected，无回归。
+- **压测待办**：属机制设定级（新增位置层），与 v0.17.6 秘密护栏一并并入后续压测批次（30 轮 stress + compare，实机 + 本地 LLM）。
+- `VERSION` 升 v0.18.0。
+
 ## 2026-10-06 版本 v0.17.6（秘密暴露语义护栏：拦内心独白/话题错位/不在场者误报）
 
 - 版本判定 **PATCH**（v0.17.5 → v0.17.6）：修正「秘密被无中生有误标暴露」的判定缺陷，属秘密记账核心度量路径的行为修正。

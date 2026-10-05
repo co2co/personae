@@ -1332,6 +1332,9 @@ def _merge_pressure_into_focus(focus, snap, present):
     return merged
 # 状态层键上限：超出淘汰最久未更新的键（状态是覆盖式的，键数本由对象数决定，此为兜底）。
 STATE_CAP = 20
+# 人物位置表上限：只存「谁在哪里」的当前值，一角色一位置，后写覆盖前写。
+# 角色数（cast + aux）通常远小于 20，上限是防纪官把同名泛称造出一串位置键。
+LOCATION_CAP = 40
 # 键归一化忽略的字符：助词「的」与常见标点。仅用于判定「是不是同一个键」，不改写键名。
 # 去助词与标点：只在此层面上完全相同才合并，不做子串包含匹配
 # （「角色A」与「角色A手臂伤口」语义不同，子串匹配会把它们错误并成一个键）。
@@ -1396,6 +1399,39 @@ def update_states(snap, items, round_no):
         for k in sorted(st, key=lambda k: st[k].get("round", 0))[:len(st) - STATE_CAP]:
             st.pop(k, None)
     return st
+
+
+def update_locations(snap, items, round_no):
+    """人物位置层：一角色一当前位置，后写覆盖前写。
+
+    与 states（物件/环境状态）分离的独立唯一真相源——「谁在哪里」是物理事实，
+    不容「某人在电梯」「某人在卧室」两条记录并存（会话 9f2e16e9 R14 事故正是
+    位置信息寄生在物件状态键 value 里、分队移动后旧键过期导致的矛盾）。
+    同一角色后一轮的新位置覆盖旧位置，天然消解「同时两处」。
+    """
+    loc = snap.setdefault("locations", {})
+    for it in items or []:
+        who = (it.get("who") or "").strip()
+        place = (it.get("place") or "").strip()
+        if not who or not place:
+            continue
+        if _STATE_PLACEHOLDER.sub("", place) in _PLACEHOLDER_VALUES:
+            continue
+        # 同义键归并：去助词/标点后与既有位置键相同则覆盖，避免「角色A / 角色A的」
+        # 之类变体造重复键。位置键是角色名，不复用 state_key 的「情绪/状态」后缀剥离
+        # （那会把角色名本身误剥），只做 _STATE_NOISE 去助词标点。
+        key = who
+        norm = _STATE_NOISE.sub("", who)
+        if norm:
+            for k in loc:
+                if _STATE_NOISE.sub("", k) == norm:
+                    key = k
+                    break
+        loc[key] = {"place": place, "round": round_no}
+    if len(loc) > LOCATION_CAP:
+        for k in sorted(loc, key=lambda k: loc[k].get("round", 0))[:len(loc) - LOCATION_CAP]:
+            loc.pop(k, None)
+    return loc
 
 
 def init_address(snap):
@@ -1489,6 +1525,10 @@ def reflect(sid, reply):
     # 既有状态键回喂：不把键名摆出来，纪官就会为同一对象造同义新键（压测实证 20 轮造出
     # 3 个「角色B手臂*」），覆盖式存储退化成追加式。列出既有键，要求沿用、勿造同义键。
     st_text = "、".join(sorted((snap.get("states") or {}).keys())) or "（无）"
+    # 既有位置回喂：纪官须知道谁上一轮在哪，才能在本轮移动后正确更新、而非另造同义键。
+    loc_lines = [f"{k}：{(snap['locations'][k].get('place') or '')}"
+                 for k in sorted((snap.get("locations") or {}).keys())]
+    loc_text = "；".join(loc_lines) or "（无）"
     # 已登记群演回喂：纪官必须知道「某个泛称」已在册，才能在她自报姓名时声明改名合并，
     # 否则会把「X」当成又一个新人物（真实回归：会话 1868b891 左栏出现两个 chip）。
     aux_lines = [f"{a.get('name')}（{a.get('role') or ''}）"
@@ -1510,6 +1550,7 @@ def reflect(sid, reply):
             f"当前短期目标：\n{goal_text}\n"
             f"秘密与把柄现状：\n{secret_text}\n"
             f"既有状态键：{st_text}\n"
+            f"既有位置：{loc_text}\n"
             f"已登记群演：{aux_text}\n"
             f"背景人物（无独立角色卡、不在场）：{off_text}\n"
             f"本轮叙事：\n{reply}\n\n"
@@ -1523,6 +1564,7 @@ def reflect(sid, reply):
             '  "handle_releases": [{"owner": "秘密归属者", "from": "失去把柄的人", "to": "接过把柄的人（彻底失去则填空字符串）", "evidence": "本轮叙事原文片段"}],\n'
             '  "secret_touches": [{"owner": "秘密归属者", "touched": true}],\n'
             '  "state_updates": [{"subject": "对象（如某道门、某件物品、某人的伤）", "value": "当前状态一句话"}],\n'
+            '  "location_updates": [{"who": "角色名", "place": "该角色本轮结束时所在的具体地点"}],\n'
             '  "aux_updates": [{"name": "新出场人物的名字或稳定称呼", "note": "一句话身份说明（如「隔壁的住户」「巡夜的保安」）", "replaces": "该人物在「已登记群演」里的旧称呼（仅当本轮才得知其真名时填）"}],\n'
             '  "offscreen_activity": [{"name": "被写成活动角色的背景人物", "evidence": "本轮叙事原文片段"}],\n'
             '  "scene_shift": {"changed": false, "place": "本轮叙事末尾所处的地点", "time": "本轮叙事末尾的时间", "weather": "本轮叙事末尾的天气"}\n'
@@ -1550,6 +1592,14 @@ def reflect(sid, reply):
             "  角色只填具体伤情部位（如「角色A手臂伤口」），不得填角色裸名，也不得填「某人情绪／某人状态／\n"
             "  某人的心理状态」这类泛称——情绪与整体状态归关系与本轮行动，不占状态键（压测实证这类泛称\n"
             "  造出「角色A／角色A情绪／角色A状态／角色A的情绪状态」四键，把键表撑到上限）。\n"
+            "  **严禁把人物位置写进 state_updates**：不得填「卧室门：角色A在屋内」「客厅：某人守在门口」这类把\n"
+            "  「谁在哪里」塞进物件/环境键的写法——人物位置一律走 location_updates，否则分队移动后旧键过期、\n"
+            "  会造成同一角色同时出现在两处（位置不是物件状态，不共用状态键）。\n"
+            "- location_updates 填**每个位置发生变化**的角色的当前位置：谁离开了哪里、到了哪里，只填 moved 的角色，\n"
+            "  没动的角色不必重填（沿用上面「既有位置」）。place 写本轮叙事末尾该角色**实际所处**的具体地点\n"
+            "  （如「电梯内」「地库」「卧室」「客厅」），不要写泛称「外面」「那边」。\n"
+            "  位置是物理事实、每角色唯一：同一角色本轮只报一条，后写覆盖前写，绝不可报两条互相矛盾的位置。\n"
+            "  who 用角色的正式名字（沿用「在场角色」「既有位置」里的写法）；刚移动过的在场角色与群演都要覆盖到。\n"
             "- aux_updates 只填本轮叙事里**新出场、或本轮才确认身份**的人物，引擎登记后跨回合追踪。绝对不填：代词（他/她/有人）、"
             "说话动词碎片（喃喃/呜呜/低声）、无名的背景一笔带过者。"
             "同一称呼此前出现过就不必重填；名字拿不准或人物只是被顺带提及，就不填——"
@@ -1733,6 +1783,8 @@ def reflect(sid, reply):
     # 状态层：当前值的覆盖式刷新（回合数取容错写法——缺键不该让整轮回写失败）
     rd = (snap.get("scene") or {}).get("round", 0)
     update_states(snap, _as_dict_list(data.get("state_updates")), rd)
+    # 人物位置：独立唯一真相源，与状态键分离（见 update_locations 说明）。
+    update_locations(snap, _as_dict_list(data.get("location_updates")), rd)
 
     # 群演登记（语义提取）：由纪官按语义判断谁是新出场人物。
     # v0.17.2 起这是唯一登记入口——原散文正则挖掘（discover_aux_speakers）无法区分

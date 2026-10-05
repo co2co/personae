@@ -132,6 +132,72 @@ def test_record_exposure_adds_holder():
     assert s["state"] == "暴露"
 
 
+# ---- 人物位置层（v0.17.6，会话 9f2e16e9 空间矛盾事故）----
+# 位置是「谁在哪里」的唯一真相源，独立于 states（物件/环境状态）。分队/离场时
+# 同一角色后写覆盖前写，天然消解「同时出现在两处」的矛盾。
+
+def test_update_locations_overwrites_per_character():
+    """同一角色后一轮的新位置覆盖旧位置，不产生两条并存的位置。"""
+    snap = {}
+    director.update_locations(snap, [{"who": A, "place": "卧室"}], 3)
+    assert snap["locations"][A]["place"] == "卧室"
+    director.update_locations(snap, [{"who": A, "place": "电梯内"}], 5)
+    assert snap["locations"][A]["place"] == "电梯内"
+    assert snap["locations"][A]["round"] == 5
+    assert len(snap["locations"]) == 1  # 不膨胀，仍是唯一键
+
+
+def test_update_locations_multi_character_split():
+    """分队时各角色位置独立记录，互不覆盖（镜头所在 ≠ 各人位置）。"""
+    snap = {}
+    director.update_locations(snap, [
+        {"who": A, "place": "地库"}, {"who": B, "place": "电梯内"},
+        {"who": "角色丙", "place": "电梯内"}], 7)
+    assert snap["locations"][A]["place"] == "地库"
+    assert snap["locations"][B]["place"] == "电梯内"
+    assert snap["locations"]["角色丙"]["place"] == "电梯内"
+    assert len(snap["locations"]) == 3
+
+
+def test_update_locations_drops_empty_and_placeholder():
+    """空 who/place 与占位值丢弃，不占键位。"""
+    snap = {}
+    director.update_locations(snap, [
+        {"who": A, "place": ""}, {"who": "", "place": "地库"},
+        {"who": B, "place": "维持现状"}], 3)
+    assert snap.get("locations", {}) == {}
+
+
+def test_update_locations_normalizes_synonym_keys():
+    """同义键（去助词/标点后相同）归并，避免造重复键。"""
+    snap = {}
+    director.update_locations(snap, [{"who": A, "place": "卧室"}], 3)
+    director.update_locations(snap, [{"who": A + "的", "place": "客厅"}], 5)
+    # 「角色甲的」与「角色甲」归并到同一键，覆盖而非追加
+    assert len(snap["locations"]) == 1
+    assert snap["locations"][A]["place"] == "客厅"
+
+
+def test_reflect_records_location_updates(monkeypatch):
+    """reflect 归档 location_updates：纪官上报的逐人位置落进快照 locations。"""
+    import json as _json
+    snap = {"scene": {"round": 8}, "present": [A, B], "relations": {},
+            "actions": {A: "移动", B: "移动"}, "silent_rounds": {},
+            "secrets": [], "facts": [], "states": {}, "goals": {}, "ledger": []}
+    payload = {"actions": {A: "进电梯", B: "进电梯"},
+               "location_updates": [
+                   {"who": A, "place": "电梯内"},
+                   {"who": B, "place": "电梯内"}]}
+    monkeypatch.setattr(director.llm, "complete",
+                        lambda *a, **k: _json.dumps(payload, ensure_ascii=False))
+    monkeypatch.setattr(director.memory, "load", lambda sid: snap)
+    monkeypatch.setattr(director.memory, "save", lambda sid, s: None)
+    out = director.reflect("sid", f"{A}和{B}退进电梯。")
+    assert out["locations"][A]["place"] == "电梯内"
+    assert out["locations"][B]["place"] == "电梯内"
+    assert out["locations"][A]["round"] == 8
+
+
 def test_exposure_requires_real_transfer_via(monkeypatch):
     """v0.17.3：纪官报 secret_exposures 但 via 非实传类（或缺失）时，
     不得翻成暴露，降级为起疑——防止「内心早已看穿」这类心理描写被误判成
