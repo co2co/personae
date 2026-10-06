@@ -63,10 +63,13 @@ def _seed_examples():
         if not src.is_dir():
             continue
         dst.mkdir(parents=True, exist_ok=True)
+        # 目录已有任意内容（哪怕只剩 1 个文件）即视为「已播种 / 已有私人剧本」，
+        # 整份跳过。此前按文件逐个补缺，会把用户已删除的 demo 从 examples 重新拷回，
+        # 导致「删除角色」下一秒又被播种、看起来删除失效。
+        if any(dst.glob("*.json")):
+            continue
         for f in src.glob("*.json"):
-            target = dst / f.name
-            if not target.exists():
-                shutil.copyfile(f, target)
+            shutil.copyfile(f, dst / f.name)
 
 
 def list_characters():
@@ -113,10 +116,20 @@ def save_card(name, card):
 
 
 def delete_card(name):
+    """删除角色卡文件。返回 True 表示文件存在并已删除，False 表示原本就不存在。
+
+    未删除必须显式返回 False（而非静默 return），否则上层路由无法区分
+    「真删了」与「名字对不上磁盘文件名、其实没删到」，会向前端误报删除成功。
+    """
+    name = (name or "").strip()
+    if not name:
+        return False
     p = DATA_DIR / "characters" / f"{name}.json"
-    if p.exists():
-        p.unlink()
-        _invalidate(p)
+    if not p.exists():
+        return False
+    p.unlink()
+    _invalidate(p)
+    return True
 
 
 def list_worlds():

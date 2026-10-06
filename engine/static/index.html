@@ -1304,11 +1304,15 @@ document.getElementById('char-save').onclick = async () => {
   else { charMsg.style.color='var(--danger)'; charMsg.textContent='保存失败：'+r.error; }
 };
 document.getElementById('char-delete').onclick = async () => {
-  const name = document.getElementById('c-name').value.trim();
-  if (!name) return;
+  // 删除「当前打开的角色卡」：用 loadChar 时载入的权威名（_charOrig.name，等于磁盘文件名），
+  // 不取编辑框 c-name 的实时值——避免用户在编辑框改过名字、或角色名带首尾空格时，
+  // 与磁盘文件名对不上，落进「名字不匹配 → 后端静默成功 → 角色其实没删」的失效分支。
+  const name = (_charOrig && _charOrig.name != null) ? String(_charOrig.name).trim() : '';
+  if (!name) { charMsg.style.color='var(--danger)'; charMsg.textContent='请先在左侧列表选择要删除的角色'; return; }
   if (!confirm('确认删除角色「'+name+'」？此操作不可撤销。')) return;
-  const r = await fetch('/api/character/'+encodeURIComponent(name), {method:'DELETE'}).then(r=>r.json());
+  const r = await fetch('/api/character/'+encodeURIComponent(name), {method:'DELETE'}).then(res=>res.json());
   if (r.ok) { charMsg.style.color='var(--pos)'; charMsg.textContent='已删除：'+name; document.getElementById('char-new').onclick(); refreshCharList(); }
+  else { charMsg.style.color='var(--danger)'; charMsg.textContent='删除失败：'+(r.error||'未知错误'); }
 };
 
 // 世界书

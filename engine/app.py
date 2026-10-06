@@ -229,8 +229,16 @@ def save_character():
 
 @app.delete("/api/character/<name>")
 def delete_character(name):
-    store.delete_card(name)
-    return jsonify({"ok": True})
+    name = (name or "").strip()
+    if not name:
+        return jsonify({"error": "角色名不能为空"}), 400
+    try:
+        removed = store.delete_card(name)
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 400
+    if not removed:
+        return jsonify({"ok": False, "error": "角色不存在"}), 404
+    return jsonify({"ok": True, "name": name})
 
 
 @app.get("/api/worlds")
