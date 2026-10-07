@@ -192,6 +192,101 @@ def test_kinship_single_char_tokens_removed():
         "身份词表混入单字词：%s" % [t for t in director._KINSHIP_TOKENS if len(t) == 1]
 
 
+def test_kinship_covers_common_relations():
+    """词表须覆盖中国亲属称谓里的常见缺项（v0.18.6 补词守护）。
+
+    回归事故：姨父/姑父/堂表兄弟姐妹/侄女外甥女/岳父岳母/继子女养子女等都不在表，
+    作者在 relations_kinship 里显式声明了也会被 seed_kinship_from_cards 静默丢弃——
+    声明形同虚设，且无任何报错（该函数对非法词静默 return），极难排查。
+    """
+    must = [
+        # 姨父 /姑父 / 舅妈（母系亲属的配偶，原表完全缺失）
+        "姨父", "姨母", "姑父", "姑母", "舅妈", "舅母",
+        # 父系伯叔
+        "伯父", "伯母", "叔父", "叔母", "婶婶",
+        # 堂表兄弟姐妹
+        "堂兄", "堂弟", "堂姐", "堂妹", "堂哥",
+        "表兄", "表弟", "表姐", "表妹", "表哥",
+        # 侄辈女系
+        "侄女", "外甥女", "外孙", "外孙女",
+        # 核心姻亲长辈
+        "岳父", "岳母", "亲家", "亲家公", "亲家母",
+        # 继嗣 / 收养
+        "继子", "继女", "养子", "养女", "义父", "义母",
+        # 高祖辈
+        "曾祖父", "曾祖母", "外祖父", "外祖母",
+        # 妻子的姐妹（成年向剧本高频设定）
+        "小姨子", "大姨子",
+    ]
+    missing = [k for k in must if k not in director._KINSHIP_TOKENS]
+    assert not missing, "词表缺失常见亲属词：%s" % missing
+
+
+def test_kinship_excludes_social_relations():
+    """社会关系词一律不得进冻结表（守护沙盘的「关系演化」核心能力）。
+
+    本引擎的主功能就是关系演化——同事→恋人、下属上位、房东变盟友都是要演的东西。
+    一旦把「同事」写进表，_preserve_kinship 会把模型写对的「恋人」拉回「同事」，
+    等于从机制上关掉引擎的主要功能（守护用例见
+    test_preserve_kinship_no_baseline_free）。
+    职业/称谓类词另有一重风险：在中文里大量作状语与口语称呼（「领导在场」）。
+    """
+    forbidden = [
+        "同事", "邻居", "房东", "租客", "队友", "同学", "朋友", "熟人",
+        "医生", "老师", "领导", "上司", "下属", "老板", "员工", "客户",
+        "恋人", "情人", "暧昧", "追求者",
+        # 作量词/口语称呼，极易误判
+        "大哥", "小弟", "大爷", "大妈", "师傅", "姑娘", "小姐", "先生",
+    ]
+    bad = [t for t in forbidden if t in director._KINSHIP_TOKENS]
+    assert not bad, "社会关系/关系状态词混入冻结表：%s" % bad
+
+
+def test_kinship_new_tokens_detected_as_declaration():
+    """新补的词必须能被句首声明规则识别（否则补了也白补）。"""
+    cases = [
+        ("姨父：妻子的姐姐的丈夫，一直照顾这个家", "姨父"),
+        ("堂哥：从小一起长大，感情很深", "堂哥"),
+        ("表姐：偶尔来串门，性子温和", "表姐"),
+        ("岳父：威严的长辈，从不过问家事", "岳父"),
+        ("继女：后来成了这个家的人", "继女"),
+        ("侄女", "侄女"),
+        ("小姨子，一直住在娘家", "小姨子"),
+    ]
+    for v, expect in cases:
+        got = director._first_kinship(v)
+        assert got == expect, "新词 %r 未被识别为身份声明（实得 %r）" % (expect, got)
+
+
+def test_kinship_new_tokens_freeze_against_identity_flip():
+    """新补词的冻结生效：模型把姨父写成姐夫/叔叔，须拉回基准身份。"""
+    corrected = director._preserve_kinship("姨父，一直照顾她", "姐夫，挑衅者", declared="姨父")
+    assert corrected.startswith("姨父"), corrected
+    assert "挑衅者" in corrected, corrected
+    # 无显式声明时，走句首基准推断
+    assert director._preserve_kinship("堂哥：一起长大", "表弟，暗中较劲").startswith("堂哥")
+
+
+def test_kinship_new_tokens_no_narrative_false_positive():
+    """新补词不得在叙述句里误判为身份声明（补词不能削弱原有的误判防护）。"""
+    narrative = [
+        "以她的堂兄弟姐妹的处境为筹码",
+        "对其岳母的扶持的回答是不屑一顾",
+        "他不敢戳破「曾祖父大概率已过世」的真相",
+        "唯一念想的亲家母",                # 修饰语位置，句首非身份词
+        "养子她不敢承认这件事",            # 身份词后无分隔符
+    ]
+    for v in narrative:
+        assert director._first_kinship(v) is None, \
+            "新补词在叙述句里被误判：%r -> %r" % (v, director._first_kinship(v))
+
+
+def test_kinship_social_relation_still_evolves():
+    """社会关系演化能力不受词表变化影响（同事仍可变成恋人）。"""
+    assert director._preserve_kinship("同事", "恋人，暗通款曲") == "恋人，暗通款曲"
+    assert director._preserve_kinship("房东", "房东太太，主动示好") == "房东太太，主动示好"
+
+
 def test_kinship_not_inferred_from_narrative_midtext():
     """身份词出现在叙述句中间不得判为身份声明。
 
