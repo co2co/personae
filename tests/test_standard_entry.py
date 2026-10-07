@@ -149,17 +149,54 @@ def test_standard_entry_no_scale_presets():
 
 
 def test_standard_entry_keeps_core_technique_directions():
-    """保留经实测有效的三条技法方向 + simon 追加的复读护栏。"""
+    """融合版（六分层）须完整保留经实测有效的全部技法方向。
+
+    v0.20.0 初版是散文串接的 417 字；simon 拍板与「作者自写尺度条」融合
+    （二者 8 个语义主题中 1 个完全重叠、6 个互补，合计 685 字有两成是冗余），
+    改为「一/二/…/六」分层 752 字——分层是为了让模型逐条对照执行、
+    不易漏掉末尾两条（处境锚定、群像在场）。作者条已删除，本条是唯一出口。
+    """
     c = store._STANDARD_ENTRY_CONTENT
-    assert "正面写实" in c                 # 正面写实不回避
-    assert "代称" in c                     # 禁用代称遮挡
-    assert "身体反应" in c                 # 心理只走身体反应
-    assert "递进" in c                     # 层次递进
-    assert "新的具体信息" in c             # 每次推进须有新信息（治复读，simon 指定）
-    assert "不得靠重复" in c               # 复读护栏
-    assert "在场" in c                     # 群像不被挤掉
-    assert "锚定" in c                     # 须锚定当前处境
-    assert "未成年" not in c               # 硬红线在铁律⑧，此处不重复
+    # 一、何时写（触发门槛：未到位不硬写）
+    assert "何时写" in c
+    assert "未到位就不要硬写" in c
+    # 二、写多实（作者条独有的「不省略 / 不收束」，已升格为独立层）
+    assert "写多实" in c
+    assert "既不回避也不跳过" in c
+    assert "把该发生的写完" in c
+    assert "不在将入未入之际收束" in c
+    # 三、怎么落笔
+    assert "落笔须落在身体上" in c
+    assert "代称" in c
+    assert "衣衫尽褪" in c# 禁概括收尾
+    # 四、心理怎么带
+    assert "身体反应" in c
+    assert "情话与内心独白" in c
+    assert "只补一句" in c                     # 情话限量（作者条独有）
+    # 五、节奏 + 防复读
+    assert "递进" in c
+    assert "新的具体信息" in c
+    assert "不得靠重复" in c
+    assert "不要反复" in c# 事前/事后各一次
+    # 六、不能丢的
+    assert "锚定" in c
+    assert "在场" in c
+    # 硬红线：v0.20.0 初版刻意不在此重复铁律⑧；融合时补回（作者条带了这条），
+    # 引擎侧多一道法律底线不违背普适性。
+    assert "未成年" in c
+
+
+def test_standard_entry_has_six_numbered_layers():
+    """六分层编号齐全且有序——分层执行是本次融合的关键设计。"""
+    c = store._STANDARD_ENTRY_CONTENT
+    for n in ("一、何时写", "二、写多实", "三、怎么落笔",
+              "四、心理怎么带", "五、节奏", "六、不能丢的"):
+        assert n in c, "缺少分层：%s" % n
+    assert "硬红线" in c, "缺末尾法律底线"
+    # 分层顺序不可乱（模型按序逐条执行）
+    pos = [c.index(n) for n in ("一、何时写", "二、写多实", "三、怎么落笔",
+                              "四、心理怎么带", "五、节奏", "六、不能丢的")]
+    assert pos == sorted(pos), "分层顺序错乱"
 
 
 # ---- 4. 落点验证：必须进 prompt 且在末尾 ---------------------------------
