@@ -36,9 +36,9 @@ BANNED = [
 
 # 护栏自身所在文件：黑名单必须写在这里，故豁免
 GUARD_FILES = {"test_universality.py"}
-# test_intimacy_scale.py 亦持有黑名单（校验提示词不含具体名），属正当引用
+# 另两个亦持有黑名单（校验出厂标准条不含具体名/题材词），属正当引用
 # 前缀「_」为一次性工具脚本（压测探针等），跑完即删、不入库，绑定真实卡组是它们的用途本身
-ALLOW_FILES = GUARD_FILES | {"test_intimacy_scale.py"}
+ALLOW_FILES = GUARD_FILES | {"test_intimacy_scale.py", "test_standard_entry.py"}
 
 
 def _is_tool_script(rel):

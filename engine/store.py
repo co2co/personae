@@ -187,15 +187,79 @@ def load_world(name=""):
     return (data or {}).get("entries", [])
 
 
+STANDARD_ENTRY_NAME = "亲密描写标准"
+
+# 出厂随每个新世界播种的世界书条目：亲密/性描写的**叙事技法标准**。
+#
+# 为什么放在世界书而不是引擎铁律：
+#   引擎铁律⑧ 恒定在 system 块约 39% 处，其后压着数百字才到生成点，长上下文下
+#   权重被稀释；而 position=after 的常量条目落在**末尾 user 消息**（生成点前最后一瞥），
+#   近因权重最强。同样的文本换个位置，实测效果差别显著。
+#
+# 为什么是「技法标准」而不是「尺度档位」：
+#   本条不含任何具体尺度预设（不规定器官词、不规定字数、不规定必须到哪一步），
+#   只约束「到了亲密时刻该怎么写」，何时生效完全交给剧情判断——因此对任意剧本
+#   都成立，不会把某个剧本的走向锁死。措辞全中性，不含专名与题材词（普适性红线）。
+#
+# 实机依据（本地 27B，三组对照 ×3 临界场景）：
+#   本条在场 vs 铁律⑧ 单独 → 处境锚定词 4→11、在场第三方提及 4→10（群像未被吃掉）；
+#   vs 把技法硬编进铁律 → 后者仅在「指令明写性」的窄区间生效，另两轮为 0，
+#   且抽象词翻 4 倍、正文暴涨 40%（挤占群像）。
+_STANDARD_ENTRY_CONTENT = (
+    "【本剧叙事标准，非背景设定，须逐条遵守】当两人之间的张力真正到位、剧情自然推进到"
+    "亲密时刻时，须正面写实、具体到身体：不回避、不跳过、不用「他进入她」这类概括收尾，"
+    "也不用「那根东西」「下身」「私密处」这类代称遮挡——直呼其名。心理一律通过身体反应"
+    "写出，不直接下结论：不写「她很爽」「他不情愿」，写她如何僵住、他如何躲、事后谁先移开"
+    "视线。动作与感受须有层次递进，从试探到失控到事后，而不是同一个动作反复重演；每一次"
+    "推进都须有新的具体信息——身体的反应程度、谁主动谁被动、说出口的话与咽回去的话、"
+    "以及这一刻新出现的具体细节，不得靠重复同一动作或同一句措辞充数。"
+    "每一段亲密戏都必须锚定当前处境：这一空间里能被听见的具体风险、此刻还剩下多少时间或"
+    "余地、以及这层关系里此刻最难逾越的那道界限。身体写得越具体，这份处境的张力越要保住"
+    "——同时在场但不在这一段里的人，必须仍然有可能被写到，不能因为两个人关进了一间屋子，"
+    "就让这出戏从其他人的世界里消失。"
+)
+
+
+def _standard_entry():
+    return {
+        "name": STANDARD_ENTRY_NAME,
+        "keys": [],
+        "content": _STANDARD_ENTRY_CONTENT,
+        "priority": 100,
+        "enabled": True,
+        "constant": True,
+        "position": "after",
+        "depth": None,
+        "secret": False,
+    }
+
+
+def _has_standard_entry(entries):
+    return any((e or {}).get("name") == STANDARD_ENTRY_NAME for e in (entries or []))
+
+
 def save_world(name, entries):
-    """整份保存世界书（覆盖式）。entries 为条目数组。"""
+    """整份保存世界书（覆盖式）。entries 为条目数组。
+
+    新建世界时（该世界此前不存在）自动播种 _STANDARD_ENTRY「亲密描写标准」——
+    它是**叙事技法标准**而非内容设定，措辞全中性、不含任何剧本专名与题材词，
+    对任意剧本都成立，故随每个新世界出厂即激活。用户可整条删除或改写，
+    删除后本函数不会再补（只对「首次创建」播种，不做每次保存的强制回填），
+    也可 enabled=false 停用。详见 _STANDARD_ENTRY 注释。
+    """
     name = (name or "").strip()
     if not name:
         raise ValueError("世界名不能为空")
     folder = DATA_DIR / "worlds"
     folder.mkdir(parents=True, exist_ok=True)
-    data = {"name": name, "entries": entries or []}
     p = folder / f"{name}.json"
+    entries = list(entries or [])
+    if not p.exists() and not _has_standard_entry(entries):
+        # 置于首位：前端 collectWorldEntries 按列表序重算 priority（index 0 → 100），
+        # 而 world.scan 是按 priority 降序截断 max_entries——放首位才能保证
+        # 「每世界多一条 constant」不会把该世界的其它设定挤出配额。
+        entries.insert(0, _standard_entry())
+    data = {"name": name, "entries": entries}
     p.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
     _invalidate(p)
 
