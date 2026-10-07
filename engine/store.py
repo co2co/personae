@@ -77,6 +77,40 @@ def list_characters():
     return _cached_listing(DATA_DIR / "characters")
 
 
+def list_characters_by_world(world_name):
+    """列出归属于指定世界书的所有角色名（升序）。
+
+    开场界面「先选世界 → 再列该世界的角色」用这个：角色卡的 world 字段是它与
+    世界书的唯一归属键（见 save_world 的世界存在性校验），所以按 world 精确过滤。
+    卡未声明 world 或指向已不存在的世界书时归入「未归属」（world 为空），
+    不静默丢弃——否则玩家会以为角色凭空消失了。
+    """
+    world_name = (world_name or "").strip()
+    out = []
+    for name in list_characters():
+        try:
+            w = (load_card(name) or {}).get("world", "") or ""
+        except FileNotFoundError:
+            continue
+        if w == world_name:
+            out.append(name)
+    return out
+
+
+def unassigned_characters():
+    """未声明 world / world 指向已不存在世界书的角色名（开场界面给出修复指引）。"""
+    valid = set(list_worlds())
+    out = []
+    for name in list_characters():
+        try:
+            w = (load_card(name) or {}).get("world", "") or ""
+        except FileNotFoundError:
+            continue
+        if w not in valid:
+            out.append(name)
+    return out
+
+
 def _cached_listing(folder):
     """带签名的目录列表缓存：以「文件名 + mtime」签名做键，文件集合变化才重扫。
 

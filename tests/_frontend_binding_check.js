@@ -13,6 +13,9 @@ const listeners = {};           // 元素 id -> {onclick, keydown:[], click:[]}
 const els = new Map();
 let fetchCalls = [];
 const stubCls = { add(){}, remove(){}, toggle(){}, contains(){return false} };
+// 开场区勾选框的桩：querySelectorAll('#npcs input:checked') 必须返回它们，
+// 否则 startSession 会因「无可选角色」提前 return，沙箱就测不到真正的 POST。
+const npcInputs = [{ value: '角色A' }, { value: '角色B' }];
 
 function mkEl(id, tag) {
   const el = {
@@ -25,7 +28,7 @@ function mkEl(id, tag) {
     scrollTop: 0, scrollHeight: 0, clientWidth: 0, clientHeight: 0,
     closest(){ return null }, contains(){ return false },
     querySelector(){ return mkEl('__stub', 'div') },
-    querySelectorAll(){ return [] },
+    querySelectorAll(sel){ return (sel === '#npcs input:checked') ? npcInputs : []; },
     appendChild(c){ el.children.push(c); return c },
     removeChild(c){ return c },
     addEventListener(ev, fn){ (listeners[id] || (listeners[id] = {}))[ev] = (listeners[id][ev]||[]).concat(fn) },
@@ -44,7 +47,9 @@ function get(id) {
 global.document = {
   getElementById: get,
   querySelector: () => mkEl('__q', 'div'),
-  querySelectorAll: () => [],
+  // 开场区的在场角色勾选框走的是 document 级查询，须返回桩值——
+  // 返回 [] 会让 startSession 判定「无可选角色」提前 return，测不到真正的 POST。
+  querySelectorAll: (sel) => (sel === '#npcs input:checked') ? npcInputs : [],
   createElement: (t) => mkEl('__c', t),
   createDocumentFragment: () => mkEl('__frag', 'div'),
   addEventListener(){},
@@ -65,9 +70,10 @@ global.fetch = function (url, opts) {
     ok: true,
     json: () => Promise.resolve(
       url === '/api/characters' ? ['角色A', '角色B']
+      : url.startsWith('/api/characters/by-world') ? { names: ['角色A', '角色B'], unassigned: [] }
       : url.startsWith('/api/session/new') ? { session: 'sid_test', snapshot: { scene: { round: 0, place: '' }, present: [], states: {}, secrets: [] } }
       : url === '/api/sessions' ? []
-      : url.startsWith('/api/worlds') ? []
+      : url.startsWith('/api/worlds') ? ['测试世界']
       : {}),
     body: { getReader() {
       const bytes = Buffer.from(sse, 'utf8');
@@ -92,9 +98,17 @@ check('#start.onclick 已绑定', typeof get('start').onclick === 'function');
 check('#send.onclick 已绑定', typeof get('send').onclick === 'function');
 check('Enter 键监听已绑定', (L.keydown || listeners['input']?.keydown || (listeners['input']||{}).keydown) instanceof Array && (listeners['input']?.keydown || []).length > 0);
 globalThis.__stage2 = async () => {
+  // 开场区现在要求先选世界：模拟玩家在下拉里选了「测试世界」再点开始。
+  get('world-pick').value = '测试世界';
   const n1 = fetchCalls.length;
   await get('start').onclick();
-  check('startSession() 发出 POST /api/session/new', fetchCalls.slice(n1).some(c => c.url === '/api/session/new' && c.method === 'POST'));
+  const newCalls = fetchCalls.slice(n1).filter(c => c.url === '/api/session/new' && c.method === 'POST');
+  check('startSession() 发出 POST /api/session/new', newCalls.length === 1);
+  if (newCalls[0]) {
+    const body = JSON.parse(newCalls[0].body);
+    check('开局请求体含所选世界', body.world === '测试世界');
+    check('开局请求体含在场角色', Array.isArray(body.cast) && body.cast.length === 2);
+  }
   check('开始按钮已解锁', get('start').disabled === false);
 };
 check('cfgProviders 已声明', typeof get('__q').closest === 'function'); // 触发一次访问，确保脚本已完整执行

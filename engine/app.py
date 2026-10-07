@@ -193,6 +193,22 @@ def characters():
     return jsonify(store.list_characters())
 
 
+@app.get("/api/characters/by-world")
+def characters_by_world():
+    """按世界书列角色（开场界面「先选世界 → 再列该世界的角色」用）。
+
+    带 world 参数返回该世界的角色名；world 为空串时返回「未声明/指向已删世界」的
+    角色（前端据此提示去修world 字段，而不是让角色无声消失）。
+    返回 { names: [...], unassigned: [...] }：unassigned 与所选世界无关，一并给出
+    供前端显示提示，不必再发一次请求。
+    """
+    world = request.args.get("world", "")
+    return jsonify({
+        "names": store.list_characters_by_world(world),
+        "unassigned": store.unassigned_characters(),
+    })
+
+
 # ----------------------------------------------------------------------------
 # 初始化流程：角色卡 / 世界书管理入口
 # ----------------------------------------------------------------------------
@@ -387,14 +403,30 @@ def session_new():
     if not cast:
         logger.warn("session", "开局失败：未选择任何在场角色")
         return jsonify({"error": "至少需要选择一个在场角色"}), 400
+    # 世界名由前端显式传入（开场界面已改为「先选世界 → 再列该世界的角色」）。
+    # 仍保留"未传时回退到首个角色的 world"的旧行为，向后兼容旧调用方。
+    # 卡未声明 world 时为空名，语义为「无世界书」（不播种秘密、不注入 lore）。
+    world_name = (body.get("world") or "").strip()
+    if not world_name:
+        world_name = (store.load_card(cast[0]).get("world", "") or "").strip()
+    if world_name and world_name not in store.list_worlds():
+        logger.warn("session", "开局失败：世界不存在 " + repr(world_name))
+        return jsonify({"error": f"世界不存在：{world_name}"}), 400
+    # 一致性校验：所选世界的角色名单里不应混进别的世界的卡。后端只兜底拦截
+    # （防止前端列表陈旧导致跨世界混场），不替前端自动纠正——静默纠正会让玩家
+    # 以为自己选的角色在局里。
+    alien = [c for c in cast
+             if (store.load_card(c).get("world", "") or "").strip() != world_name]
+    if world_name and alien:
+        logger.warn("session", "开局失败：跨世界角色混入 " + "、".join(alien))
+        return jsonify({
+            "error": "所选角色不属于该世界，请刷新后重选：" + "、".join(alien)
+        }), 400
     scene_raw = body.get("scene", "")
     # 把玩家混写的「傍晚，公寓的客厅」拆成 (place, time)：时间词进 time、地点进 place。
     # 旧实现整体塞进 place、time 恒空，时间锚丢失后正文只能靠世界书反向脑补时间
     # （会话 256d924c 事故）。拆分后前端「场景：{place}（{time}）」展示保持不变。
     scene_place, scene_time = scene.parse_initial_scene(scene_raw)
-    # 世界名取首个在场角色的世界（与 /api/act 加载 lore 的逻辑保持一致）；
-    # 卡未声明 world 时为空名，语义为「无世界书」（不播种秘密、不注入 lore）。
-    world_name = store.load_card(cast[0]).get("world", "") if cast else ""
     try:
         sid = memory.new(cast, scene_place=scene_place, world_name=world_name,
                          scene_time=scene_time)

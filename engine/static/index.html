@@ -200,6 +200,12 @@
   .npcs{ display:flex; gap:10px 18px; flex-wrap:wrap; }
   .npcs label{ display:flex; align-items:center; gap:7px; font-size:14px; color:var(--ink-2); cursor:pointer; }
   .npcs input{ width:16px; height:16px; accent-color:var(--accent); }
+  /* 世界选择：与角色区联动的下拉。角色区未出时给一段占位，避免页面出现空白块。 */
+  select.field{ cursor:pointer; }
+  select.field:disabled{ opacity:.55; cursor:not-allowed; }
+  .npcs-empty{ font-size:13px; color:var(--muted); line-height:1.6; }
+  .npcs-note{ font-size:12px; color:var(--muted); margin-top:7px; line-height:1.6; }
+  .npcs-note b{ color:var(--ink-2); font-weight:500; }
   .actions{ margin-top:24px; display:flex; justify-content:flex-end; }
   .setup-status{ font-size:12.5px; color:var(--muted); margin-top:12px; }
   /* 点击「开始」后：引擎在后台同步调用 LLM 补全关系网与称呼（可能耗时数秒），
@@ -647,12 +653,15 @@
     <div class="card">
       <div class="eyebrow">SANDBOX</div>
       <h2>开启一个世界</h2>
-      <p class="lead">你是外部导演，不登场、不说话。选择同场的角色、设定开场场景，然后注入环境扰动，看这个迷你世界如何运转。</p>
-      <label class="form-label">同场角色（默认全选）</label>
+      <p class="lead">你是外部导演，不登场、不说话。先选一个世界，它的世界书与全部角色会一并载入；再设定开场场景，然后注入环境扰动，看这个迷你世界如何运转。</p>
+      <label class="form-label" for="world-pick">世界</label>
+      <select id="world-pick" class="field"></select>
+      <label class="form-label">同场角色（本世界的角色，默认全选）</label>
       <div class="npcs" id="npcs"></div>
-      <label class="form-label">开场地点（可选）</label>
+      <div class="npcs-note" id="npcs-note"></div>
+      <label class="form-label" for="scene">开场地点（可选）</label>
       <input id="scene" class="field" placeholder="例如：公寓的客厅">
-      <label class="form-label">开场时间（可选）</label>
+      <label class="form-label" for="scene-time">开场时间（可选）</label>
       <input id="scene-time" class="field" placeholder="例如：傍晚 / 深夜">
       <div class="actions">
         <button id="start" class="btn btn-primary">开始</button>
@@ -773,14 +782,49 @@ let SID = '';
 // 输入框默认引导文案，供「同步中」状态时临时切换、结束后复原
 const INPUT_PLACEHOLDER_DEFAULT = input.placeholder;
 
+// 开场区：先选世界 → 再列该世界的角色。
+// 选世界即加载该世界的全部角色与世界观（世界书），取代早期「按角色逐个反查world」的
+// 做法——后者在多世界并存时会把不同世界的角色混在同一张勾选列表里。
+const WORLD_PLACEHOLDER = '请选择一个世界';
 async function loadCharacters() {
-  const list = await fetch('/api/characters').then(r => r.json());
-  renderNpcs(list);
+  const sel = document.getElementById('world-pick');
+  const worlds = await fetch('/api/worlds').then(r => r.json());
+  const keep = sel.value;                // 刷新时保留已选项（剧本导入后可用）
+  sel.innerHTML = '<option value="">' + WORLD_PLACEHOLDER + '</option>'
+    + (worlds || []).map(w => `<option value="${escHtml(w)}">${escHtml(w)}</option>`).join('');
+  sel.disabled = !(worlds || []).length;
+  if (keep && (worlds || []).includes(keep)) sel.value = keep;
+  // 没有世界书时给出可执行的指引，而不是留一个空白下拉。
+  document.getElementById('npcs').innerHTML = (worlds || []).length
+    ? '' : '<div class="npcs-empty">还没有任何世界书。先到「角色库/世界书」新建一个世界，或用「导入剧本」把剧本一键转成角色与设定。</div>';
+  document.getElementById('npcs-note').textContent = '';
+  await syncNpcs();
+}
+
+// 按当前所选世界拉角色并渲染。unassigned（未声明 world / world 指向已删世界）
+// 一并提示——这些角色在任何世界下都不会出现，不提示就会像凭空丢了。
+async function syncNpcs() {
+  const sel = document.getElementById('world-pick');
+  const world = sel.value;
+  const box = document.getElementById('npcs');
+  const note = document.getElementById('npcs-note');
+  if (!world) { box.innerHTML = ''; note.textContent = ''; return; }
+  const d = await fetch('/api/characters/by-world?world=' + encodeURIComponent(world)).then(r => r.json());
+  const names = d.names || [];
+  renderNpcs(names);
+  note.innerHTML = names.length
+    ? ''
+    : '该世界下还没有角色。可到「角色库」新建，或用「导入剧本」自动生成。';
+  const un = d.unassigned || [];
+  if (un.length) {
+    note.innerHTML += '　另有 ' + un.length + ' 个角色未归属任何世界（'
+      + escHtml(un.join('、')) + '），不会出现在本局：请到「角色库」为它们选择所属世界。';
+  }
 }
 
 function renderNpcs(list) {
   document.getElementById('npcs').innerHTML = (list || [])
-    .map(n => `<label><input type="checkbox" value="${n}" checked> ${n}</label>`).join('');
+    .map(n => `<label><input type="checkbox" value="${escHtml(n)}" checked> ${escHtml(n)}</label>`).join('');
 }
 
 async function startSession() {
@@ -789,10 +833,23 @@ async function startSession() {
   // 期间前端无反馈；显式提示玩家系统正在初始化，并禁用按钮防重复点击。
   const startBtn = document.getElementById('start');
   const setupStatus = document.getElementById('setup-status');
+  // 先校验世界已选，再置初始化态——未选世界时不该让玩家看着 spinner 空等。
+  const world = document.getElementById('world-pick').value;
+  if (!world) {
+    setupStatus.className = 'setup-status';
+    setupStatus.textContent = '请先选择一个世界';
+    return;
+  }
   startBtn.disabled = true;
   setupStatus.className = 'setup-status init';
   setupStatus.innerHTML = '<span class="init-spinner"></span>系统正在初始化，请稍等…';
   const cast = [...document.querySelectorAll('#npcs input:checked')].map(c => c.value);
+  if (!cast.length) {
+    startBtn.disabled = false;
+    setupStatus.className = 'setup-status';
+    setupStatus.textContent = '该世界下没有可用的在场角色，请先到「角色库」添加或勾选';
+    return;
+  }
   const place = document.getElementById('scene').value.trim();
   const time = document.getElementById('scene-time').value.trim();
   // 地点与时间分开填写，后端按 parse_initial_scene 拆成 place/time 两个字段，
@@ -800,7 +857,7 @@ async function startSession() {
   const scene = [place, time].filter(Boolean).join('，');
   const res = await fetch('/api/session/new', {
     method: 'POST', headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({cast, scene}),
+    body: JSON.stringify({cast, scene, world}),
   });
   const data = await res.json();
   if (data.error) {
@@ -993,6 +1050,7 @@ async function send() {
 // 主流程按钮绑定。缺任何一个都会让界面「点了没反应」且不报错，
 // 因此集中放在这里，不要在别处分散绑定。
 document.getElementById('start').onclick = startSession;
+document.getElementById('world-pick').addEventListener('change', syncNpcs);
 sendBtn.onclick = send;
 input.addEventListener('keydown', e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } });
 
