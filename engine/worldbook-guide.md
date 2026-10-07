@@ -50,7 +50,7 @@
    ── 高级选项 ──
    [▢ 常量条目]   插入位置 position：[before ▾]   扫描深度 depth：[    ]
    ── 秘密专属（勾选秘密条目才出现）──
-   秘密归属角色 character：[林梦雅]
+   秘密归属角色 character：[角色乙]
    bottom_line（暴露底线）：[……]
 ```
 
