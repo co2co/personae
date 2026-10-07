@@ -84,7 +84,7 @@ pip install -r requirements.txt
 顶部四个面板：
 
 - **角色库**：新建 / 编辑 / 删除角色卡，或「导入 JSON」从外部导入（未识别字段会保留）。
-- **世界书**：编辑世界书条目；点「世界书说明书」内链可看完整用法（或见 `worldbook-guide.md`）。
+- **世界书**：编辑世界书条目；点「世界书说明书」内链可看完整用法（浏览器打开 `/docs/worldbook`）。
 - **会话**：列出 / 继续 / 放弃进行中的剧本。
 - **系统设置**：配置大模型与生成参数。
 
@@ -125,7 +125,7 @@ pip install -r requirements.txt
 - **找不到 Python**：把 Python 3.10+ 加入系统 PATH，或安装 Microsoft Store 版 Python。
 - **依赖安装慢 / 失败**：检查网络或代理；可配置 pip 镜像源（如清华、阿里云镜像）。
 - **启动后浏览器打不开**：确认地址与端口正确、系统防火墙未拦截本机回环地址。
-- **`/docs/worldbook` 打不开（500）**：说明 `worldbook-guide.md` 缺失或被改名，重新解压分发包即可。
+- **`/docs/worldbook` 打不开（500）**：说明 `static/worldbook-guide.html` 缺失或被改名，重新解压分发包即可。
 
 ---
 
@@ -136,4 +136,4 @@ pip install -r requirements.txt
 
 ---
 
-更完整的机制说明见 `worldbook-guide.md`（世界书）与 `DEVLOG.md`（版本与架构演进）。
+更完整的机制说明见浏览器 `/docs/worldbook`（世界书）；`DEVLOG.md` 为版本与架构演进记录（不随分发提供）。

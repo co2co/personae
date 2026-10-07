@@ -6,6 +6,31 @@
 
 ---
 
+## 2026-10-08 v0.20.0 补充（删除 md 版世界书指南孤儿文件）
+
+- **问题**（simon 指出）：`engine/worldbook-guide.md` 已是孤儿。v0.5.x 起文档改为**一次性预渲染**
+  为 `static/worldbook-guide.html`（删 `marked.min.js`、去掉 CDN 依赖），`/docs/worldbook`
+  路由直接 `send_from_directory` 返回 html；前端只链该路由、从不链 .md。
+  md 无任何读取方，却仍随分发包携带 30 KB，并与 html **双份独立维护**（改一处漏另一处
+  的历史坑就是这么来的）。
+- **处理**：删除 `engine/worldbook-guide.md`（已备份到 `backups/nsfw_wb_20261007/`），
+  同步修正 5 处失效引用：
+  - `engine/INSTALL.md`：故障排查条目「`/docs/worldbook` 打不开 → `worldbook-guide.md` 缺失」
+    **本就是错的**（路由读的是 html），一并改为正确指向 `static/worldbook-guide.html`。
+  - `engine/INSTALL.md` / `engine/README.md`：文档引用改指浏览器 `/docs/worldbook`。
+  - `engine/README.md` 目录树：删除 md 条目，补上 `static/worldbook-guide.html`。
+  - 根 `README.md`：目录树删除 md 条目，并**顺带删掉 `nsfw.py`**——该模块 v0.8.0 已删，
+    目录树里却一直挂着，是另一处同源死引用。
+  - `tests/test_universality.py` 注释里的文件名（仅注释，不影响断言）。
+- **不动**：`DEVLOG.md` / `TODO.md` 中的历史记录（那是 v0.9.0 已完成事项的归档，
+  改它等于篡改历史）。`package.py` 无需改（整目录打包，文件删了自然不进包）。
+- **验证**：`py_compile` 通过；全量 **259 passed, 1 skipped**；
+  `/docs/worldbook`、`/docs/script-example` 两个路由的目标文件均存在。
+  本次为纯删除 + 文档引用修正，**不构成版本号变更**（引擎可观察行为未变、版本号真相源
+  仍为 v0.20.0），故沿用 v0.20.0 的 tag，随下一次发版一并进入分发包。
+
+---
+
 ## 2026-10-08 版本 v0.20.0（亲密描写标准出厂播种：尺度标准从铁律下沉到世界书）
 
 - 版本判定 **MINOR**（v0.19.0 → v0.20.0）：新增「新建世界书自动播种出厂条目」这一对外可见行为（世界书默认内容改变），且新增 store 公开常量 `STANDARD_ENTRY_NAME`。

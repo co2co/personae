@@ -29,12 +29,12 @@ engine/
 │   ├── worlds/     世界书（条目数组：keys/content/constant/position/depth/name/secret）
 │   └── config.json 系统配置（出厂为空连接）；分发包不含示例剧本，首次运行需自行导入角色卡/世界书，玩家设定（player-cast）不随分发提供
 ├── static/index.html  单页前端
+├── static/worldbook-guide.html  世界书用户手册（由 `/docs/worldbook` 提供）
 ├── run.bat         启动（默认端口 5051；先 install.bat）
 ├── install.bat     建 venv + pip 装 requirements.txt
 ├── requirements.txt  Flask / requests
 ├── INSTALL.md        安装指南（面向分发用户，先看这个）
-├── VERSION         版本号
-└── worldbook-guide.md  世界书用户手册（含例子与走查）
+└── VERSION         版本号
 ```
 
 > 开发日志 `DEVLOG.md` 与待办 `TODO.md` 只存在于开发工作树，**不随分发包提供**
@@ -66,4 +66,4 @@ python app.py          # 默认 http://127.0.0.1:5000
 - **关系网 / 目标**：由 director 在每轮 reflect 中从叙事回写（actions / goals / relations）。
 - **present 校验**：生成后剥离非在场角色（含已离场者、环境推手）的台词块，避免出戏。
 
-世界书用法见 `worldbook-guide.md`；版本演进与架构决策见开发工作树中的 `DEVLOG.md`（不随分发提供）。
+世界书用法见浏览器 `/docs/worldbook`（由 `static/worldbook-guide.html` 提供）；版本演进与架构决策见开发工作树中的 `DEVLOG.md`（不随分发提供）。

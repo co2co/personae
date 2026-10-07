@@ -17,7 +17,8 @@ TESTS_DIR = Path(__file__).resolve().parent
 ENGINE_DIR = TESTS_DIR.parent / "engine"
 
 # 历史已删剧本的角色名 + 题材词。引擎面向任意剧本，这些词一个都不该出现在
-# 测试与引擎源码里（worldbook-guide.md 等教学文档另由 S4 处理，不在本文件范围）。
+# 测试与引擎源码里（`static/worldbook-guide.html` 等教学文档另由 S4 处理，
+# 不在本文件范围）。
 BANNED = [
     # 剧本一（丧尸末日 / 客服部之夜）
     "老周", "高洋", "林晚", "苏曼", "阿杰",
