@@ -194,3 +194,46 @@ def delete_session(sid):
         return False
     shutil.rmtree(folder)
     return True
+
+
+# 会话保留上限：只保留最近 MAX_KEPT_SESSIONS 条会话，超出部分自动删除。
+# 由路由层 session_new 在新建会话后触发（见 app.py）——不放进 memory.new，
+# 因为测试直接调 memory.new 且操作真实 data/sessions，放进 new 会让跑测试
+# 误删存量真实会话。
+MAX_KEPT_SESSIONS = 10
+
+
+def prune_sessions(max_keep=MAX_KEPT_SESSIONS):
+    """会话保留策略：只保留最近 max_keep 条有效会话，其余整目录删除。
+
+    「有效会话」口径与 list_sessions 一致——须含 snapshot.json（光有 chat.jsonl
+    的半成品目录不算会话，不参与计数、不被保留位占用，但会被一并清掉以免堆积）。
+    排序键用目录 mtime（最近一次写入时间），与 list_sessions 的「最近更新在前」一致：
+    新建会话后，新会话的目录 mtime 最新，自然占据保留位之首。
+    返回实际删除的会话目录数（供路由层记录日志）。
+    """
+    if not SESS_DIR.exists():
+        return 0
+    entries = []
+    for folder in SESS_DIR.iterdir():
+        if not folder.is_dir():
+            continue
+        # 与 list_sessions 同口径：无 snapshot.json 的不计入保留名额，直接归入待删。
+        valid = (folder / "snapshot.json").exists()
+        entries.append((folder, valid, folder.stat().st_mtime))
+    if not entries:
+        return 0
+    # 有效会话按 mtime 降序排，保留前 max_keep 个；其余（含无效目录）全部删除。
+    valid_sorted = sorted([e for e in entries if e[1]], key=lambda x: x[2], reverse=True)
+    keep = {e[0] for e in valid_sorted[:max_keep]}
+    removed = 0
+    for folder, _valid, _mtime in entries:
+        if folder in keep:
+            continue
+        try:
+            shutil.rmtree(folder)
+            removed += 1
+        except OSError:
+            # 单个目录删除失败（占用/权限）不阻断其余清理；下次新建会话会再试。
+            continue
+    return removed

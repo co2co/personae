@@ -437,6 +437,14 @@ def session_new():
                 + " ｜ 世界 " + world_name
                 + (" ｜ 地点 " + scene_place if scene_place else "")
                 + (" ｜ 时间 " + scene_time if scene_time else ""))
+    # 会话保留策略：只保留最近 MAX_KEPT_SESSIONS 条，超出自动删除。
+    # 放在路由层而非 memory.new：测试直接调 memory.new 且操作真实 data/sessions，
+    # 放进 new 会在跑测试时误删存量真实会话（见 memory.prune_sessions 注释）。
+    removed = memory.prune_sessions()
+    if removed:
+        logger.info("session", "会话保留策略：已自动删除 " + str(removed)
+                    + " 条超出上限的历史会话（仅保留最近 "
+                    + str(memory.MAX_KEPT_SESSIONS) + " 条）")
     # 关系网：角色卡手填 relations 为权威基线（已在 memory.new 播种）。
     # 缺口推断：任一在场角色在基线中完全无关系边即调用纪官补全（见 director.fill_relation_gaps）。
     # 推断关系一并纳入 relations_base（受 v0.7.6 亲属冻结保护）；手填齐全则零 LLM 开销。

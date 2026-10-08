@@ -6,6 +6,22 @@
 
 ---
 
+## 2026-10-08 v0.23.0 会话存储只保留最新 10 条，超出自动清理
+
+**性质**：新增能力（MINOR，会话存储保留策略 + 测试隔离封堵）。
+
+### 改动
+- `memory.py` 新增 `MAX_KEPT_SESSIONS = 10` 与 `prune_sessions(max_keep=10)`：按会话目录 mtime 降序，保留最新 `max_keep` 个**有效会话**（须含 `snapshot.json`，与 `list_sessions` 同口径）；超出者整目录删除，无 `snapshot.json` 的半成品目录不计入保留名额、一并清掉。返回删除数。
+- `app.py` 的 `/api/session/new` 路由在新建会话成功后调用 `prune_sessions`——仅真实开新局时触发清理。
+- `tests/conftest.py` 新增 autouse fixture：用 monkeypatch 把 `memory.SESS_DIR` 重定向到每测试独立临时目录，所有走会话创建/路由的测试在隔离目录自洽，永不触碰真实 `data/sessions`。
+
+### 事故与教训
+开发中曾误将清理逻辑放到未隔离存储目录的测试会触发的路由上，跑测试时把真实 `data/sessions` 误删（134 → 10）。已用 conftest 统一隔离封堵，并沉淀规约：**任何会动真实数据目录的引擎逻辑，测试必须隔离该目录。**
+
+### 版本
+- v0.22.0 → **v0.23.0**（MINOR，新增会话保留策略 + 测试隔离机制）。
+- 校验：完整套件 288 passed / 1 skipped / 1 deselected；真实 `data/sessions` 在测试运行中保持稳定。
+
 ## 2026-10-08 v0.22.0 前端整体重构为「手账暖纸 + 水墨」风格
 
 **性质**：前端视觉层整体重构（MINOR，用户可见的显著样式能力落地）。
