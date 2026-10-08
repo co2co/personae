@@ -6,25 +6,26 @@
 <title>群像弈 沙盘</title>
 <style>
   :root{
-    --bg:#f6f6f4;
-    --surface:#ffffff;
-    --surface-2:#fbfbfa;
-    --ink:#1c1d1f;
-    --ink-2:#43464b;
-    --muted:#8b9098;
-    --line:#ecebe7;
-    --line-2:#f3f2ef;
-    --accent:#a9624a;
-    --accent-strong:#8f4f3a;
-    --accent-soft:#f7ece8;
-    --pos:#1f7a5c;
-    --pos-soft:#e7f4ee;
-    --warn:#9a6a16;
-    --warn-soft:#faf3e3;
-    --danger:#b23b3b;
-    --danger-soft:#fbecec;
+    /* 手账风：暖色宣纸底 + 水墨晕染；主色为朱砂印章红，文字为暖墨色。 */
+    --bg:#f3ead4;               /* 宣纸底（暖米） */
+    --surface:#faf5e8;          /* 纸片面（略浅） */
+    --surface-2:#f1e8d0;        /* 纸片面（略深，作分层） */
+    --ink:#36322a;              /* 浓墨（正文） */
+    --ink-2:#5c5546;            /* 淡墨（次级文字） */
+    --muted:#9c9179;            /* 干墨（弱化/辅助） */
+    --line:#e2d7b9;             /* 纸缝（暖） */
+    --line-2:#ece2c9;           /* 浅纸缝 */
+    --accent:#b0522f;           /* 朱砂（主 accent / 印章红） */
+    --accent-strong:#8c3d20;    /* 深朱砂 */
+    --accent-soft:#f3ddcf;      /* 淡朱砂底 */
+    --pos:#5f7d54;              /* 黛青绿（正向） */
+    --pos-soft:#e7ecda;
+    --warn:#a0741f;             /* 赭石（警示） */
+    --warn-soft:#f6ecd0;
+    --danger:#a8392a;           /* 深朱砂（危险，与 accent 同源更深） */
+    --danger-soft:#f2ddd4;
     --radius:14px;
-    --shadow:0 1px 2px rgba(20,20,20,.04), 0 8px 24px rgba(20,20,20,.05);
+    --shadow:0 1px 2px rgba(60,50,30,.06), 0 10px 26px rgba(60,50,30,.08);
     --topbar-h:58px;
   }
   *{ box-sizing:border-box; }
@@ -33,9 +34,24 @@
   body:has(#board:not(.hide)){ overflow:hidden; }
   body{
     margin:0;
-    font:15px/1.7 system-ui,-apple-system,"Segoe UI","Microsoft YaHei",sans-serif;
-    background:var(--bg); color:var(--ink);
+    /* 手账字体栈：楷体/手写体优先，回退系统无衬线，兼顾可读 */
+    font:15px/1.75 "Xingkai SC","Kaiti SC","STKaiti","KaiTi","DFKai-SB","BiauKai",
+          "Segoe UI",system-ui,-apple-system,"Microsoft YaHei",sans-serif;
+    color:var(--ink);
     -webkit-font-smoothing:antialiased;
+    /* 暖宣纸底：纸纤维细纹（双向重复细线）+ 角落水墨晕染 + 内联水墨枝影插画（离线零 CDN） */
+    background-color:var(--bg);
+    background-image:
+      url("data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%20400%20400'%3E%3Cg%20fill='none'%20stroke='%234a4436'%20stroke-linecap='round'%3E%3Cpath%20d='M20%20380%20C120%20300%20150%20240%20210%20150'%20stroke-width='6'%20opacity='.5'/%3E%3Cpath%20d='M150%20240%20C200%20220%20250%20200%20300%20150'%20stroke-width='4'%20opacity='.45'/%3E%3Cpath%20d='M210%20150%20C240%20110%20270%2090%20320%2060'%20stroke-width='3'%20opacity='.4'/%3E%3C/g%3E%3Cg%20fill='%234a4436'%20opacity='.42'%3E%3Cellipse%20cx='215'%20cy='150'%20rx='16'%20ry='7'%20transform='rotate(40%20215%20150)'/%3E%3Cellipse%20cx='300'%20cy='150'%20rx='15'%20ry='6'%20transform='rotate(30%20300%20150)'/%3E%3Cellipse%20cx='150'%20cy='245'%20rx='15'%20ry='6'%20transform='rotate(20%20150%20245)'/%3E%3C/g%3E%3C/svg%3E"),
+      radial-gradient(circle at 88% 8%,  rgba(90,78,58,.07), transparent 22%),
+      radial-gradient(circle at 10% 92%, rgba(90,78,58,.08), transparent 24%),
+      radial-gradient(circle at 50% 50%,  rgba(120,104,72,.03), transparent 60%),
+      repeating-linear-gradient(0deg,  rgba(120,104,72,.020) 0 1px, transparent 1px 3px),
+      repeating-linear-gradient(90deg, rgba(120,104,72,.016) 0 1px, transparent 1px 3px);
+    background-repeat:no-repeat, no-repeat, no-repeat, no-repeat, repeat, repeat;
+    background-size:auto, auto, auto, auto, auto, auto;
+    background-position:left bottom, left bottom, left bottom, center, 0 0, 0 0;
+    background-attachment:fixed;
   }
 
   /* ---------- 通用控件 ---------- */
@@ -441,6 +457,122 @@
   #end-summary{ white-space:pre-wrap; word-break:break-word; background:var(--surface-2);
     border:1px solid var(--line); border-radius:10px; padding:14px 16px; max-height:60vh; overflow:auto;
     font-size:13.5px; line-height:1.7; color:var(--ink-2); margin:0; }
+
+  /* ============================================================
+     手账风装饰层（v0.21.3）
+     只做「视觉质感」：纸片纹理 / 半透明胶带 / 朱砂印章 / 便签气泡。
+     不改 DOM 结构、不碰 JS、不删任何既有选择器；同优先级下本块在后覆盖在前。
+     ============================================================ */
+  /* 纸片通用质感：极浅竖向纸纤维 + 顶部一道受光高光，落在所有「卡片/面板/气泡」上 */
+  .card, .panel, .modal-box, .entry, .hit-row, .msg, .lw-row, .prov-card,
+  .opt-group, #end-summary, .acc, .mgr-item.active, .mgr-list, .rail-head, .lw-head, .lw-foot{
+    background-image:
+      linear-gradient(180deg, rgba(255,255,255,.42), rgba(255,255,255,0) 22%),
+      repeating-linear-gradient(0deg, rgba(120,104,72,.018) 0 1px, transparent 1px 4px);
+  }
+
+  /* 开场卡与弹窗：顶部一条半透明「和纸胶带」，略旋转贴住，手账拼贴感。
+     .modal-box 有 overflow:auto，胶带贴外侧会被裁，故放在容器内顶部。 */
+  .card, .modal-box{ position:relative; }
+  .card::before, .modal-box::before{
+    content:""; position:absolute; top:5px; left:50%;
+    width:120px; height:22px; transform:translateX(-50%) rotate(-2.4deg);
+    background:
+      repeating-linear-gradient(45deg, rgba(176,82,47,.14) 0 6px, rgba(176,82,47,.07) 6px 12px);
+    border:1px solid rgba(176,82,47,.22);
+    border-radius:2px;
+    box-shadow:0 2px 5px rgba(60,50,30,.10);
+    pointer-events:none; z-index:1;
+  }
+  /* 左栏各面板：一条更小的胶带贴在面板顶部内侧（.panel 有 overflow:hidden，
+     贴外侧会被裁，故放在 padding 区内、越过上边框一点点即可）。 */
+  .panel::before{
+    content:""; position:absolute; top:3px; left:18px; width:52px; height:15px;
+    transform:rotate(-3deg);
+    background:repeating-linear-gradient(45deg, rgba(95,125,84,.16) 0 5px, rgba(95,125,84,.07) 5px 10px);
+    border:1px solid rgba(95,125,84,.22); border-radius:2px;
+    box-shadow:0 1px 3px rgba(60,50,30,.08); pointer-events:none; z-index:2;
+  }
+  .panel{ position:relative; }
+
+  /* 品牌标题：朱砂印章感——深朱砂字 + 笔触式文字阴影 + 一道手绘红线收尾 */
+  .brand b{
+    color:var(--accent-strong); letter-spacing:.04em;
+    text-shadow:0 1px 0 rgba(176,82,47,.25);
+    border-bottom:2px solid var(--accent); padding-bottom:1px;
+  }
+
+  /* 主按钮：朱砂墨刷填充，轻微手绘不规则圆角，按压时压深 */
+  .btn-primary{
+    background:linear-gradient(180deg, var(--accent), var(--accent-strong));
+    border:1px solid var(--accent-strong);
+    box-shadow:0 2px 0 rgba(140,61,32,.35), 0 6px 14px rgba(140,61,32,.18);
+    border-radius:10px 12px 10px 12px;
+  }
+  .btn-primary:hover:not(:disabled){
+    background:linear-gradient(180deg, var(--accent-strong), #7a341a);
+    box-shadow:0 2px 0 rgba(140,61,32,.4), 0 4px 10px rgba(140,61,32,.2);
+  }
+
+  /* 次级按钮：纸片描边，hover 时朱砂浅晕 */
+  .btn:hover:not(:disabled){ background:var(--surface-2); border-color:var(--accent); }
+  .btn-danger{ border-color:#dca89a; color:var(--danger); background:var(--surface); }
+  .btn-danger:hover:not(:disabled){ background:var(--danger-soft); border-color:var(--danger); }
+
+  /* 对话气泡：角色=米白便签（左对齐、左上小折角），用户=朱砂便签（右对齐） */
+  .char{
+    border-radius:4px 14px 14px 14px;
+    box-shadow:2px 3px 0 rgba(60,50,30,.06), var(--shadow);
+  }
+  .char .who{ color:var(--accent-strong); font-weight:600; }
+  .user{
+    background:var(--accent-soft);
+    border:1px solid #e6c3ad;
+    border-radius:14px 4px 14px 14px;
+    box-shadow:-2px 3px 0 rgba(140,61,32,.08), var(--shadow);
+  }
+  .sys{
+    border:1px dashed var(--muted); color:var(--ink-2);
+    background:rgba(250,245,232,.6);
+  }
+
+  /* 顶栏 / 输入条：半透明宣纸，下缘一道暖墨细线（替代冷灰 border） */
+  header{ background:rgba(248,241,222,.9); border-bottom:1px solid var(--line);
+    box-shadow:0 1px 0 rgba(255,255,255,.5) inset; }
+  #bar{ background:rgba(248,241,222,.92); border-top:1px solid var(--line); }
+  .rail-head, .lw-head, .lw-foot{ background:var(--surface-2); }
+
+  /* 圆角统一调「手绘」：纸片容器用不对称圆角，像裁开的便签 */
+  .panel, .card, .modal-box, .entry, .opt-group, .acc{ border-radius:12px 14px 12px 14px; }
+  .msg{ border-radius:14px 16px 14px 16px; }
+
+  /* 表单控件：纸张内陷感 */
+  select, input, textarea{ background:var(--surface); border:1px solid var(--line); }
+  select:focus, input:focus, textarea:focus{
+    border-color:var(--accent); box-shadow:0 0 0 3px rgba(176,82,47,.14);
+  }
+
+  /* 日志分类胶囊 / 标签：淡色纸签 */
+  .tag, .chip{ background:var(--surface-2); border-color:var(--line); }
+  .tag.on{ background:var(--pos-soft); color:var(--pos); border-color:#c9d8b6; }
+  .chip{ background:var(--accent-soft); color:var(--accent-strong); border-color:#e6c3ad; }
+  /* 临时群演保持蓝色（须排在 .chip 之后以覆盖上面的暖色，与剧本角色区分） */
+  .chip-aux{ background:#e3edf7; color:#2f5d8a; border-color:#c6dcee; }
+
+  /* 世界书秘密条目：淡朱砂纸片（原红底更柔和） */
+  .entry.secret{ border-color:#dca89a; background:var(--danger-soft); }
+  .badge-secret{ background:var(--danger); }
+
+  /* 滚动条：暖纸色细条 */
+  .rail-body::-webkit-scrollbar-thumb{ background:var(--line); }
+  .panel-body-scroll::-webkit-scrollbar-thumb{ background:var(--line); }
+  ::-webkit-scrollbar{ width:9px; height:9px; }
+  ::-webkit-scrollbar-thumb{ background:var(--line); border-radius:5px; border:2px solid transparent; background-clip:content-box; }
+  ::-webkit-scrollbar-thumb:hover{ background:var(--muted); background-clip:content-box; }
+
+  /* 结局横幅：淡赭石纸片，左侧朱砂印章点 */
+  #ending-banner{ background:var(--warn-soft); border-bottom:1px solid #e8d6ab; }
+  #ending-banner .eb-ico{ color:var(--accent-strong); }
 </style>
 </head>
 <body>
