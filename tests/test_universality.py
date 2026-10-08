@@ -41,6 +41,23 @@ GUARD_FILES = {"test_universality.py"}
 # 前缀「_」为一次性工具脚本（压测探针等），跑完即删、不入库，绑定真实卡组是它们的用途本身
 ALLOW_FILES = GUARD_FILES | {"test_intimacy_scale.py", "test_standard_entry.py"}
 
+# ── 引擎非 .py 分发面扫描（与 package.py 排除口径对齐）──
+# 引擎源码 .py 已由上面的 test_engine_source_has_no_hardcoded_character_names 覆盖；
+# 此处补上「随包但非 .py 的文本文件」（index.html / worldbook-guide.html /
+# README / INSTALL / config.json / requirements.txt），把打包后才查的泄漏前移为
+# 开发期 pytest 必过项。
+# 排除目录（与 package.py EXCLUDE_DIRS 一致，venv 内含大量第三方 .txt/.md）
+_DISTRIB_EXCLUDE_DIRS = {"venv", "__pycache__", ".git"}
+# 私有数据：不随分发，扫描必须跳过（否则误伤玩家私创/个人 DEMO）
+_DISTRIB_PRIVATE_PREFIXES = (
+    "data/characters", "data/worlds", "data/sessions",
+    "data/state.json", "player-cast",
+)
+# 官方 demo 白名单：合法题材词（与 package.py 扫黑名单的豁免一致）
+_DISTRIB_WHITELIST = ("data/examples/", "static/script-example-guide.html")
+# 扫描的文件类型（打包扫描覆盖 .py/.html/.md/.txt/.json；.py 另有专测，此处只扫非 .py）
+_DISTRIB_TEXT_SUFFIXES = {".html", ".md", ".txt", ".json"}
+
 
 def _is_tool_script(rel):
     return rel.startswith("_")
@@ -89,6 +106,48 @@ def test_engine_source_has_no_hardcoded_character_names():
             if word in text:
                 offenders.append(f"{p.name} 含「{word}」")
     assert not offenders, "引擎源码出现具体剧本名/题材词：\n" + "\n".join(offenders)
+
+
+def _engine_distrib_text_files():
+    """引擎内「随包的非 .py 文本文件」，口径与 package.py 排除规则一致。"""
+    out = []
+    for p in ENGINE_DIR.rglob("*"):
+        if not p.is_file():
+            continue
+        if p.suffix.lower() not in _DISTRIB_TEXT_SUFFIXES:
+            continue
+        rel = p.relative_to(ENGINE_DIR).as_posix()
+        parts = rel.split("/")
+        if any(x in _DISTRIB_EXCLUDE_DIRS for x in parts):
+            continue
+        if any(rel.startswith(pre) for pre in _DISTRIB_PRIVATE_PREFIXES):
+            continue
+        if any(w in rel for w in _DISTRIB_WHITELIST):
+            continue
+        out.append((rel, p))
+    return out
+
+
+def test_engine_distributable_non_py_has_no_hardcoded_names():
+    """引擎随包的非 .py 文本文件零具体剧本名/题材词（开发期闸门）。
+
+    把打包后才人工查的泄漏扫描，前移为每次 pytest 必过项，覆盖
+    index.html / worldbook-guide.html / README / INSTALL / config.json 等
+    （.py 源文件由 test_engine_source_has_no_hardcoded_character_names 覆盖）。
+    """
+    files = _engine_distrib_text_files()
+    # 护栏自检：扫描面不能为空，否则等于没扫
+    assert files, "引擎分发面非 .py 文本文件为空，扫描目标可能已被误排除"
+    offenders = []
+    for rel, p in files:
+        try:
+            text = p.read_text(encoding="utf-8")
+        except UnicodeDecodeError:
+            continue
+        for word in BANNED:
+            if word in text:
+                offenders.append(f"{rel} 含「{word}」")
+    assert not offenders, "引擎随包非 .py 文件出现具体剧本名/题材词：\n" + "\n".join(offenders)
 
 
 def test_neutral_placeholders_available():

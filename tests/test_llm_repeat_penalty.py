@@ -104,11 +104,11 @@ def test_ext_fields_cover_repeat_and_min_p():
     assert set(llm._EXT_FIELDS) == {"repeat_penalty", "repeat_last_n", "min_p"}
 
 
-# ---------- 出厂默认（v0.21.2：温度下调 + min_p）----------
+# ---------- 出厂默认（v0.21.2 起 min_p；v0.24.0 温度上调至用户满意值 1.0）----------
 
-def test_defaults_temperature_lowered():
-    """temperature 出厂默认 0.85：1.0 属高熵档，实测长输出有 30% 概率中途语义坍缩。"""
-    assert llm.DEFAULTS["temperature"] == 0.85
+def test_defaults_temperature_user_preferred():
+    """temperature 出厂默认 1.0：v0.24.0 对齐 simon 当前满意值（原 0.85 上调）。"""
+    assert llm.DEFAULTS["temperature"] == 1.0
 
 
 def test_defaults_min_p_conservative():
