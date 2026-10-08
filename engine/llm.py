@@ -125,15 +125,45 @@ def list_models(base_url=None, api_key=None):
     return [m.get("id") for m in data.get("data", [])]
 
 
-def stream(messages, temperature=None, top_p=None, max_tokens=None, top_k=None, timeout=180,
-           base_url=None, api_key=None, model=None):
-    """逐块产出文本。上游返回 SSE，这里只取 delta.content。
+def _fallback_config():
+    """读取 config.json 的 fallback 段（兜底模型，如本地 llama.cpp）。未配置或非法返回 None。"""
+    fb = _file_config().get("fallback")
+    if not isinstance(fb, dict):
+        return None
+    bu = str(fb.get("base_url") or "").strip()
+    if not bu:
+        return None
+    return {
+        "base_url": bu,
+        "api_key": str(fb.get("api_key") or ""),
+        "model": str(fb.get("model") or ""),
+    }
 
-    失败时抛异常，由调用方转成 SSE 错误事件。
+
+def _chain_configs(base_url, api_key, model):
+    """本次调用要依次尝试的 (base_url, api_key, model) 候选序列。
+
+    默认调用（未显式指定 base_url/model）：先主配置；若配置了 fallback 且与主配置不同，追加为兜底。
+    显式指定 base_url 或 model 时：保持单后端，不降级（尊重调用方意图，如测试/指定 provider）。
     """
-    url = (base_url or setting("base_url") or DEFAULTS["base_url"]).rstrip("/") + "/chat/completions"
+    primary = (
+        (base_url or setting("base_url") or DEFAULTS["base_url"]),
+        (api_key if api_key is not None else setting("api_key")),
+        (model or setting("model")),
+    )
+    cands = [primary]
+    if base_url is None and model is None:
+        fb = _fallback_config()
+        if fb and (fb["base_url"].rstrip("/") != primary[0].rstrip("/") or fb["model"] != primary[2]):
+            cands.append((fb["base_url"], fb["api_key"], fb["model"]))
+    return cands
+
+
+def _stream_once(messages, temperature, top_p, max_tokens, top_k, timeout, base_url, api_key, model):
+    """单次后端请求（流式）。产出前失败抛异常，由 stream() 决定是否降级。"""
+    url = base_url.rstrip("/") + "/chat/completions"
     payload = {
-        "model": model or setting("model"),
+        "model": model,
         "messages": messages,
         "temperature": float(temperature if temperature is not None else setting("temperature")),
         "top_p": float(top_p if top_p is not None else setting("top_p")),
@@ -146,9 +176,8 @@ def stream(messages, temperature=None, top_p=None, max_tokens=None, top_k=None, 
         payload["chat_template_kwargs"] = {"enable_thinking": False}
         payload["enable_thinking"] = False  # SiliconFlow / OpenAI 兼容网关认顶层字段
     headers = {"Content-Type": "application/json"}
-    key = api_key if api_key is not None else setting("api_key")
-    if key:
-        headers["Authorization"] = f"Bearer {key}"
+    if api_key:
+        headers["Authorization"] = f"Bearer {api_key}"
 
     with requests.post(url, json=payload, headers=headers, stream=True, timeout=timeout) as resp:
         resp.raise_for_status()
@@ -174,12 +203,36 @@ def stream(messages, temperature=None, top_p=None, max_tokens=None, top_k=None, 
                 yield text
 
 
-def complete(messages, temperature=None, top_p=None, max_tokens=None, top_k=None, timeout=60,
-             base_url=None, api_key=None, model=None):
-    """一次性返回完整文本（非流式）。用于场景切换等只需结果、不需逐字流的轻量判定。"""
-    url = (base_url or setting("base_url") or DEFAULTS["base_url"]).rstrip("/") + "/chat/completions"
+def stream(messages, temperature=None, top_p=None, max_tokens=None, top_k=None, timeout=180,
+           base_url=None, api_key=None, model=None):
+    """逐块产出文本。上游返回 SSE，这里只取 delta.content。
+
+    默认调用支持降级：主配置在**产出首块前**失败时自动切到 fallback 重试；
+    一旦已流出内容再失败则原样抛异常，绝不二次切换（避免重复文本）。
+    显式指定 base_url/model 时不降级。全部候选失败抛最后一个异常。
+    """
+    cands = _chain_configs(base_url, api_key, model)
+    last_exc = None
+    for bu, key, mdl in cands:
+        produced = False
+        try:
+            for text in _stream_once(messages, temperature, top_p, max_tokens, top_k, timeout, bu, key, mdl):
+                produced = True
+                yield text
+            return
+        except Exception as exc:
+            last_exc = exc
+            if produced:
+                raise
+    if last_exc is not None:
+        raise last_exc
+
+
+def _complete_once(messages, temperature, top_p, max_tokens, top_k, timeout, base_url, api_key, model):
+    """单次后端请求（非流式）。失败抛异常，由 complete() 决定是否降级。"""
+    url = base_url.rstrip("/") + "/chat/completions"
     payload = {
-        "model": model or setting("model"),
+        "model": model,
         "messages": messages,
         "temperature": float(temperature if temperature is not None else setting("temperature")),
         "top_p": float(top_p if top_p is not None else setting("top_p")),
@@ -191,12 +244,28 @@ def complete(messages, temperature=None, top_p=None, max_tokens=None, top_k=None
         payload["chat_template_kwargs"] = {"enable_thinking": False}
         payload["enable_thinking"] = False  # 顶层字段兼容 SiliconFlow / OpenAI 网关
     headers = {"Content-Type": "application/json"}
-    key = api_key if api_key is not None else setting("api_key")
-    if key:
-        headers["Authorization"] = f"Bearer {key}"
+    if api_key:
+        headers["Authorization"] = f"Bearer {api_key}"
 
     resp = requests.post(url, json=payload, headers=headers, timeout=timeout)
     resp.raise_for_status()
     if not resp.encoding or resp.encoding.lower() == "iso-8859-1":
         resp.encoding = "utf-8"
     return resp.json()["choices"][0]["message"].get("content", "")
+
+
+def complete(messages, temperature=None, top_p=None, max_tokens=None, top_k=None, timeout=60,
+             base_url=None, api_key=None, model=None):
+    """一次性返回完整文本（非流式）。用于场景切换等只需结果、不需逐字流的轻量判定。
+
+    默认调用支持降级：主配置失败时自动切到 fallback 重试；显式指定 base_url/model 时不降级。
+    """
+    cands = _chain_configs(base_url, api_key, model)
+    last_exc = None
+    for bu, key, mdl in cands:
+        try:
+            return _complete_once(messages, temperature, top_p, max_tokens, top_k, timeout, bu, key, mdl)
+        except Exception as exc:
+            last_exc = exc
+    if last_exc is not None:
+        raise last_exc
