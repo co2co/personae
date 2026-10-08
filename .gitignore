@@ -18,6 +18,10 @@ backups/
 engine/data/sessions/
 engine/data/state.json
 
+# 引擎运行展示截图（随分发包 zip 提供，供用户预览界面；不进版本库）
+# package.py 走文件系统 os.walk 打包，与 git 无关，故此处 ignore 只影响 git，不影响分发
+engine/screenshots/
+
 # 用户私人剧本数据（官方 demo 在 data/examples/，其余 characters/worlds 为私人数据，不入库）
 engine/data/characters/
 engine/data/worlds/

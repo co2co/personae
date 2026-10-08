@@ -688,7 +688,7 @@ def act():
         # 纪官是非流式 LLM 调用，耗时与正文相当；在进入前先回一条「同步中」状态，
         # 让前端把输入框显式切到「后台同步」提示，避免玩家误以为可输入下一回合。
         yield "data: " + json.dumps({"status": "正在同步本回合状态…"}, ensure_ascii=False) + "\n\n"
-        director.reflect(sid, full)
+        director.reflect(sid, full, directive)
 
         # v0.17.4：正文落盘（append_chat）从 reflect 之前挪到之后，收口「一轮推演」的
         # 事务边界。旧顺序是「先 append_chat 正文、再 reflect 回写状态」——若进程在两者

@@ -1062,7 +1062,9 @@ function renderSnapshot(snap) {
     return `<span class="chip">${n}${warn}</span>`;
   };
   const castHtml = (snap.present || []).map(n => chipOf(n)).join('');
-  const auxList = (snap.aux || []).filter(a => a && a.name);
+  // 已退场群演（死亡/彻底离开队伍）从在场列表注销，与正式角色离场对称；
+  // 仍保留在 aux 数据里（防重新出场被当新人重复登记），只在此处不展示。
+  const auxList = (snap.aux || []).filter(a => a && a.name && a.status !== '已退场');
   const auxHtml = auxList.map(a => {
     const tip = [a.role, a.intro_round ? `R${a.intro_round} 加入` : '', a.status]
       .filter(Boolean).join(' ｜ ');

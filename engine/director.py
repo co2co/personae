@@ -1510,11 +1510,15 @@ def init_address(snap):
     return out
 
 
-def reflect(sid, reply):
+def reflect(sid, reply, directive=""):
     """生成后状态回写：根据本轮叙事更新关系、短期目标，并检测潜伏秘密被揭露。
 
     这是“状态机自动演化”的核心——推演产生的后果必须落回快照，否则次日无痕。
     任何解析/调用失败都保持快照不变，绝不阻塞主流程。
+
+    directive：本轮导演指令（玩家本人这轮的权威设定）。关键事实（如某群演死亡）
+    可能只由指令承载、正文未清晰复述甚至被弱化，故退场判定须同时参照它。
+    自然推演轮指令为空，prompt 不增行，零 token 增量。
     """
     snap = memory.load(sid)
     if not snap:
@@ -1545,8 +1549,12 @@ def reflect(sid, reply):
     loc_text = "；".join(loc_lines) or "（无）"
     # 已登记群演回喂：纪官必须知道「某个泛称」已在册，才能在她自报姓名时声明改名合并，
     # 否则会把「X」当成又一个新人物（真实回归：会话 1868b891 左栏出现两个 chip）。
-    aux_lines = [f"{a.get('name')}（{a.get('role') or ''}）"
-                 for a in (snap.get("aux") or [])]
+    aux_lines = []
+    for a in (snap.get("aux") or []):
+        line = f"{a.get('name')}（{a.get('role') or ''}）"
+        if a.get("status") == "已退场":
+            line += "〔已退场〕"
+        aux_lines.append(line)
     aux_text = "；".join(aux_lines) or "（无）"
     # 背景人物（无独立角色卡、不在场，仅存在于他人关系定位里）：回喂名单，纪官才能
     # 按语义判断本轮有没有人把他们写成有对白/独白的角色。这取代了原先的正则扫描——
@@ -1554,6 +1562,9 @@ def reflect(sid, reply):
     # 命中里真失责接近 0，且旧链路会整句删除正文（会话 d024172c 事故）。
     offscreens = background_names_from_relations(snap, present)
     off_text = "、".join(offscreens) or "（无）"
+    # 导演指令回喂：关键事实（群演死亡等）可能只由玩家指令承载、正文未复述甚至弱化。
+    # 仅当指令非空时占一行，自然推演轮零开销。指令是玩家本人的权威设定，优先级高于正文。
+    dir_block = ("\n本轮导演指令（玩家设定，权威，正文与其冲突时以指令为准）：\n" + directive + "\n") if directive else ""
 
     prompt = [
         {"role": "system",
@@ -1567,6 +1578,7 @@ def reflect(sid, reply):
             f"既有位置：{loc_text}\n"
             f"已登记群演：{aux_text}\n"
             f"背景人物（无独立角色卡、不在场）：{off_text}\n"
+            f"{dir_block}"
             f"本轮叙事：\n{reply}\n\n"
             "请输出 JSON：\n"
             "{\n"
@@ -1580,6 +1592,7 @@ def reflect(sid, reply):
             '  "state_updates": [{"subject": "对象（如某道门、某件物品、某人的伤）", "value": "当前状态一句话"}],\n'
             '  "location_updates": [{"who": "角色名", "place": "该角色本轮结束时所在的具体地点"}],\n'
             '  "aux_updates": [{"name": "新出场人物的名字或稳定称呼", "note": "一句话身份说明（如「隔壁的住户」「巡夜的保安」）", "replaces": "该人物在「已登记群演」里的旧称呼（仅当本轮才得知其真名时填）"}],\n'
+            '  "aux_departures": [{"name": "退场群演的名字", "reason": "退场原因一句话（如死亡、逃离、离开队伍）"}],\n'
             '  "offscreen_activity": [{"name": "被写成活动角色的背景人物", "evidence": "本轮叙事原文片段"}],\n'
             '  "scene_shift": {"changed": false, "place": "本轮叙事末尾所处的地点", "time": "本轮叙事末尾的时间", "weather": "本轮叙事末尾的天气"}\n'
             "}\n"
@@ -1626,6 +1639,17 @@ def reflect(sid, reply):
             "示例（X 为占位，与你的剧本无关）：名单里有「那个陌生女子」，本轮写「那名女子站在门口……“我叫X。”」"
             "→ aux_updates 填 {\"name\": \"X\", \"note\": \"自称某某身份\", \"replaces\": \"那个陌生女子\"}，"
             "绝不能把 X 当成又一个新人物。只有确认是同一个人时才填 replaces；拿不准就不填，按新人物处理。\n"
+            "- aux_departures：逐一看「已登记群演」名单，判断其中某人是否处于**永久性退场**——死亡、"
+            "被带走、彻底逃离队伍或离开故事线，再也不会回到当前场景。退场的判定**三条线索都要看**："
+            "①本轮叙事里刚发生的退场；②「既有位置」里已经标明了永久退场态、但「已登记群演」里此人"
+            "仍挂着〔活跃〕的人——这种存量漏报本轮一并补报，避免退场那一轮没赶上、之后永远追不上；"
+            "③**本轮导演指令**里明确说某已登记群演死亡／被带走／彻底消失——退场事实可能只由玩家指令"
+            "承载、正文没复述甚至弱化成「跑了」，此时即便「既有位置」仍停在旧地点，也按退场注销"
+            "（指令是玩家的权威设定，优先级高于正文与既有位置）。"
+            "name 用名单里该人的名字，reason 一句话说明原因。只填**已登记的群演**（在「已登记群演」"
+            "名单里的人）；正式登场角色的进出由场景导演处理，不要填进这里。无人需退场就填空数组——"
+            "宁可漏报，不可误报；位置里只是「翻窗逃到隔壁单元」「转移到别处躲藏」这类**还会回来**的"
+            "暂时逃离一律不填（判断依据是「会不会再回来」，不是「有没有离开原位」）。\n"
             "- offscreen_activity：检查「背景人物」名单里的人，本轮有没有被**写成活动角色**——"
             "获得对白、独白、或作为动作主语亲自出场行动（如「X从门后走出」「X笑着说：“…”」）。\n"
             "  不算的情况（**一律不填**，填了就是误报）：被在场角色在台词或心里谈论、回忆、"
@@ -1865,6 +1889,33 @@ def reflect(sid, reply):
                 if note:
                     entry["role"] = note
                 logger.info("aux", "群演改名合并：" + old + " → " + nm)
+
+    # 群演退场注销（对称于正式角色的 scene.leave）：纪官按语义判断某个已登记
+    # 群演本轮是否永久性退场（死亡/被带走/彻底逃离队伍），引擎核验名字确在册后
+    # 把 status 置「已退场」。保留条目不删除——删了会让「同一人物重新出场」被当成
+    # 全新人物重复登记；只注销展示，前端按 status 过滤掉非活跃 chip。
+    for dep in _as_dict_list(data.get("aux_departures")):
+        nm = (dep.get("name") or "").strip()
+        if not nm:
+            continue
+        # 正式登场角色的进出由场景导演（scene.apply 的 leave）处理，群演注销通道不接管。
+        if nm in set(present) or nm in store.list_characters() or nm == ENV_PUSHER:
+            continue
+        entry = {a.get("name"): a for a in (snap.get("aux") or [])}.get(nm)
+        if entry is None:
+            # 不在群演册（可能是未登记的背景人物或正式角色），群演通道不处理。
+            continue
+        if entry.get("status") == "已退场":
+            continue
+        entry["status"] = "已退场"
+        reason = (dep.get("reason") or "").strip()
+        if reason:
+            entry["note"] = reason[:60]
+        # 退场即注销其残留短期目标（goals 只增不删，死者目标会挂到换场景才被清空；
+        # 这里按名字同步清掉，与 aux status 注销对称）。goals 键是角色名，pop 安全。
+        if isinstance(snap.get("goals"), dict):
+            snap["goals"].pop(nm, None)
+        logger.info("aux", "群演退场注销：" + nm)
 
     # 背景人物活动化：语义判定交给纪官，引擎只做逐字举证核验（记录员模式，
     # 与 secret_exposures 同一套）。写得下轮提示词点名批评用的名单，engine 不再
