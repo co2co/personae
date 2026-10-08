@@ -513,10 +513,12 @@
           <input id="cfg-temp" class="field" type="number" step="0.05" style="max-width:110px">
           <span style="font-size:12.5px;color:var(--muted);">top_p</span>
           <input id="cfg-topp" class="field" type="number" step="0.05" style="max-width:110px">
-          <span style="font-size:12.5px;color:var(--muted);">top_k</span>
-          <input id="cfg-topk" class="field" type="number" step="1" style="max-width:90px">
+          <span style="font-size:12.5px;color:var(--muted);">min_p</span>
+          <input id="cfg-minp" class="field" type="number" step="0.005" style="max-width:110px">
         </div>
         <div class="row" style="margin-top:10px;">
+          <span style="font-size:12.5px;color:var(--muted);">top_k</span>
+          <input id="cfg-topk" class="field" type="number" step="1" style="max-width:90px">
           <span style="font-size:12.5px;color:var(--muted);">max_tokens</span>
           <input id="cfg-maxtok" class="field" type="number" step="64" style="max-width:120px">
           <label style="margin:0;display:flex;align-items:center;gap:6px;font-size:13px;color:var(--ink-2);font-weight:400;">
@@ -529,7 +531,7 @@
           <span style="font-size:12.5px;color:var(--muted);">repeat_last_n</span>
           <input id="cfg-rn" class="field" type="number" step="16" style="max-width:110px">
         </div>
-        <div class="sub" style="margin:8px 0 0;line-height:1.6;">重复惩罚：抑制长文末尾把同一段剧情整段重写。1.0 = 不惩罚；调高可减少复读，但过高会让用词僵硬。<code>repeat_last_n</code> 是惩罚作用范围（只管最近 N 个 token，0 = 管全部），填 0 则不发送该字段。</div>
+        <div class="sub" style="margin:8px 0 0;line-height:1.6;"><code>min_p</code> 动态截断：只保留「概率 ≥ min_p × 最高概率」的候选，比固定 <code>top_p</code> 更抗长输出走神（正文退化、同一段剧情被整段重写）。填 0 则不启用。重复惩罚：<code>repeat_penalty</code> 1.0 = 不惩罚，调高可减少复读但过高会让用词僵硬；<code>repeat_last_n</code> 是作用范围（只管最近 N 个 token，0 = 全部）。</div>
       </div>
     </details>
 
@@ -1130,8 +1132,9 @@ document.getElementById('open-system').onclick = async () => {
   renderProviders();
   const sel = document.getElementById('cfg-active-prov');
   sel.onchange = () => { cfgActiveKey = sel.value; renderProviders(); };
-  document.getElementById('cfg-temp').value = c.temperature ?? 0.9;
+  document.getElementById('cfg-temp').value = c.temperature ?? 0.85;
   document.getElementById('cfg-topp').value = c.top_p ?? 0.95;
+  document.getElementById('cfg-minp').value = c.min_p ?? 0.02;
   document.getElementById('cfg-topk').value = c.top_k ?? 40;
   document.getElementById('cfg-maxtok').value = c.max_tokens ?? 4096;
   document.getElementById('cfg-rp').value = c.repeat_penalty ?? 1.1;
@@ -1241,6 +1244,7 @@ document.getElementById('sys-save').onclick = async () => {
     providers: cfgProviders,
     temperature: parseFloat(document.getElementById('cfg-temp').value),
     top_p: parseFloat(document.getElementById('cfg-topp').value),
+    min_p: parseFloat(document.getElementById('cfg-minp').value),
     top_k: parseInt(document.getElementById('cfg-topk').value, 10),
     max_tokens: parseInt(document.getElementById('cfg-maxtok').value, 10),
     repeat_penalty: parseFloat(document.getElementById('cfg-rp').value),
