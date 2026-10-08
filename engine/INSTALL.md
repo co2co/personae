@@ -136,4 +136,4 @@ pip install -r requirements.txt
 
 ---
 
-更完整的机制说明见浏览器 `/docs/worldbook`（世界书）；`DEVLOG.md` 为版本与架构演进记录（不随分发提供）。
+更完整的机制说明见浏览器 `/docs/worldbook`（世界书）；版本演进与架构决策见开发工作树的 `tests/DEVLOG.md`（不随分发提供）。

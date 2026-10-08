@@ -37,7 +37,9 @@ engine/
 └── VERSION         版本号
 ```
 
-> 开发日志 `DEVLOG.md` 与待办 `TODO.md` 只存在于开发工作树，**不随分发包提供**
+> 本目录是**纯引擎本体**：只含运行所需的一切，以及面向使用者的说明文档。
+> 开发类文档（开发日志 `DEVLOG.md`、待办 `TODO.md`、内部备忘 `FACT-MEMO.md`）
+> **已移出本目录**，存放于开发工作树 `tests/`，不随分发包提供
 > （内含具体剧本的角色名与题材词，属引擎普适性红线）。
 
 ## 运行
@@ -66,4 +68,4 @@ python app.py          # 默认 http://127.0.0.1:5000
 - **关系网 / 目标**：由 director 在每轮 reflect 中从叙事回写（actions / goals / relations）。
 - **present 校验**：生成后剥离非在场角色（含已离场者、环境推手）的台词块，避免出戏。
 
-世界书用法见浏览器 `/docs/worldbook`（由 `static/worldbook-guide.html` 提供）；版本演进与架构决策见开发工作树中的 `DEVLOG.md`（不随分发提供）。
+世界书用法见浏览器 `/docs/worldbook`（由 `static/worldbook-guide.html` 提供）；版本演进与架构决策见开发工作树 `tests/DEVLOG.md`（不随分发提供）。

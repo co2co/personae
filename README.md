@@ -24,9 +24,11 @@ personae/                 ← 项目根（群像弈，D:/codes/personae）
 │   ├── static/index.html   单页前端
 │   ├── run.bat  install.bat  requirements.txt  VERSION
 │   ├── INSTALL.md          安装指南（见 engine/INSTALL.md）
-│   ├── DEVLOG.md           开发日志（架构决策 / 版本记录）
 │   └── README.md           引擎说明（见 engine/README.md）
-├── tests/                  ← B. 测试单元（开发用，不分发）
+├── tests/                  ← B. 开发工作树（开发用，不分发）
+│   ├── DEVLOG.md           开发日志（架构决策 / 版本记录）
+│   ├── TODO.md             待办与搁置项
+│   ├── FACT-MEMO.md        内部设计备忘
 │   ├── test_world_scan.py   world.scan 确定性单测
 │   ├── test_director.py     director 确定性单测
 │   ├── playthrough.py      走查驱动库（落盘 markdown）
@@ -36,6 +38,10 @@ personae/                 ← 项目根（群像弈，D:/codes/personae）
 │   └── runs/               走查生成的 markdown 日志（gitignore）
 └── README.md               ← 本文件
 ```
+
+> **开发与本体隔离**：`engine/` 是纯引擎本体，只含运行所需的一切 + 面向使用者的
+> `README.md` / `INSTALL.md`；所有开发类文档与测试脚本集中在 `tests/`。
+> 分发时只需 `engine/`，开发内容不会进入分发包。
 
 > 历史打包与备份留在根目录 `*.zip`、`backups/`（均 gitignore）。
 
@@ -67,4 +73,4 @@ python tests/run_playthrough.py     # 不依赖 pytest，直接跑一局走查�
 
 ## 版本
 
-当前版本见 `engine/VERSION`（唯一真相源，此处不再复写版本号以免日志漂移）。各版本备份 zip 与提交记录见 `engine/DEVLOG.md`。
+当前版本见 `engine/VERSION`（唯一真相源，此处不再复写版本号以免日志漂移）。各版本备份 zip 与提交记录见 `tests/DEVLOG.md`。

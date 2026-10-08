@@ -1,12 +1,20 @@
 # 测试单元（tests/）
 
-群像弈（Personae）【暂定】的自动化测试目录，与引擎本体（`../engine/`）并列存放于项目根。
+群像弈（Personae）【暂定】的**开发工作树**目录，与引擎本体（`../engine/`）并列存放于项目根。
 **仅供开发使用，分发引擎时不包含本目录。**
+
+> **开发与本体隔离（2026-10-08 起）**：`engine/` 是纯引擎本体，只保留运行所需的一切
+> + 面向使用者的 `README.md` / `INSTALL.md`。所有开发类文档收归本目录，
+> `engine/` 内不再存放任何开发内容。
+> **规约：新写开发类文档（开发日志、待办、设计备忘）一律放本目录，不要放 `engine/`。**
 
 ## 结构
 
 ```
 tests/
+├── DEVLOG.md           开发日志：架构决策与版本演进记录（开发类文档主入口）
+├── TODO.md             待办与搁置项
+├── FACT-MEMO.md        内部设计备忘
 ├── conftest.py         把 ../engine 加入 sys.path，使测试能 import 引擎模块
 ├── pytest.ini          testpaths=tests；默认 -m "not integration"（只跑快测）
 ├── test_world_scan.py  world.scan 确定性单测（不调 LLM）

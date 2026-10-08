@@ -8,7 +8,7 @@
 
 注：旧版单角色生成接口（/api/generate、/api/message、/api/state、/api/persona、
 /api/nsfw/confirm、/api/state/reset）已于 2026-09-30 移除，「玩家」机制一并下线，
-NSFW 支持已于 v0.8.0 整体废弃（见 DEVLOG）。
+NSFW 支持已于 v0.8.0 整体废弃（见开发工作树 tests/DEVLOG.md）。
 
 生成流程：读角色卡 -> 组装提示词（prompter）-> 发请求 -> 回写快照（关系 / 目标 / 秘密揭露）。
 """

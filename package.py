@@ -48,15 +48,11 @@ EXCLUDE_SUBPATHS = {
     "player-cast",       # 用户剧本：玩家设定
 }
 
-# 内部设计备忘：不随分发（写给开发者复装用，用户不需要也不该看到已移除机制的细节）
-EXCLUDE_FILES = {
-    "FACT-MEMO.md",
-    # 开发日志 / 待办：含私人剧本的具体角色名、关系与题材词（引擎普适性红线：
-    # 引擎面向任意剧本，这些名字一个都不该出现在分发物里）。与 FACT-MEMO 同理，
-    # 属只留工作树的内部文档。engine/README.md 中对二者的引用已同步改为不随包提供。
-    "DEVLOG.md",
-    "TODO.md",
-}
+# 说明：开发类文档（DEVLOG / TODO / FACT-MEMO）已于 2026-10-08 移出引擎本体，
+# 现存于 tests/（开发工作树），engine/ 仅保留面向用户的 README.md 与 INSTALL.md。
+# 故此处不再需要它们各自的排除项——EXCLUDE_DIRS 已覆盖引擎内的一切子目录。
+# 引擎面向任意剧本，任何剧本内容（角色名/关系/题材词）都不该出现在分发物里；
+# 该约束现由 EXCLUDE_SUBPATHS 承担（data/characters、data/worlds、player-cast）。
 
 # Windows 保留设备名（CON/PRN/AUX/NUL/COM1-9/LPT1-9）。
 # 误把命令输出重定向到这些名（如 `... > nul`）时，会在工作树里生成同名垃圾文件：
@@ -78,8 +74,6 @@ def _excluded(rel_engine):
     rel = rel_engine.replace(os.sep, "/")  # 跨平台：统一为正斜杠
     parts = rel.split("/")
     if parts[0] in EXCLUDE_DIRS:
-        return True
-    if rel in EXCLUDE_FILES:
         return True
     for sp in EXCLUDE_SUBPATHS:
         if rel == sp or rel.startswith(sp + "/"):
