@@ -523,6 +523,13 @@
             <input id="cfg-think" type="checkbox"> 启用思考
           </label>
         </div>
+        <div class="row" style="margin-top:10px;">
+          <span style="font-size:12.5px;color:var(--muted);">repeat_penalty</span>
+          <input id="cfg-rp" class="field" type="number" step="0.05" style="max-width:110px">
+          <span style="font-size:12.5px;color:var(--muted);">repeat_last_n</span>
+          <input id="cfg-rn" class="field" type="number" step="16" style="max-width:110px">
+        </div>
+        <div class="sub" style="margin:8px 0 0;line-height:1.6;">重复惩罚：抑制长文末尾把同一段剧情整段重写。1.0 = 不惩罚；调高可减少复读，但过高会让用词僵硬。<code>repeat_last_n</code> 是惩罚作用范围（只管最近 N 个 token，0 = 管全部），填 0 则不发送该字段。</div>
       </div>
     </details>
 
@@ -1127,6 +1134,8 @@ document.getElementById('open-system').onclick = async () => {
   document.getElementById('cfg-topp').value = c.top_p ?? 0.95;
   document.getElementById('cfg-topk').value = c.top_k ?? 40;
   document.getElementById('cfg-maxtok').value = c.max_tokens ?? 4096;
+  document.getElementById('cfg-rp').value = c.repeat_penalty ?? 1.1;
+  document.getElementById('cfg-rn').value = c.repeat_last_n ?? 256;
   document.getElementById('cfg-think').checked = !!c.enable_thinking;
   cfgMsg.textContent = '';
   sysModal.classList.remove('hide');
@@ -1234,6 +1243,8 @@ document.getElementById('sys-save').onclick = async () => {
     top_p: parseFloat(document.getElementById('cfg-topp').value),
     top_k: parseInt(document.getElementById('cfg-topk').value, 10),
     max_tokens: parseInt(document.getElementById('cfg-maxtok').value, 10),
+    repeat_penalty: parseFloat(document.getElementById('cfg-rp').value),
+    repeat_last_n: parseInt(document.getElementById('cfg-rn').value, 10),
     enable_thinking: document.getElementById('cfg-think').checked,
   };
   // 仅当列表非空时才写入生效连接，避免删光后误保存清空当前可用连接。

@@ -6,6 +6,51 @@
 
 ---
 
+## 2026-10-08 v0.21.1 重复惩罚进 payload：修长输出整段复读（simon 拍板）
+
+- **问题**：会话 `606e6b9a` 最新一轮出现整段剧情重发——72 段里 P47–P71 是 P17–P41 的
+  重发（23 段相似度 1.00 逐字相同，2 段 0.85/0.87），重复 1087 字 = 全文 **33%**。
+- **排查结论（先排除引擎自身）**：
+  - **不是 fallback 机制**（v0.21.0 刚加的）：当时 config 主配置与 fallback **完全相同**
+    （均 `127.0.0.1:1234` 本地 27B），`_chain_configs` 的去重条件使其只发一次请求，
+    走不到降级分支。流式链路（`app.py` events 逐块 yield → 前端逐字追加）亦无重复注入点。
+  - **全库扫描**：所有会话中重复率 >15% 的回复仅 2 条（本条 33%、`a47526ae` #17 21%），
+    均为本地 27B + 长输出 + 高熵参数，属低概率事件而非系统性 bug。
+- **根因**：请求体**从未发送 `repeat_penalty`**。`llm.py` 原来只传 temperature / top_p /
+  top_k / max_tokens，llama.cpp 因此吃服务端缺省 `repeat_penalty=1.0`（= 无惩罚）；
+  而默认档 temperature=0.9~1.0 / top_k=40 属高熵，长输出到千字量级必然出现 n-gram 回卷。
+- **对照实测**（重建该轮 prompt，22 段 / 14173 token，唯一变量为 repeat_penalty）：
+  A 组不传 → 重复占比 **1.5%**；B 组 `repeat_penalty=1.1` → **0%**。
+- **处理**（`engine/llm.py`）：
+  - `DEFAULTS` 新增 `repeat_penalty=1.1`（保守档；过高会让用词僵硬、丧失随机性）、
+    `repeat_last_n=256`（只惩罚最近 256 个 token，够覆盖复读场景，又不波及很早的剧情事实）。
+  - 两者进 `_WRITABLE`，`save_config` 按 float / int 转换。
+  - 抽 `_penalty_params()` / `_base_payload()` / `_strip_penalty()` 三个共用函数，
+    `_stream_once` 与 `_complete_once` 复用同一 payload 构造（顺带消除两处重复的采样参数字面量）。
+  - `stream()` / `complete()` 签名加 `repeat_penalty` / `repeat_last_n`（None → 回退 config）。
+- **发送规则（可移植性）**：**仅当 `rp ≠ 1.0` 才发字段**——中性值与各后端缺省行为一致，
+  发过去无增益，却可能被严格校验的 OpenAI 兼容网关（vLLM / DeepSeek 等）判未知参数而 400。
+  `repeat_last_n=0` 时只发 `repeat_penalty`（范围交后端缺省）。
+- **网关兜底**：若后端回 400/404/422 且 payload 带惩罚字段，自动剥离后**重试一次**——
+  宁可退回该后端缺省惩罚，也不能让整轮生成失败。`getattr(resp,"status_code",200)` 兜底不可省：
+  直接读 `resp.status_code` 会打破 `test_llm_fallback.py` 既有测试桩（桩对象无该属性）。
+- **前端**（`engine/static/index.html`）：「采样参数」栏新增 `repeat_penalty`（step 0.05）、
+  `repeat_last_n`（step 16）两个输入框 + 说明文案（1.0 = 不惩罚；调高减少复读但过高会僵硬；
+  `repeat_last_n` 是作用范围，0 = 全部），回填 `?? 1.1` / `?? 256`，保存进 payload。
+- **守护用例** `tests/test_llm_repeat_penalty.py`（8 条）：中性不发 / 显式发 / `rn=0` 省略 /
+  非法值回落默认 / 网关 4xx 剥离重试 / 中性值下 4xx 不重试（不掩盖真实错误）/
+  配置持久化类型 / 出厂默认保守。
+- **不动 prompt 层**：这是**采样层**问题，加提示词解不了（呼应排查结论）。
+- **验证**：全量 **275 passed, 1 skipped, 1 deselected**（267 → 275）；实机新进程（5051）
+  页面两字段齐、config 默认 1.1/256、POST 保存回读类型正确、真实打本地 27B 生成正常无复读。
+- **版本号**：v0.21.0 → **v0.21.1**（PATCH，修正引擎可观察行为：消除长输出复读）。
+  改的是 LLM 调用层采样参数，不动 director 推演 / 关系 / 秘密记账，非「引擎机制设定」级 → 不压测。
+- **遗留（本次未查）**：该轮输出结尾断在「林梦雅倒吸」且无句末标点，而输出仅 1734 token
+  （远未及 `max_tokens=4096`）→ 生成被**硬截断**。引擎侧确认无任何长度截断逻辑，
+  疑在 llama.cpp 服务端或上游连接层。与复读是两回事，待 simon 定是否追查。
+
+---
+
 ## 2026-10-08 v0.21.0 LLM 后端降级（fallback）+ 前端提供商切换下拉框
 
 ### A. LLM 后端自动降级（新增能力 → MINOR）

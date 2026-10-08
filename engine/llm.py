@@ -23,6 +23,15 @@ DEFAULTS = {
     "temperature": 0.9,
     "top_p": 0.95,
     "top_k": 40,
+    # 重复惩罚：抑制长输出末尾的 n-gram 回卷（同一段剧情被整段重发）。
+    # 1.0 = 不惩罚（llama.cpp 服务端默认，也是 OpenAI 兼容网关的缺省行为）。
+    # 实测本地 27B 在 temperature=1.0 / top_k=40 下，输出到千字量级有可观概率整段复读；
+    # 1.1 起明显收敛。取值过高会让用词僵硬、丧失随机性，故默认取 1.1（保守档）。
+    "repeat_penalty": 1.1,
+    # 惩罚作用范围：只对最近 N 个 token 生效（llama.cpp 的 repeat_last_n）。
+    # 0 = 惩罚全部上下文。256 足够覆盖「复读的段落在数千 token 内」这一实际场景，
+    # 又不必让惩罚波及很早的剧情事实（那里重复是合理的，如角色名、场景描写）。
+    "repeat_last_n": 256,
     "enable_thinking": False,
     "saved_models": [],
 }
@@ -80,7 +89,8 @@ def config_view():
 
 # 用户可通过 UI 改动的字段；其余内部字段不暴露
 _WRITABLE = {"base_url", "api_key", "model", "budget", "max_tokens", "top_k",
-             "temperature", "top_p", "enable_thinking", "saved_models", "providers"}
+             "temperature", "top_p", "repeat_penalty", "repeat_last_n",
+             "enable_thinking", "saved_models", "providers"}
 
 
 def save_config(partial):
@@ -91,9 +101,9 @@ def save_config(partial):
             continue
         if k == "enable_thinking":
             v = bool(v)
-        elif k in ("budget", "max_tokens", "top_k"):
+        elif k in ("budget", "max_tokens", "top_k", "repeat_last_n"):
             v = int(v) if str(v).strip() else DEFAULTS[k]
-        elif k in ("temperature", "top_p"):
+        elif k in ("temperature", "top_p", "repeat_penalty"):
             v = float(v) if str(v).strip() else DEFAULTS[k]
         elif k == "saved_models":
             v = list(v) if isinstance(v, (list, tuple)) else []
@@ -159,27 +169,83 @@ def _chain_configs(base_url, api_key, model):
     return cands
 
 
-def _stream_once(messages, temperature, top_p, max_tokens, top_k, timeout, base_url, api_key, model):
-    """单次后端请求（流式）。产出前失败抛异常，由 stream() 决定是否降级。"""
-    url = base_url.rstrip("/") + "/chat/completions"
+def _penalty_params(repeat_penalty, repeat_last_n):
+    """重复惩罚字段。仅在用户显式偏离中性值时才发——中性值与各后端缺省行为一致，
+    发过去没有增益，却可能被严格校验的 OpenAI 兼容网关（vLLM/DeepSeek 等）判为
+    未知参数而 400。故默认 1.0 / 0 一律不发。
+    """
+    out = {}
+    try:
+        rp = float(repeat_penalty)
+    except (TypeError, ValueError):
+        rp = DEFAULTS["repeat_penalty"]
+    try:
+        rn = int(repeat_last_n)
+    except (TypeError, ValueError):
+        rn = DEFAULTS["repeat_last_n"]
+    if rp != 1.0:
+        out["repeat_penalty"] = rp
+        # repeat_last_n 是 llama.cpp 扩展，与 repeat_penalty 配对才有意义；
+        # 网关若认 repeat_penalty 也通常认这个，但没给出值时用后端缺省更稳。
+        if rn:
+            out["repeat_last_n"] = rn
+    return out
+
+
+def _base_payload(messages, temperature, top_p, max_tokens, top_k, base_model,
+                  repeat_penalty, repeat_last_n):
+    """流式/非流式共用的请求体（采样参数 + 重复惩罚 + 思考开关）。"""
     payload = {
-        "model": model,
+        "model": base_model,
         "messages": messages,
         "temperature": float(temperature if temperature is not None else setting("temperature")),
         "top_p": float(top_p if top_p is not None else setting("top_p")),
         "max_tokens": int(max_tokens if max_tokens is not None else setting("max_tokens")),
         "top_k": int(top_k if top_k is not None else setting("top_k")),
-        "stream": True,
     }
+    payload.update(_penalty_params(repeat_penalty, repeat_last_n))
     # Qwen3 一类带思考的模型默认会把预算耗在 reasoning 上，content 全是空
     if not setting("enable_thinking"):
         payload["chat_template_kwargs"] = {"enable_thinking": False}
         payload["enable_thinking"] = False  # SiliconFlow / OpenAI 兼容网关认顶层字段
+    return payload
+
+
+def _strip_penalty(payload):
+    payload.pop("repeat_penalty", None)
+    payload.pop("repeat_last_n", None)
+    return payload
+
+
+def _stream_once(messages, temperature, top_p, max_tokens, top_k, timeout, base_url, api_key, model,
+                 repeat_penalty=None, repeat_last_n=None):
+    """单次后端请求（流式）。产出前失败抛异常，由 stream() 决定是否降级。"""
+    url = base_url.rstrip("/") + "/chat/completions"
+    if repeat_penalty is None:
+        repeat_penalty = setting("repeat_penalty")
+    if repeat_last_n is None:
+        repeat_last_n = setting("repeat_last_n")
+    payload = _base_payload(messages, temperature, top_p, max_tokens, top_k, model,
+                            repeat_penalty, repeat_last_n)
+    payload["stream"] = True
     headers = {"Content-Type": "application/json"}
     if api_key:
         headers["Authorization"] = f"Bearer {api_key}"
 
-    with requests.post(url, json=payload, headers=headers, stream=True, timeout=timeout) as resp:
+    def _post(p):
+        return requests.post(url, json=p, headers=headers, stream=True, timeout=timeout)
+
+    resp = _post(payload)
+    # 网关不认 repeat_penalty/repeat_last_n（非标准扩展）时会 4xx。
+    # 此时去掉这两个字段重试一次：宁可退回该后端的缺省惩罚，也不能整轮生成失败。
+    # getattr 兜底：测试桩/非常规响应对象可能没有 status_code，此时不重试。
+    if (getattr(resp, "status_code", 200) in (400, 404, 422)
+            and ("repeat_penalty" in payload or "repeat_last_n" in payload)):
+        resp.close()
+        payload = _strip_penalty(dict(payload))
+        payload["stream"] = True
+        resp = _post(payload)
+    with resp:
         resp.raise_for_status()
         # 上游不返回 charset 时 requests 会按 latin-1 解码，中文直接变乱码
         if not resp.encoding or resp.encoding.lower() == "iso-8859-1":
@@ -204,7 +270,8 @@ def _stream_once(messages, temperature, top_p, max_tokens, top_k, timeout, base_
 
 
 def stream(messages, temperature=None, top_p=None, max_tokens=None, top_k=None, timeout=180,
-           base_url=None, api_key=None, model=None):
+           base_url=None, api_key=None, model=None,
+           repeat_penalty=None, repeat_last_n=None):
     """逐块产出文本。上游返回 SSE，这里只取 delta.content。
 
     默认调用支持降级：主配置在**产出首块前**失败时自动切到 fallback 重试；
@@ -216,7 +283,8 @@ def stream(messages, temperature=None, top_p=None, max_tokens=None, top_k=None, 
     for bu, key, mdl in cands:
         produced = False
         try:
-            for text in _stream_once(messages, temperature, top_p, max_tokens, top_k, timeout, bu, key, mdl):
+            for text in _stream_once(messages, temperature, top_p, max_tokens, top_k, timeout,
+                                     bu, key, mdl, repeat_penalty, repeat_last_n):
                 produced = True
                 yield text
             return
@@ -228,26 +296,29 @@ def stream(messages, temperature=None, top_p=None, max_tokens=None, top_k=None, 
         raise last_exc
 
 
-def _complete_once(messages, temperature, top_p, max_tokens, top_k, timeout, base_url, api_key, model):
+def _complete_once(messages, temperature, top_p, max_tokens, top_k, timeout, base_url, api_key, model,
+                   repeat_penalty=None, repeat_last_n=None):
     """单次后端请求（非流式）。失败抛异常，由 complete() 决定是否降级。"""
     url = base_url.rstrip("/") + "/chat/completions"
-    payload = {
-        "model": model,
-        "messages": messages,
-        "temperature": float(temperature if temperature is not None else setting("temperature")),
-        "top_p": float(top_p if top_p is not None else setting("top_p")),
-        "max_tokens": int(max_tokens if max_tokens is not None else setting("max_tokens")),
-        "top_k": int(top_k if top_k is not None else setting("top_k")),
-        "stream": False,
-    }
-    if not setting("enable_thinking"):
-        payload["chat_template_kwargs"] = {"enable_thinking": False}
-        payload["enable_thinking"] = False  # 顶层字段兼容 SiliconFlow / OpenAI 网关
+    if repeat_penalty is None:
+        repeat_penalty = setting("repeat_penalty")
+    if repeat_last_n is None:
+        repeat_last_n = setting("repeat_last_n")
+    payload = _base_payload(messages, temperature, top_p, max_tokens, top_k, model,
+                            repeat_penalty, repeat_last_n)
+    payload["stream"] = False
     headers = {"Content-Type": "application/json"}
     if api_key:
         headers["Authorization"] = f"Bearer {api_key}"
 
     resp = requests.post(url, json=payload, headers=headers, timeout=timeout)
+    # 与流式同：网关不认重复惩罚扩展字段时去掉重试一次，不让整次判定失败。
+    if (getattr(resp, "status_code", 200) in (400, 404, 422)
+            and ("repeat_penalty" in payload or "repeat_last_n" in payload)):
+        resp.close()
+        payload = _strip_penalty(dict(payload))
+        payload["stream"] = False
+        resp = requests.post(url, json=payload, headers=headers, timeout=timeout)
     resp.raise_for_status()
     if not resp.encoding or resp.encoding.lower() == "iso-8859-1":
         resp.encoding = "utf-8"
@@ -255,7 +326,8 @@ def _complete_once(messages, temperature, top_p, max_tokens, top_k, timeout, bas
 
 
 def complete(messages, temperature=None, top_p=None, max_tokens=None, top_k=None, timeout=60,
-             base_url=None, api_key=None, model=None):
+             base_url=None, api_key=None, model=None,
+             repeat_penalty=None, repeat_last_n=None):
     """一次性返回完整文本（非流式）。用于场景切换等只需结果、不需逐字流的轻量判定。
 
     默认调用支持降级：主配置失败时自动切到 fallback 重试；显式指定 base_url/model 时不降级。
@@ -264,7 +336,8 @@ def complete(messages, temperature=None, top_p=None, max_tokens=None, top_k=None
     last_exc = None
     for bu, key, mdl in cands:
         try:
-            return _complete_once(messages, temperature, top_p, max_tokens, top_k, timeout, bu, key, mdl)
+            return _complete_once(messages, temperature, top_p, max_tokens, top_k, timeout,
+                                  bu, key, mdl, repeat_penalty, repeat_last_n)
         except Exception as exc:
             last_exc = exc
     if last_exc is not None:
