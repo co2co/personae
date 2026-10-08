@@ -268,7 +268,6 @@
   .prov-body{ display:none; padding:10px 10px 12px; border-top:1px solid var(--line); }
   .prov-card.open .prov-body{ display:block; }
   .prov-body .field{ margin-bottom:4px; }
-  .prov-actions{ display:flex; gap:8px; margin-top:6px; }
   .prov-msg{ margin-top:4px; min-height:16px; }
 
   /* ---------- 响应式（三栏自适应） ---------- */
@@ -488,6 +487,11 @@
         <span class="acc-chev">▾</span>
       </summary>
       <div class="acc-body">
+        <div class="row" style="margin:0 0 10px;align-items:center;gap:10px;">
+          <label for="cfg-active-prov" style="margin:0;font-size:13px;color:var(--ink-2);font-weight:500;">引擎使用的 LLM</label>
+          <select id="cfg-active-prov" class="field" style="max-width:280px;" title="选择后点「保存设置」，引擎将改用该提供商的 LLM"></select>
+        </div>
+        <p class="sub" style="margin:0 0 6px;line-height:1.6;">上方下拉框选择引擎当前使用的 LLM，保存后即时生效。</p>
         <p class="sub" style="margin:0 0 10px;line-height:1.6;">已保存的 LLM 提供商。展开某项可修改其连接参数（如把火山引擎的模型从 Qwen 切换为混元）；右侧 × 删除该提供商；底部可新增。</p>
         <div id="cfg-providers" class="providers"></div>
         <button id="cfg-prov-add" class="btn btn-sm" style="margin-top:10px;">＋ 新增提供商</button>
@@ -1059,7 +1063,16 @@ input.addEventListener('keydown', e => { if (e.key === 'Enter' && !e.shiftKey) {
 let cfgProviders = [];      // 提供商清单
 let cfgActiveKey = "";      // 当前生效的提供商 key
 let cfgOpen = {};           // 展开状态：key -> bool
+function renderActiveSelect() {
+  const sel = document.getElementById('cfg-active-prov');
+  if (!sel) return;
+  sel.innerHTML = cfgProviders.length
+    ? cfgProviders.map(p => `<option value="${escHtml(p.key)}">${escHtml(p.name || p.key || p.key)}</option>`).join('')
+    : '<option value="">（暂无提供商）</option>';
+  sel.value = cfgActiveKey;
+}
 function renderProviders() {
+  renderActiveSelect();
   const box = document.getElementById('cfg-providers');
   if (!cfgProviders.length) {
     box.innerHTML = '<div class="prov-empty">（暂无已保存的提供商，点下方“新增提供商”）</div>';
@@ -1088,10 +1101,7 @@ function renderProviders() {
         </label>
         <input class="field prov-f-model" value="${escHtml(p.model || '')}" placeholder="如 Qwen3.5-32B / hunyuan">
         <select class="field prov-f-models" style="display:none;"></select>
-        <div class="prov-actions">
-          <button class="prov-f-apply btn btn-sm" data-act="apply">应用为当前</button>
-        </div>
-        <div class="prov-msg"></div>
+        <div class="prov-msg" style="margin-top:8px;"></div>
       </div>
     </div>`;
   }).join('');
@@ -1106,9 +1116,13 @@ document.getElementById('open-system').onclick = async () => {
   const c = await fetch('/api/config').then(r => r.json());
   // 已保存的提供商，每项自带连接参数，可在卡片内独立展开编辑
   cfgProviders = Array.isArray(c.providers) ? c.providers.map(p => ({...p})) : [];
-  cfgActiveKey = "";
   cfgOpen = {};
+  // 回填「引擎使用的 LLM」：以当前生效的 base_url 反查所属提供商
+  const curUrl = (c.base_url || '').trim();
+  cfgActiveKey = (cfgProviders.find(p => (p.base_url || '').trim() === curUrl) || cfgProviders[0] || {}).key || "";
   renderProviders();
+  const sel = document.getElementById('cfg-active-prov');
+  sel.onchange = () => { cfgActiveKey = sel.value; renderProviders(); };
   document.getElementById('cfg-temp').value = c.temperature ?? 0.9;
   document.getElementById('cfg-topp').value = c.top_p ?? 0.95;
   document.getElementById('cfg-topk').value = c.top_k ?? 40;
@@ -1119,7 +1133,7 @@ document.getElementById('open-system').onclick = async () => {
 };
 document.getElementById('cfg-cancel').onclick = () => sysModal.classList.add('hide');
 
-// 提供商清单：点选填入连接参数并设为当前 / 点 × 删除
+// 提供商清单：上方下拉选当前 / 卡片内改连接参数 / 点 × 删除
 // 新增提供商：追加一个空卡片并自动展开
 document.getElementById('cfg-prov-add').onclick = () => {
   const key = 'p' + Date.now().toString(36);
@@ -1128,7 +1142,7 @@ document.getElementById('cfg-prov-add').onclick = () => {
   renderProviders();
 };
 
-// 提供商列表：事件委托（展开 / 删除 / 应用为当前 / 测试连接）
+// 提供商列表：事件委托（展开 / 删除 / 测试连接）
 const provBox = document.getElementById('cfg-providers');
 function provKeyOf(e) { const card = e.target.closest('.prov-card'); return card ? card.dataset.key : null; }
 function syncProv(key, field, val) { const p = cfgProviders.find(x => x.key === key); if (p) p[field] = val; }
@@ -1158,7 +1172,6 @@ provBox.addEventListener('click', async e => {
     renderProviders();
     return;
   }
-  if (act === 'apply') { cfgActiveKey = key; renderProviders(); return; }
   if (act === 'test') {
     const p = cfgProviders.find(x => x.key === key);
     if (!p) return;
@@ -1214,7 +1227,7 @@ provBox.addEventListener('change', e => {
 document.getElementById('sys-save').onclick = async () => {
   // 保存前先把界面上每张卡片的当前输入同步进内存，确保落盘即所见
   syncProvidersFromDOM();
-  // 当前生效连接取「应用为当前」的提供商；未指定则取列表首项（若有）
+  // 当前生效连接取「引擎使用的 LLM」下拉选中的提供商；未指定则取列表首项（若有）
   const payload = {
     providers: cfgProviders,
     temperature: parseFloat(document.getElementById('cfg-temp').value),
@@ -1224,9 +1237,13 @@ document.getElementById('sys-save').onclick = async () => {
     enable_thinking: document.getElementById('cfg-think').checked,
   };
   // 仅当列表非空时才写入生效连接，避免删光后误保存清空当前可用连接。
-  // 关键保护：若「应用为当前」的提供商未填 Base URL（半填卡片），绝不把全局 base_url 清空，
+  // 关键保护：若当前选中的提供商未填 Base URL（半填卡片），绝不把全局 base_url 清空，
   // 否则对话请求会变成 /chat/completions（无 scheme）而报错。base_url 为空时保留现有可用连接。
   if (cfgProviders.length) {
+    if (!cfgActiveKey || !cfgProviders.some(p => p.key === cfgActiveKey)) {
+      cfgActiveKey = cfgProviders[0].key;
+      renderProviders();
+    }
     const active = cfgProviders.find(p => p.key === cfgActiveKey) || cfgProviders[0];
     if ((active.base_url || '').trim()) {
       payload.base_url = active.base_url.trim();
