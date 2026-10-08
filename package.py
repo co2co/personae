@@ -102,6 +102,14 @@ def build(out_name=None):
                         cfg["api_key"] = ""
                         cfg["model"] = ""
                         cfg["providers"] = []
+                        # fallback 段：本地兜底模型的 base_url/model 是个人机器布局
+                        # （如 D:\ai\models\*.gguf），属分发红线。清空 base_url 即
+                        # 「未启用降级」，是出厂默认（_fallback_config() 见空即返回 None）。
+                        fb = cfg.get("fallback")
+                        if isinstance(fb, dict):
+                            fb["base_url"] = ""
+                            fb["api_key"] = ""
+                            fb["model"] = ""
                         z.writestr(arcname, json.dumps(cfg, ensure_ascii=False, indent=2))
                     except Exception:
                         z.write(full, arcname)
