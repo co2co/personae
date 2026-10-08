@@ -64,6 +64,13 @@
   改的是 LLM 调用层，不动 director 推演 / 关系 / 秘密记账，非「引擎机制设定」级 → 不压测。
 - **未做**：DRY（`dry_multiplier`，llama.cpp 专治重复的采样器，服务端当前 0.0 未启用）
   仍是未用手段，本轮只按 simon 指示验了 `min_p` + 温度。
+- **打包连带修正（首包实测发现）**：`package.py` 原先只洗白连接信息，采样参数原样带出。
+  因磁盘私人 config 存着 `temperature=1.0`，首包把 1.0 打进了分发包，而出厂默认已是 0.85
+  ——**新装用户会拿到开发者的旧值**。已改为从 `llm.DEFAULTS` 取真值洗白
+  （`importlib` 按文件加载，不 `import llm`，避免 requests 缺失时打包崩），
+  覆盖 temperature / top_p / top_k / min_p / repeat_penalty / repeat_last_n / max_tokens；
+  `null` 值一并剔除。**规约：打包脚本不得硬编码引擎默认值，一律从 DEFAULTS 取**，
+  否则引擎调了默认值而打包没跟上，新装用户就静默拿到旧值。
 
 ---
 

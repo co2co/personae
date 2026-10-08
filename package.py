@@ -18,6 +18,21 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent
 ENGINE = ROOT / "engine"
 
+# 采样参数的出厂真值，直接取自引擎的 DEFAULTS（不硬编码字面量到打包脚本里）。
+# 用 importlib 从文件加载而非 import llm：llm 依赖 requests，缺依赖时打包仍须能跑。
+def _load_engine_defaults():
+    try:
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("_pkg_llm", ENGINE / "llm.py")
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)          # llm 只在函数内读 CONFIG_FILE，加载期无副作用
+        return dict(mod.DEFAULTS)
+    except Exception:
+        return {}
+
+
+_ENGINE_DEFAULTS = _load_engine_defaults()
+
 # 排除项（相对 engine/ 的路径）
 EXCLUDE_DIRS = {".git", "venv", "__pycache__"}
 # 不随分发包携带：会话状态/运行时状态、玩家私人设定、任何剧本内容。
@@ -110,6 +125,20 @@ def build(out_name=None):
                             fb["base_url"] = ""
                             fb["api_key"] = ""
                             fb["model"] = ""
+                        # 采样参数：连同 DEFAULTS 一起洗白。**直接从 llm.DEFAULTS 取真值**，
+                        # 不在此处硬编码字面量——否则引擎调了默认值而这里没跟上，
+                        # 新装用户就会拿到开发者机器上的旧值（v0.21.2 实踩：磁盘 temperature=1.0
+                        # 被原样打进包，而出厂默认已是 0.85）。min_p 存 null 时也要写回真值。
+                        for k in ("temperature", "top_p", "top_k", "min_p",
+                                  "repeat_penalty", "repeat_last_n", "max_tokens"):
+                            if k in _ENGINE_DEFAULTS:
+                                cfg[k] = _ENGINE_DEFAULTS[k]
+                        # null/缺失一律剔除：setting() 虽已把 null 兜底成默认值，
+                        # 但包里留 null 会让读包的人困惑，也让 config_view 回填出 null。
+                        for k in ("temperature", "top_p", "top_k", "min_p",
+                                  "repeat_penalty", "repeat_last_n"):
+                            if cfg.get(k) is None:
+                                cfg.pop(k, None)
                         z.writestr(arcname, json.dumps(cfg, ensure_ascii=False, indent=2))
                     except Exception:
                         z.write(full, arcname)
