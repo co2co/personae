@@ -20,7 +20,9 @@ DEFAULTS = {
     "model": "local",
     "budget": 4096,
     "max_tokens": 4096,
-    "temperature": 0.85,
+    # 出厂默认温度：由 0.85 上调至 1.0（实测对长输出创意/多样性更友好）。
+    # 「恢复默认」按钮回填的就是这里，故出厂值以本表为唯一真相源。
+    "temperature": 1.0,
     "top_p": 0.95,
     "top_k": 40,
     # min_p：动态截断——先按概率排序，只保留「概率 ≥ min_p × 最高概率」的候选。
@@ -91,12 +93,24 @@ def setting(name):
     return val
 
 
+# 前端「恢复默认」要回填的采样参数键（纯出厂值）。
+# 单独成表而非内联：sampling_defaults 必须只含 DEFAULTS 出厂值，不能被 file 覆盖，
+# 否则「恢复默认」会把用户当前已改的值再写回去，失去意义。
+_SAMPLING_DEFAULT_KEYS = ("temperature", "top_p", "top_k", "min_p",
+                          "max_tokens", "repeat_penalty", "repeat_last_n")
+
+
 def config_view():
-    """给 /api/config 用。本地单用户工具，直接返回真实配置（含密钥），便于前端回填。"""
+    """给 /api/config 用。本地单用户工具，直接返回真实配置（含密钥），便于前端回填。
+
+    额外下发 sampling_defaults：纯 llm.DEFAULTS 的出厂采样参数（不被 file 覆盖），
+    供前端「恢复默认」按钮一键回填，避免前端硬编码出厂值。
+    """
     cfg = dict(DEFAULTS)
     cfg.update(_file_config())
     # providers 缺省时为空列表（刚部署）；用户增删后的列表已持久化则直接用
     cfg.setdefault("providers", [])
+    cfg["sampling_defaults"] = {k: DEFAULTS[k] for k in _SAMPLING_DEFAULT_KEYS}
     return cfg
 
 

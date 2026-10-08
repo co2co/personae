@@ -664,6 +664,10 @@
           <input id="cfg-rn" class="field" type="number" step="16" style="max-width:110px">
         </div>
         <div class="sub" style="margin:8px 0 0;line-height:1.6;"><code>min_p</code> 动态截断：只保留「概率 ≥ min_p × 最高概率」的候选，比固定 <code>top_p</code> 更抗长输出走神（正文退化、同一段剧情被整段重写）。填 0 则不启用。重复惩罚：<code>repeat_penalty</code> 1.0 = 不惩罚，调高可减少复读但过高会让用词僵硬；<code>repeat_last_n</code> 是作用范围（只管最近 N 个 token，0 = 全部）。</div>
+        <div class="row" style="margin-top:12px;align-items:center;gap:10px;">
+          <button id="cfg-sampling-reset" class="btn btn-sm">恢复默认采样参数</button>
+          <span class="sub" style="margin:0;">一键回填出厂默认值（仅改输入框，点「保存」生效）。</span>
+        </div>
       </div>
     </details>
 
@@ -1204,6 +1208,7 @@ input.addEventListener('keydown', e => { if (e.key === 'Enter' && !e.shiftKey) {
 let cfgProviders = [];      // 提供商清单
 let cfgActiveKey = "";      // 当前生效的提供商 key
 let cfgOpen = {};           // 展开状态：key -> bool
+let cfgSamplingDefaults = null; // 出厂采样参数（来自后端 /api/config 的 sampling_defaults）
 function renderActiveSelect() {
   const sel = document.getElementById('cfg-active-prov');
   if (!sel) return;
@@ -1272,6 +1277,8 @@ document.getElementById('open-system').onclick = async () => {
   document.getElementById('cfg-rp').value = c.repeat_penalty ?? 1.1;
   document.getElementById('cfg-rn').value = c.repeat_last_n ?? 256;
   document.getElementById('cfg-think').checked = !!c.enable_thinking;
+  cfgSamplingDefaults = (c.sampling_defaults && typeof c.sampling_defaults === 'object')
+    ? c.sampling_defaults : null;
   cfgMsg.textContent = '';
   sysModal.classList.remove('hide');
 };
@@ -1367,6 +1374,23 @@ provBox.addEventListener('change', e => {
   card.querySelector('.prov-f-model').value = e.target.value;
   syncProv(key, 'model', e.target.value);
 });
+
+// 恢复默认采样参数：回填后端下发的出厂值（不硬编码），仅改输入框，仍需点「保存」落盘
+document.getElementById('cfg-sampling-reset').onclick = () => {
+  if (!cfgSamplingDefaults) { cfgMsg.textContent = '暂无出厂默认值，无法恢复'; cfgMsg.style.color = 'var(--danger)'; return; }
+  const d = cfgSamplingDefaults;
+  const map = {
+    'cfg-temp': d.temperature, 'cfg-topp': d.top_p, 'cfg-minp': d.min_p,
+    'cfg-topk': d.top_k, 'cfg-maxtok': d.max_tokens, 'cfg-rp': d.repeat_penalty,
+    'cfg-rn': d.repeat_last_n,
+  };
+  for (const id in map) {
+    const el = document.getElementById(id);
+    if (el && map[id] != null) el.value = map[id];
+  }
+  cfgMsg.style.color = 'var(--pos)';
+  cfgMsg.textContent = '已回填出厂默认采样参数，点「保存」生效';
+};
 
 document.getElementById('sys-save').onclick = async () => {
   // 保存前先把界面上每张卡片的当前输入同步进内存，确保落盘即所见

@@ -6,6 +6,19 @@
 
 ---
 
+## 2026-10-09 v0.24.0 采样参数：出厂默认上调 + 新增「恢复默认」按钮
+
+**性质**：新增能力（MINOR，前端可一键恢复出厂采样参数；同时把出厂默认 temperature 上调至 1.0）。
+
+### 改动
+- `llm.py`：`DEFAULTS["temperature"]` 由 0.85 上调至 **1.0**（simon 当前满意的采样值）。对比现有 config，其余 6 项采样参数（top_p/top_k/min_p/max_tokens/repeat_penalty/repeat_last_n）本就与 DEFAULTS 一致，故出厂默认与 simon 现用值完全对齐。
+- `llm.py`：`config_view()` 新增下发 `sampling_defaults`（`_SAMPLING_DEFAULT_KEYS` 7 项的纯 `DEFAULTS` 出厂值，**不被 file 覆盖**），供前端「恢复默认」一键回填，避免前端硬编码出厂值（守「采样参数真值一律从 llm.DEFAULTS 取」红线）。
+- `static/index.html`：采样参数面板底部新增「恢复默认采样参数」按钮（`#cfg-sampling-reset`）；点击回填 `/api/config` 下发的 `sampling_defaults` 到 7 个输入框（仅改输入框，仍需点「保存」落盘），带状态提示与无默认值兜底。
+
+### 版本
+- v0.23.0 → **v0.24.0**（MINOR，新增「恢复默认」能力 + 出厂默认 temperature 上调）。
+- 校验：后端 `config_view()` 下发 `sampling_defaults` 7 项齐全、`DEFAULTS.temperature`/`setting('temperature')` 均为 1.0；前端 `tests/test_frontend_binding.py` 4 passed（node DOM 沙箱走通新按钮绑定链路）。
+
 ## 2026-10-08 v0.23.0 会话存储只保留最新 10 条，超出自动清理
 
 **性质**：新增能力（MINOR，会话存储保留策略 + 测试隔离封堵）。
