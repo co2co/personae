@@ -46,6 +46,9 @@ EXCLUDE_SUBPATHS = {
     "data/characters",   # 角色卡：用户私创/个人 DEMO，不随分发
     "data/worlds",       # 世界书：同上
     "player-cast",       # 用户剧本：玩家设定
+    # 人眼核验不合格的截图（拍到私人剧本角色名/题材词/本地路径）挪到这里保留但不进包；
+    # screenshots/ 是活文件夹会持续加图，本目录即「已排查出泄漏」的隔离区。
+    "screenshots-excluded",
 }
 
 # 说明：开发类文档（DEVLOG / TODO / FACT-MEMO）已于 2026-10-08 移出引擎本体，
