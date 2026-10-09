@@ -30,7 +30,6 @@ engine/
 │   └── config.json 系统配置（出厂为空连接）；分发包不含示例剧本，首次运行需自行导入角色卡/世界书，玩家设定（player-cast）不随分发提供
 ├── static/index.html  单页前端
 ├── static/worldbook-guide.html  世界书用户手册（由 `/docs/worldbook` 提供）
-├── screenshots/      引擎运行展示截图（随分发包提供；.gitignore 不入库）
 ├── run.bat         启动（默认端口 5051；先 install.bat）
 ├── install.bat     建 venv + pip 装 requirements.txt
 ├── requirements.txt  Flask / requests

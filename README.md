@@ -22,7 +22,6 @@ personae/                 ← 项目根（群像弈，D:/codes/personae）
 │   ├── llm.py  scene.py  hooks.py
 │   ├── data/               创作内容（角色卡 / 世界书 / config）
 │   ├── static/index.html   单页前端
-│   ├── screenshots/        运行展示截图（随分发包；.gitignore 不入库）
 │   ├── run.bat  install.bat  requirements.txt  VERSION
 │   ├── INSTALL.md          安装指南（见 engine/INSTALL.md）
 │   └── README.md           引擎说明（见 engine/README.md）
