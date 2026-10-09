@@ -978,6 +978,7 @@ function renderNpcs(list) {
 
 async function startSession() {
   lwBody.innerHTML = '';  // 开新一轮前清空日志 DOM，去除上一轮推演残留
+  log.innerHTML = '';     // 同步清空主对话区，杜绝上一局残留气泡带入新局（误以为加载了历史会话）
   // 首次开启会话时引擎会在后台同步调用 LLM 补全关系网与称呼（可能耗时数秒），
   // 期间前端无反馈；显式提示玩家系统正在初始化，并禁用按钮防重复点击。
   const startBtn = document.getElementById('start');
@@ -2062,6 +2063,8 @@ document.getElementById('eb-continue').onclick = async () => {
 };
 async function endSession(){
   if (!SID) return;
+  // 二次确认：终结会话不可撤销，防误触（顶栏「结束剧本」与结局横幅共用本入口）
+  if (!confirm('确认结束本剧本并生成总结？结束后需删除会话并重新开启世界才能开始新局。')) return;
   hideEnding();
   statusEl.textContent = '正在生成剧本总结…';
   const r = await fetch('/api/end', {method:'POST', headers:{'Content-Type':'application/json'},
