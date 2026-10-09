@@ -133,6 +133,13 @@ def script_example_doc():
     return send_from_directory(ROOT / "static", "script-example-guide.html")
 
 
+@app.get("/docs/script-guide")
+def script_guide_doc():
+    """返回「创建剧本指南」静态页：机制层引导——引擎靠什么机制运转、
+    适合 / 不适合什么题材、一份好剧本该给引擎喂哪些设定，并以随包示例剧本拆解。"""
+    return send_from_directory(ROOT / "static", "script-guide.html")
+
+
 # ----------------------------------------------------------------------------
 # 快照的玩家视图投影
 # ----------------------------------------------------------------------------

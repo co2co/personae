@@ -1,0 +1,231 @@
+<!DOCTYPE html><html lang="zh"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>创建剧本指南 · 群像弈</title><style>
+:root{
+  --bg:#f5f6f8; --panel:#ffffff; --ink:#222833; --muted:#66707e;
+  --accent:#3b6ef0; --line:#e3e7ee; --code-bg:#eef1f6; --code-ink:#c0341d;
+}
+*{box-sizing:border-box;}
+body{margin:0;background:var(--bg);color:var(--ink);
+  font-family:-apple-system,"Segoe UI","PingFang SC","Microsoft YaHei","Hiragino Sans GB",sans-serif;
+  line-height:1.75;font-size:15px;}
+.wrap{max-width:900px;margin:0 auto;padding:22px 20px 90px;}
+header{display:flex;align-items:center;justify-content:space-between;
+  padding-bottom:14px;margin-bottom:6px;border-bottom:1px solid var(--line);}
+header strong{font-size:16px;color:var(--ink);}
+.close{font-size:13px;padding:6px 14px;border:1px solid var(--line);background:#fff;
+  border-radius:6px;cursor:pointer;color:var(--muted);}
+.close:hover{color:var(--ink);border-color:#c7cdd8;}
+.content h1:first-of-type{display:none;}
+.content h1{font-size:25px;margin:.2em 0 .4em;}
+.content h2{font-size:20px;margin:1.9em 0 .6em;padding-top:.6em;border-top:1px solid var(--line);}
+.content h3{font-size:16.5px;margin:1.5em 0 .5em;color:#2b3340;}
+.content p{margin:.7em 0;}
+.content ul,.content ol{padding-left:1.5em;margin:.6em 0;}
+.content li{margin:.3em 0;}
+.content a{color:var(--accent);text-decoration:none;}
+.content a:hover{text-decoration:underline;}
+.content code{background:var(--code-bg);color:var(--code-ink);padding:1.5px 5px;
+  border-radius:4px;font-size:.88em;font-family:ui-monospace,Menlo,Consolas,"Courier New",monospace;}
+.content pre{background:#f4f6f8;border:1px solid var(--line);border-radius:8px;
+  padding:14px 16px;overflow:auto;font-size:13px;line-height:1.55;}
+.content pre code{background:none;color:#2b3340;padding:0;}
+.content table{border-collapse:collapse;width:100%;margin:1.1em 0;font-size:14px;
+  display:block;overflow-x:auto;-webkit-overflow-scrolling:touch;}
+.content th,.content td{border:1px solid var(--line);padding:8px 11px;text-align:left;}
+.content th{background:#f0f3f8;font-weight:600;}
+.content blockquote{border-left:3px solid var(--accent);margin:1.1em 0;padding:.3em 1em;
+  color:var(--muted);background:#f0f3f8;border-radius:0 6px 6px 0;}
+.content hr{border:none;border-top:1px solid var(--line);margin:2em 0;}
+.content .good{color:#1f6f54;}
+.content .bad{color:#b4433a;}
+@media (max-width:640px){
+  .wrap{padding:16px 14px 70px;}
+  .content{font-size:14.5px;}
+  .content h2{font-size:18px;}
+}
+</style></head><body><div class="wrap"><header><strong>创建剧本指南 · 群像弈</strong><button class="close" onclick="window.close()">关闭</button></header><main class="content"><h1>创建剧本指南（引擎机制与题材适配）</h1>
+<blockquote>
+<p>适用版本：群像弈（Personae）【暂定】。本文档面向<strong>想写自己的剧本、但还没动笔</strong>的创作者：先讲清楚这套引擎<strong>靠什么机制运转</strong>，再据此说清它<strong>适合什么题材、不适合什么题材</strong>，最后用一份随包的官方示例剧本拆给你看——<strong>一份好剧本到底该给引擎喂什么</strong>。</p>
+</blockquote>
+<blockquote>
+<p>它和另外两份文档的分工：<a href="/docs/worldbook">世界书使用说明</a>讲「设定条目怎么配」，<a href="/docs/script-example">剧本范例指南</a>讲「文本怎么写才让提炼器识别」。本篇讲<strong>更上一层的选题与结构</strong>——动笔之前先读这份，少走弯路。</p>
+</blockquote>
+<hr>
+<h2>一、先说清这引擎到底给你什么体验</h2>
+<p>群像弈是一个<strong>多角色关系沙盘</strong>。你和普通「AI 角色扮演」最大的区别在角色定位：</p>
+<ul>
+<li>你<strong>不是其中任何一个角色</strong>。你是<strong>外部导演</strong>——不登场、不说话、不指挥谁做什么，只往这个世界里<strong>注入扰动</strong>（一句环境指令、一个突发状况、一句旁白）。</li>
+<li>真正在演的是<strong>一群各有动机、互相看不顺眼或互相纠缠的角色</strong>。他们会按自己的欲望、恐惧和秘密各自行动，关系会随事件演化，秘密会在某一刻被揭开。</li>
+<li>你的乐趣不在「我变强 / 我赢了」，而在<strong>看这个迷你世界如何自己运转、崩盘、翻盘</strong>——谁背叛了谁、哪条暗线爆了、资源够不够分。</li>
+</ul>
+<p>一句话：<strong>它是「看群像互相博弈」的推演器，不是「我当主角一路变强」的成长器。</strong>想清楚这一点，下面的「适合 / 不适合」就顺了。</p>
+<hr>
+<h2>二、引擎靠什么机制运转（你该喂它什么的前提）</h2>
+<p>引擎有五个核心机制。理解它们，你就知道一份剧本该提供哪些料。</p>
+<h3>1. 关系簿记 —— 关系是活的，会演化</h3>
+<p>每个角色卡上都写着他<strong>和在场每个人</strong>的关系（谁是他的靠山、谁是他要防的人、谁他有好感却不敢说）。开局这些关系被冻结成基准，之后<strong>随事件一步步变</strong>：一次背叛能让同盟翻脸，一次共同担惊能让仇敌暂时抱团。引擎的甜区就在这里——<strong>「人和人之间的暗线」</strong>是它最擅长演的。</p>
+<h3>2. 秘密簿记 —— 暗线逐步揭开</h3>
+<p>每个角色可以藏<strong>一桩见不得光的旧事</strong>。它开局是「潜伏」的（模型并不主动知道），只有当<strong>剧情里真的写出「发现动作 + 秘密事实」</strong>（比如有人拆开了那层隐瞒），引擎才把它翻成「暴露」，并把知情者记下——从此知情者可以拿它要挟、可以保护性隐瞒、关系随之改写。<strong>秘密不进提示词</strong>，它的「爆」是演出来的，不是设定出来的。</p>
+<h3>3. 世界书 —— 背景设定按需注入</h3>
+<p>世界观、地点、规则、威胁等背景，写成一条条世界书条目。分两种命：</p>
+<ul>
+<li><strong>常量条目</strong>：每轮恒在场，是「铁背景」（世界观法则、当前处境总则）。</li>
+<li><strong>触发条目</strong>：只有相关关键词被提到才注入（某个地点、某条规则、某个当下威胁）。</li>
+</ul>
+<p>条目的<strong>位置</strong>（before/after）与<strong>扫描深度</strong>（depth）决定它怎么影响模型——这部分细节请读<a href="/docs/worldbook">世界书使用说明</a>，本篇不展开。</p>
+<h3>4. 导演指令 —— 你唯一的介入方式</h3>
+<p>你每轮注入的「环境扰动」是推演世界的<strong>唯一外力</strong>。写得越具体（一个可感知的状况、一句能引发不同角色不同反应的旁白），群像的分支就越丰富。写「天下大乱」会摊平，写「门外传来第三声撬动、补给只剩最后半天」才会让每个人各自算各自的账。</p>
+<h3>5. 设计红线 —— 引擎被刻意设计成「不给主角光环」</h3>
+<p>这是理解题材适配最关键的一条。引擎在设计上就<strong>刻意</strong>：</p>
+<ul>
+<li><strong>无主角</strong>：没有谁被预设成「观众跟的那一个」，群像里人人都有自己的动机。</li>
+<li><strong>缠斗最大化</strong>：鼓励多方牵制、互相拆台，而不是「目标明确、一路推进」。</li>
+<li><strong>爽点落小事</strong>：爽的是「一个秘密被拆穿」「一次背叛被反将」「资源不够分时谁先让步」，不是「境界突破」「实力碾压」。</li>
+<li><strong>终局悬置</strong>：引擎不追求给你一个干净利落的「大团圆 / 大结局」，世界停在某个张力最高的悬置点。</li>
+</ul>
+<blockquote>
+<p>把这五条合起来看：<strong>引擎的爽感引擎 = 关系与秘密的博弈</strong>，而不是「个人成长曲线」。它擅长把「人和人之间的暗线」演出来，不擅长把「一个人变强」演出来。</p>
+</blockquote>
+<hr>
+<h2>三、它最适合什么样的剧本</h2>
+<table>
+<thead><tr><th>特征</th><th>为什么适合</th></tr></thead>
+<tbody>
+<tr><td><strong>长时同域群像</strong>（一群人在同一个封闭/半封闭空间或圈子里长期共处：一船、一栋楼、一间诊所、一个宗门内门、一个小村、一个科室）</td><td>群像共处 = 关系网 + 秘密簿记的用武之地，是引擎的绝对甜区</td></tr>
+<tr><td><strong>强关系网 + 隐藏秘密</strong>（师徒/同门/道侣/仇敌/把柄/身份伪装/组织黑历史）</td><td>关系会演化、秘密会逐步揭开，这两条是引擎的核心机制，喂得越多越出彩</td></tr>
+<tr><td><strong>资源 / 利益冲突驱动的缠斗</strong>（物资、配给、道统、话语权、地盘、一份名额、一笔账）</td><td>「有限资源怎么分」天然制造多方牵制与让步/背叛，正中「缠斗最大化」</td></tr>
+<tr><td><strong>多方势力 + 不稳定同盟 + 背叛</strong>（三足鼎立、合纵连横、今日盟友明日对手）</td><td>不稳定同盟是引擎被刻意设计的玩法，越不稳定越好演</td></tr>
+<tr><td><strong>悬疑 / 真相揭开型</strong>（一桩旧案的真相、一个功法/血脉/秘境的来历、一个组织掩埋的丑闻）</td><td>「谁在瞒、瞒了什么、何时被谁拆穿」= 秘密簿记 + 关系簿记的完美载体</td></tr>
+</tbody>
+</table>
+<blockquote>
+<p>判据一句话：<strong>你的故事里，「人和人之间的暗线 / 张力 / 把柄」是不是主要驱动力？</strong>是，引擎就很适合。</p>
+</blockquote>
+<hr>
+<h2>四、它对什么样的剧本兼容度差</h2>
+<p>不是「这些题材不能写」，而是<strong>这些题材的核心爽点恰好落在引擎不擅长 / 被刻意回避的机制上</strong>，硬做会「水土不服」。逐条说清为什么不匹配：</p>
+<table>
+<thead><tr><th>题材类型</th><th>核心爽点在哪</th><th>为什么与引擎机制错位</th></tr></thead>
+<tbody>
+<tr>
+<td class="bad">升级 / 养成 / 金手指流（含修仙玄幻的「境界突破、废柴逆袭、打脸」）</td>
+<td>「我变强了」「越级反杀」「境界突破」</td>
+<td>引擎<strong>没有数值 / 进度簿记</strong>——不追踪「你现在几级 / 突破没突破」，靠世界书 + 模型软性维持，长轮次会漂移；且设计红线「爽点落小事、终局悬置」与「一路变强的成长爽感」<strong>方向相反</strong>。硬做升级流，成长线会散、突破时机会失真。</td>
+</tr>
+<tr>
+<td class="bad">强规则 / 强数值战斗（战棋、卡牌、技能 combo、策略对抗）</td>
+<td>「这招配那招」「数值算下来能赢」</td>
+<td>引擎<strong>不做数值战斗判定</strong>，战斗只能作为叙事事件被模型软性描述，无法支撑「靠规则取胜」的玩法。</td>
+</tr>
+<tr>
+<td class="bad">黑箱系统题材（商战、金融投资、律政、政治博弈的内在逻辑）</td>
+<td>「算准了行情 / 抓住了规则漏洞」</td>
+<td>这类题材的推理建立在<strong>外人看不透的专业规则黑箱</strong>上。玩家没法像「水够撑三天」那样去推理，引擎的推演也依赖模型对黑箱的软性理解，容易失真。选题材宜<strong>贴近普通人常识</strong>（水、粮、武器、医药、名额）。</td>
+</tr>
+<tr>
+<td class="bad">单一主角强叙事推动（个人英雄、一条复仇主线、闯关式推进）</td>
+<td>「跟着主角一步步推进到终点」</td>
+<td>引擎<strong>无主角、终局悬置</strong>。把全部笔墨押在一个主角的主线上，群像的「互相博弈」会被压扁，引擎最值钱的关系/秘密机制用不上。</td>
+</tr>
+</tbody>
+</table>
+<blockquote>
+<p><strong>特别说修仙</strong>：修仙题材本身<strong>能</strong>做，但要做成<strong>「宗门群像 / 权谋」</strong>而不是「升级爽文」——把修为当背景板（用常量条目定境界与战斗规则，不让玩家推数值），把主角位让给宗门内斗、道统之争、功法黑历史、师徒道侣仇敌这些<strong>关系与秘密</strong>。想要「我修炼逆天改命」的成长爽感，引擎给不了。</p>
+</blockquote>
+<hr>
+<h2>五、一份好剧本该给引擎喂什么</h2>
+<p>对照上面的机制，一份能跑出好戏的剧本，至少该提供下面这些「料」：</p>
+<h3>A. 角色卡（每个角色都要齐）</h3>
+<p>引擎靠角色卡上这几个字段驱动行为，缺哪个角色就会「木」：</p>
+<table>
+<thead><tr><th>字段</th><th>给什么</th><th>缺了会怎样</th></tr></thead>
+<tbody>
+<tr><td><code>description</code></td><td>性别 / 年龄 / 定位，一句话身份</td><td>角色失去基本轮廓</td></tr>
+<tr><td><code>personality</code></td><td>正面特点 + <strong>缺点 / 软肋</strong>（让角色会犯错的关键）</td><td>角色「永远理性」，没有暗线可挖</td></tr>
+<tr><td><code>core_desire</code></td><td>他<strong>最想要什么</strong>——驱动行为的引擎</td><td>角色没有动机，剧情推不动</td></tr>
+<tr><td><code>core_fear</code></td><td>他<strong>最怕什么</strong>——越线的底线</td><td>角色没有「不能碰的东西」，张力消失</td></tr>
+<tr><td><code>relations</code></td><td><strong>和在场每个人</strong>各自的关系（靠山 / 提防 / 好感 / 仇视）</td><td>群像塌成几个孤岛，关系网演化不起来</td></tr>
+<tr><td><code>secret</code>（写进世界书秘密条目）</td><td>一桩<strong>见不得光的旧事</strong>（已发生、可被逼近、可被揭穿）</td><td>少一条暗线，「秘密逐步揭开」的爽点少一截</td></tr>
+</tbody>
+</table>
+<blockquote>
+<p><strong>关键比例</strong>：欲望（想要）+ 恐惧（最怕）+ 关系（对谁什么态度）三者齐了，角色才「会自己动」。秘密是加在群像上的「雷」，埋得越多，后面爆得越响。但<strong>秘密要写「已发生的旧事」，不是「性格特点」</strong>——旧事才能被一步步逼近、最终揭穿。</p>
+</blockquote>
+<h3>B. 世界书（背景与处境）</h3>
+<ul>
+<li><strong>常量打底</strong>：把「铁背景」勾成常量——世界观法则、当前处境总则（谁被困在哪、有什么禁忌、资源多紧）。这是防「聊远了设定就蒸发」的地基。</li>
+<li><strong>触发补充</strong>：地点、规则、当下威胁等随剧情命中再补，别全塞常量（会挤占注入配额，每条被稀释）。</li>
+<li><strong>资源 / 压力要写具体</strong>：「补给见底、只剩最后半天」比「物资紧张」更能逼出每个人各自算账。</li>
+</ul>
+<h3>C. 结构上该做的三件事</h3>
+<ol>
+<li><strong>给多方，不给单一主角</strong>：至少 3 方有<strong>互相冲突的诉求</strong>（不是「一个目标一起冲」）。诉求冲突 + 资源有限 = 自动缠斗。</li>
+<li><strong>埋一条不稳定同盟</strong>：让两方暂时抱团、但各怀鬼胎——这是「合纵连横 / 背叛」爽点的种子。</li>
+<li><strong>埋 2–3 条可被揭穿的秘密</strong>：分散在不同角色身上，彼此最好能<strong>互相牵制</strong>（A 的秘密恰好是 B 的把柄），暗线才会缠成网。</li>
+</ol>
+<hr>
+<h2>六、以官方示例剧本《困守一栋楼》为例拆解</h2>
+<p>引擎随包带了一份示例剧本（在「从剧本生成设定」面板可打开 <code>data/examples/script-example.txt</code> 看全文）：<strong>四个人被困在一座断电公寓里</strong>。下面不抄原文，只拆「它为什么是一份适合引擎的剧本」——逐条对应第五节的清单。</p>
+<h3>为什么它「适合」——对照机制逐条看</h3>
+<table>
+<thead><tr><th>它做了什么</th><th>命中了哪个机制 / 清单项</th></tr></thead>
+<tbody>
+<tr><td>四个人<strong>困在同一栋楼</strong>、一天到晚挤在一起避不开</td><td>长时同域群像（甜区）+ 空间逼仄放大人际摩擦</td></tr>
+<tr><td>四个角色<strong>诉求互相冲突</strong>：要护全楼的人 / 想救人却可能害死全队 / 想护住孩子 / 想找回父亲</td><td>多方冲突诉求（结构·第 1 件）——没有单一主角，人人自顾</td></tr>
+<tr><td>资源有限：存粮药品见底、按天配给、谁出工谁多领</td><td>资源压力驱动的缠斗 + 「该给谁多分」的天然冲突点</td></tr>
+<tr><td>队长拿母子的生死做筹码——<strong>一个不稳定同盟 + 各怀鬼胎</strong></td><td>不稳定同盟（结构·第 2 件）——合纵连横的种子</td></tr>
+<tr><td>每人一桩见不得光的旧事（谁害了旧队 / 谁在等谁死尽 / 谁在拿身体换庇护 / 谁不敢坐实最坏答案），且<strong>彼此能牵制</strong></td><td>秘密簿记 + 秘密互相牵制（结构·第 3 件）——暗线缠成网</td></tr>
+<tr><td>「感染临界」写成人<strong>推得出的</strong>处境（伤口变化、要不要瞒、在哪处理），而非黑箱数值</td><td>贴近常识、可推理——玩家和引擎都能据理推演，不靠黑箱</td></tr>
+<tr><td>世界书：病毒法则 / 配给规矩是<strong>常量</strong>；公寓 / 楼道 / 地库 / 逼近的威胁是<strong>触发情境</strong></td><td>常量打底 + 触发补充，分层清晰不挤配额</td></tr>
+</tbody>
+</table>
+<h3>反例：同一份剧本如果「喂错了」会怎样</h3>
+<ul>
+<li>若把「四人一起冲出去求生」当唯一主线（单一主角强叙事）→ 关系网被压扁，退化成普通冒险文，引擎最值钱的关系/秘密机制用不上。</li>
+<li>若给队长一条「境界突破、越级反杀尸潮」的成长线（升级流）→ 引擎不追踪境界，突破时机会漂移、爽感落不了地。</li>
+<li>若把秘密写成「他其实很温柔」（性格特点）而非「他等旧队死尽才动手」（已发生旧事）→ 没有可被逼近揭穿的把柄，秘密簿记失效。</li>
+</ul>
+<blockquote>
+<p>《困守一栋楼》好在哪，一句话说尽：<strong>它把笔墨全押在「四个自顾的人，困在一起、资源不够分、各揣一桩旧事」上——关系、秘密、资源、不稳定同盟，引擎的四个甜区它全喂到了。</strong></p>
+</blockquote>
+<hr>
+<h2>七、常见误区</h2>
+<ol>
+<li><strong>以为引擎能带主角升级</strong>：它无主角、无进度簿记、终局悬置。想要成长爽感请换赛道；想做群像博弈它才上道。</li>
+<li><strong>把黑箱题材直接搬进来</strong>：商战 / 金融 / 律政的内在规则外人推不出来，引擎也推不稳。选「贴近常识」的冲突（水、粮、武器、医药、名额）。</li>
+<li><strong>角色只写性格不写欲望 / 恐惧 / 关系</strong>：缺了动机和关系网，角色不会自己动，群像变孤岛。</li>
+<li><strong>秘密写成「性格特点」</strong>：要写「已发生、见不得光、可被揭穿」的旧事，才有得爆。</li>
+<li><strong>只给一个共同目标</strong>：「大家合力干成一件事」= 没有缠斗。要「各方诉求互相冲突 + 资源有限」。</li>
+<li><strong>背景全塞常量</strong>：常量太多挤占注入配额、每条被稀释。铁背景才常量，地点 / 规则 / 威胁走触发。</li>
+<li><strong>导演指令写得太抽象</strong>：「天下大乱」摊平分支；「门外第三声撬动、补给只剩半天」才逼出每个人各自的算计。</li>
+</ol>
+<hr>
+<h2>八、动笔前自检清单</h2>
+<table>
+<thead><tr><th>问自己</th><th>通过标准</th></tr></thead>
+<tbody>
+<tr><td>主角位让出去了吗？</td><td>有 3 方以上互相冲突的诉求，没有预设「跟的那一个」</td></tr>
+<tr><td>资源 / 利益够紧吗？</td><td>存在「有限、怎么分、谁先让步」的具体压力点</td></tr>
+<tr><td>关系网连起来了吗？</td><td>每个角色都写了对在场每人的态度，且能随事件演化</td></tr>
+<tr><td>秘密埋够了吗？</td><td>2–3 桩「已发生的旧事」，且彼此能牵制</td></tr>
+<tr><td>有不稳定同盟吗？</td><td>至少两方暂时抱团但各怀鬼胎</td></tr>
+<tr><td>冲突贴近常识吗？</td><td>玩家能像推理「水够三天」那样推理，不靠黑箱规则</td></tr>
+<tr><td>背景分层了吗？</td><td>铁背景常量打底，地点 / 规则 / 威胁走触发，没全塞常量</td></tr>
+</tbody>
+</table>
+<hr>
+<h2>九、机制 → 喂料速查表</h2>
+<table>
+<thead><tr><th>你想要的效果</th><th>剧本里怎么给</th></tr></thead>
+<tbody>
+<tr><td>群像自己动起来</td><td>每个角色给全 欲望 + 恐惧 + 关系</td></tr>
+<tr><td>关系会翻脸 / 抱团</td><td>诉求冲突 + 资源有限 + 写清对每人的态度</td></tr>
+<tr><td>秘密逐步揭开</td><td>埋「已发生的旧事」，别写性格特点</td></tr>
+<tr><td>合纵连横 / 背叛</td><td>埋一条不稳定同盟（各怀鬼胎）</td></tr>
+<tr><td>设定不掉线</td><td>铁背景勾常量，其余走触发（见<a href="/docs/worldbook">世界书</a>）</td></tr>
+<tr><td>分支多、不摊平</td><td>导演指令写具体、可感知的扰动</td></tr>
+</tbody>
+</table>
+<blockquote>
+<p>想真正上手，建议两步：① 打开「从剧本生成设定」，把随包的 <code>script-example.txt</code> 整段粘进去，看引擎怎么把它提炼成角色卡 + 世界书；② 对照本篇第五 / 六节，把它的结构替换成你自己的设定。写完之后，用「命中预览」验证世界书触发词、用开局跑两三轮验证群像动没动起来。</p>
+</blockquote>
+</main></div></body></html>
