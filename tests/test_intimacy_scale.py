@@ -55,6 +55,19 @@ def test_law_is_scale_neutral():
     assert "不强制克制" in sys_p
 
 
+def test_law_has_timing_constraint():
+    """时机层反向约束（v0.24.2 补齐）：叙事未推进到亲密时刻前不得提前/硬写。
+
+    与「尺度中性」（不预设上限、不强制克制）正交——尺度管「到位后写多实」，
+    时机管「没到位别写」。缺了时机层，铁律⑧ 单向「到位就放开」会在非临界轮
+    给模型留「该往亲密放开写」的暗示，挤压处境铺陈（A/B 实测 S1/S2 处境下降
+    的机制嫌疑之一）。
+    """
+    sys_p = _system_prompt()
+    assert "尚未推进到亲密时刻" in sys_p
+    assert "提前引入或硬写" in sys_p
+
+
 def test_law_hard_redline_is_minor_only():
     """硬红线仅保留未成年一条；不得再出现已废弃的「非自愿/胁迫」措辞。"""
     sys_p = _system_prompt()
