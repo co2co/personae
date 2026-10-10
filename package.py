@@ -113,9 +113,9 @@ def build(out_name=None):
                         cfg["api_key"] = ""
                         cfg["model"] = ""
                         cfg["providers"] = []
-                        # fallback 段：本地兜底模型的 base_url/model 是个人机器布局
-                        # （如 D:\ai\models\*.gguf），属分发红线。清空 base_url 即
-                        # 「未启用降级」，是出厂默认（_fallback_config() 见空即返回 None）。
+                        # fallback 段防御性洗白：v0.27.0 起已移除 LLM 降级机制，出厂 config
+                        # 不再含 fallback 段；但升级用户的旧 config.json 可能仍残留该段
+                        # （含本地 gguf 绝对路径/provider key），属分发红线，故遇残留一律清空。
                         fb = cfg.get("fallback")
                         if isinstance(fb, dict):
                             fb["base_url"] = ""

@@ -24,7 +24,10 @@ DEFAULTS = {
     # 「恢复默认」按钮回填的就是这里，故出厂值以本表为唯一真相源。
     "temperature": 1.0,
     "top_p": 0.95,
-    "top_k": 40,
+    # top_k：由 40 下调至 20——ninfer(KVMem) 只接受 top_k ∈ [0,20]，40 会被 400 拒绝。
+    # 20 对 llama.cpp 等后端同样安全。
+    # 「恢复默认采样参数」按钮回填的就是本表，故出厂值以本表为唯一真相源。
+    "top_k": 20,
     # min_p：动态截断——先按概率排序，只保留「概率 ≥ min_p × 最高概率」的候选。
     # 比固定 top_p 更抗长输出退化：top_p 是绝对阈值，遇到分布尖锐的 token 序列
     # 会放行过多候选（实测本地 27B 在 temperature=1.0 下有 30% 概率输出中途
@@ -162,40 +165,6 @@ def list_models(base_url=None, api_key=None):
     return [m.get("id") for m in data.get("data", [])]
 
 
-def _fallback_config():
-    """读取 config.json 的 fallback 段（兜底模型，如本地 llama.cpp）。未配置或非法返回 None。"""
-    fb = _file_config().get("fallback")
-    if not isinstance(fb, dict):
-        return None
-    bu = str(fb.get("base_url") or "").strip()
-    if not bu:
-        return None
-    return {
-        "base_url": bu,
-        "api_key": str(fb.get("api_key") or ""),
-        "model": str(fb.get("model") or ""),
-    }
-
-
-def _chain_configs(base_url, api_key, model):
-    """本次调用要依次尝试的 (base_url, api_key, model) 候选序列。
-
-    默认调用（未显式指定 base_url/model）：先主配置；若配置了 fallback 且与主配置不同，追加为兜底。
-    显式指定 base_url 或 model 时：保持单后端，不降级（尊重调用方意图，如测试/指定 provider）。
-    """
-    primary = (
-        (base_url or setting("base_url") or DEFAULTS["base_url"]),
-        (api_key if api_key is not None else setting("api_key")),
-        (model or setting("model")),
-    )
-    cands = [primary]
-    if base_url is None and model is None:
-        fb = _fallback_config()
-        if fb and (fb["base_url"].rstrip("/") != primary[0].rstrip("/") or fb["model"] != primary[2]):
-            cands.append((fb["base_url"], fb["api_key"], fb["model"]))
-    return cands
-
-
 def _num(value, key, cast):
     """把配置值转成目标类型，非法/空值回退 DEFAULTS。"""
     try:
@@ -259,7 +228,7 @@ def _strip_penalty(payload):
 
 def _stream_once(messages, temperature, top_p, max_tokens, top_k, timeout, base_url, api_key, model,
                  repeat_penalty=None, repeat_last_n=None, min_p=None):
-    """单次后端请求（流式）。产出前失败抛异常，由 stream() 决定是否降级。"""
+    """单次后端请求（流式）。产出前失败抛异常。"""
     url = base_url.rstrip("/") + "/chat/completions"
     if repeat_penalty is None:
         repeat_penalty = setting("repeat_penalty")
@@ -314,31 +283,19 @@ def stream(messages, temperature=None, top_p=None, max_tokens=None, top_k=None, 
            repeat_penalty=None, repeat_last_n=None, min_p=None):
     """逐块产出文本。上游返回 SSE，这里只取 delta.content。
 
-    默认调用支持降级：主配置在**产出首块前**失败时自动切到 fallback 重试；
-    一旦已流出内容再失败则原样抛异常，绝不二次切换（避免重复文本）。
-    显式指定 base_url/model 时不降级。全部候选失败抛最后一个异常。
+    单后端直连：只使用主配置（显式传参时覆盖），失败直接抛出异常，不做降级回落。
     """
-    cands = _chain_configs(base_url, api_key, model)
-    last_exc = None
-    for bu, key, mdl in cands:
-        produced = False
-        try:
-            for text in _stream_once(messages, temperature, top_p, max_tokens, top_k, timeout,
-                                     bu, key, mdl, repeat_penalty, repeat_last_n, min_p):
-                produced = True
-                yield text
-            return
-        except Exception as exc:
-            last_exc = exc
-            if produced:
-                raise
-    if last_exc is not None:
-        raise last_exc
+    bu = base_url or setting("base_url") or DEFAULTS["base_url"]
+    key = api_key if api_key is not None else setting("api_key")
+    mdl = model or setting("model")
+    for text in _stream_once(messages, temperature, top_p, max_tokens, top_k, timeout,
+                             bu, key, mdl, repeat_penalty, repeat_last_n, min_p):
+        yield text
 
 
 def _complete_once(messages, temperature, top_p, max_tokens, top_k, timeout, base_url, api_key, model,
                    repeat_penalty=None, repeat_last_n=None, min_p=None):
-    """单次后端请求（非流式）。失败抛异常，由 complete() 决定是否降级。"""
+    """单次后端请求（非流式）。失败抛异常。"""
     url = base_url.rstrip("/") + "/chat/completions"
     if repeat_penalty is None:
         repeat_penalty = setting("repeat_penalty")
@@ -370,15 +327,10 @@ def complete(messages, temperature=None, top_p=None, max_tokens=None, top_k=None
              repeat_penalty=None, repeat_last_n=None, min_p=None):
     """一次性返回完整文本（非流式）。用于场景切换等只需结果、不需逐字流的轻量判定。
 
-    默认调用支持降级：主配置失败时自动切到 fallback 重试；显式指定 base_url/model 时不降级。
+    单后端直连：只使用主配置（显式传参时覆盖），失败直接抛出异常，不做降级回落。
     """
-    cands = _chain_configs(base_url, api_key, model)
-    last_exc = None
-    for bu, key, mdl in cands:
-        try:
-            return _complete_once(messages, temperature, top_p, max_tokens, top_k, timeout,
-                                  bu, key, mdl, repeat_penalty, repeat_last_n, min_p)
-        except Exception as exc:
-            last_exc = exc
-    if last_exc is not None:
-        raise last_exc
+    bu = base_url or setting("base_url") or DEFAULTS["base_url"]
+    key = api_key if api_key is not None else setting("api_key")
+    mdl = model or setting("model")
+    return _complete_once(messages, temperature, top_p, max_tokens, top_k, timeout,
+                          bu, key, mdl, repeat_penalty, repeat_last_n, min_p)

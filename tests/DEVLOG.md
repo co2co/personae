@@ -6,6 +6,35 @@
 
 ---
 
+## 2026-10-11 v0.27.0 移除 LLM 降级（fallback）机制 + top_k 出厂默认 40→20
+
+**性质**：能力移除（MINOR，机制层——移除 v0.21.0 引入的「主配置失败自动降级到 fallback」韧性机制，并把 top_k 出厂默认从 40 下调到 20；涉及 llm/app 前端无改动，动引擎机制设定）。
+
+### 改动
+- `llm.py`：删除 `_fallback_config()`、`_chain_configs()`；`stream()`/`complete()` 改为**只打主配置一次**，失败即抛异常，不再回落到 config 里的 fallback 段（约 19 增 / 86 删）。`_stream_once`/`_complete_once` docstring 同步去除「由 … 决定是否降级」措辞。
+- `llm.py` `DEFAULTS`：`top_k: 40 → 20`——ninfer(KVMem) 只接受 top_k ∈ [0,20]，40 会被 400 拒绝（旧版会触发 fallback 降级并掩盖真实报错）。20 对 llama.cpp 等后端同样安全，且与 ninfer 上限对齐。
+- `tests/test_llm_fallback.py` → 删除；新建 `tests/test_llm_primary_only.py`（4 个守护用例，故意在 config 里留 fallback 段，验证引擎已不再回落它）。
+- `package.py`：洗白 config 时对 `cfg.get("fallback")` 残留段的清空逻辑保留为**防御性洗白**（升级用户旧 config 可能残留含本地 gguf 路径的 fallback 段），注释更新说明其定位。
+- `data/config.json`：删除已死的 `fallback` 段（私人有 assume-unchanged，不入库）。
+
+### 背景
+- 触发：用户选本地 ninfer(1235) 后报错却指向 1234。根因链——主配置 ninfer 因 top_k=40 被 400 拒绝 → `stream()` 判定「产出首块前失败」自动降级到 fallback(1234, llama.cpp 未起) → 1234 连接拒绝 → `last_exc` 落在 1234 报错上，把 ninfer 真实的 400 盖掉。用户看到的 1234 是**降级目标**的报错，不是所选 provider 的真实报错。
+- 决策（simon 拍板）：彻底移除主路径自动降级，让所选 provider 的报错原样浮现、绝不被掩盖。代价是失去「主 LLM 挂了自动切备用」的韧性（v0.21.0 的 MINOR 特性）——用户环境里 fallback 本就是常关的本地模型，兜底价值有限。
+
+### 设计决定
+- 「所选 provider 报错 = 真实报错」优先于「主挂自动兜底」的韧性：报错可见性是排障前提，掩盖真实报错的降级弊大于利。移除 `_chain_configs` 后 `stream()`/`complete()` 语义回到「单后端、失败即抛」。
+- top_k 出厂默认对齐 ninfer 上限（20），而非为特定后端做角色/参数特化——20 是 ninfer 的硬上限，llama.cpp 无此限制，取交集的安全值。
+
+### 版本
+- v0.26.0 → **v0.27.0**（MINOR，移除 fallback 降级能力 + 调整 top_k 出厂默认）。
+- 校验：全量 `pytest tests/` **296 passed / 1 skipped**；新增守护用例 `test_llm_primary_only.py`（4 条）验证引擎不再回落 fallback。
+- 实机探针：ninfer(1235) 以 top_k=20 发完整 payload 全链路 200，content 正常返回；top_k=40 则 400「top_k must be in [0,20]」复现。移除 fallback 后，此类 400 会直接暴露而非被降级目标掩盖。
+
+### 遗留 / 后续
+- 失去「主 LLM 宕机自动切备用」韧性：若日后需要，可另行设计「仅可用性故障才降级 + 暴露主错误」的折中方案（本次未做）。
+- 本次为机制级改动，按项目规约属压测候选；因移除的是异常降级路径、正常生成链路不变，未强制跑 30 轮（待 simon 定夺）。
+
+
 ## 2026-10-10 v0.26.0 秘密状态四态化（潜伏/起疑/暴露/已公开）+ 自述/承认纳入 via
 
 **性质**：新增能力（MINOR，机制层——秘密状态机从二态细化到四态，并扩 via 语义；涉及 director/memory/prompter/ending/app 与前端，动引擎机制设定）。
