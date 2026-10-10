@@ -272,30 +272,41 @@ def build_session(cards_present, directive, world_hits, snap,
             susp = [x for x in (s.get("suspicions") or [])
                     if x.get("by") and x.get("by") != ENV_PUSHER and x.get("by") != owner]
             if name == owner:
-                # 私有底牌：仅归属者本人可见，被触及/追问时由他决定是否吐露；
-                # 一旦吐露须忠于世界书真相，不得歪曲事实或嫁祸他人（根治「甩锅」式自由创作）。
-                # 这是 v0.9.0 修复：此前秘密潜伏时文本不进 prompt，导致「暴露」必然是
-                # 模型自由填空、极易违背设定（如把灾祸因果甩给无辜角色）。
-                hint += "\n  （只有你自己知道的底牌：「" + s["content"] + "」。"
-                hint += "被触及或追问时由你决定是否吐露；若吐露须忠于以上真相，"
-                hint += "不得歪曲事实、不得把过错推给他人。）"
-                if bottom:
-                    hint += " ｜ 一旦被揭开，后果是：" + bottom + "——这是你死守它的理由。"
-                if knowers:
-                    hint += " ｜ 该秘密现已被 " + "、".join(knowers) + " 知晓，须应对其反应。"
-                if susp:
-                    # 逼近警告：有人已经在摸到边了，但还没证实。给归属者可演的应对空间
-                    # （掩饰、转移视线、反制、抢先开口），把曝光前的过程变成戏。
-                    names = "、".join(x["by"] for x in susp)
-                    clue = (susp[0].get("clue") or "").strip()[:60]
-                    hint += " ｜ 已经有人在逼近它：" + names
-                    if clue:
-                        hint += "（其疑点：\"" + clue + "\"）"
-                    hint += "。他们尚未证实，你可掩饰、转移视线或反制，但不得主动交出底牌。"
-                # 发酵压力：沉寂过久则从「可掩饰」升级为「必须露出痕迹 / 必须碰撞」。
-                ferm = _ferment_hint(s, forced=(s.get("owner") in forced_owners))
-                if ferm:
-                    hint += " ｜ " + ferm
+                # 已公开（v0.26.0 四态）：秘密已成公开事实，掩饰/否认不再可信，归属者只剩
+                # 「直面后果、应对众人反应」一条路——注入与「潜伏/暴露」不同的框架。
+                if s.get("state") == "已公开":
+                    hint += "\n  （你的秘密已成公开事实：「" + s["content"] + "」。"
+                    hint += "在场者皆已知晓，掩饰与否认都不再可信；"
+                    hint += "须直面它带来的处境，并应对众人的反应。）"
+                    if bottom:
+                        hint += " ｜ 它被揭开的后果是：" + bottom + "。"
+                    if knowers:
+                        hint += " ｜ 知情者：" + "、".join(knowers) + "。"
+                else:
+                    # 私有底牌：仅归属者本人可见，被触及/追问时由他决定是否吐露；
+                    # 一旦吐露须忠于世界书真相，不得歪曲事实或嫁祸他人（根治「甩锅」式自由创作）。
+                    # 这是 v0.9.0 修复：此前秘密潜伏时文本不进 prompt，导致「暴露」必然是
+                    # 模型自由填空、极易违背设定（如把灾祸因果甩给无辜角色）。
+                    hint += "\n  （只有你自己知道的底牌：「" + s["content"] + "」。"
+                    hint += "被触及或追问时由你决定是否吐露；若吐露须忠于以上真相，"
+                    hint += "不得歪曲事实、不得把过错推给他人。）"
+                    if bottom:
+                        hint += " ｜ 一旦被揭开，后果是：" + bottom + "——这是你死守它的理由。"
+                    if knowers:
+                        hint += " ｜ 该秘密现已被 " + "、".join(knowers) + " 知晓，须应对其反应。"
+                    if susp:
+                        # 逼近警告：有人已经在摸到边了，但还没证实。给归属者可演的应对空间
+                        # （掩饰、转移视线、反制、抢先开口），把曝光前的过程变成戏。
+                        names = "、".join(x["by"] for x in susp)
+                        clue = (susp[0].get("clue") or "").strip()[:60]
+                        hint += " ｜ 已经有人在逼近它：" + names
+                        if clue:
+                            hint += "（其疑点：\"" + clue + "\"）"
+                        hint += "。他们尚未证实，你可掩饰、转移视线或反制，但不得主动交出底牌。"
+                    # 发酵压力：沉寂过久则从「可掩饰」升级为「必须露出痕迹 / 必须碰撞」。
+                    ferm = _ferment_hint(s, forced=(s.get("owner") in forced_owners))
+                    if ferm:
+                        hint += " ｜ " + ferm
             elif name in holders:
                 # 握把柄者已知情，故拿到完整事实（此前截断到 80 字会造成信息缺口，
                 # 与归属者拿全文不一致）；同时告知揭开的后果，使其能权衡是否使用这张牌。

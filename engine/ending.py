@@ -14,7 +14,7 @@ ending_candidate，由用户决定是否终结会话（见 ENDING_TRIGGERS）。
 # 触发条件 -> 面向用户的文案（中文，无 emoji）
 ENDING_TRIGGERS = {
     "all_left": "在场角色全部离场，场景已无人。",
-    "secrets_resolved": "所有潜伏秘密均已曝光，再无隐藏。",
+    "secrets_resolved": "所有秘密均已揭开（暴露或公开），再无隐藏。",
     # 可选增强：剧本作者在世界书/元数据里置 ending_flag 时命中（snapshot 提供）
     "script_flag": "剧本标记的结局条件已达成。",
 }
@@ -49,9 +49,12 @@ def evaluate(snap, dismissed=None):
     if not _present_names(snap):
         reasons.append("all_left")
 
-    # 终局态 2：所有潜伏秘密均曝光（state 非"潜伏"即视为已暴露，兼容"暴露"/"全曝光"）
+    # 终局态 2：所有秘密均已揭开（v0.26.0 四态：只有「暴露/已公开」算揭开；
+    # 「潜伏/起疑」仍是隐藏态，不得触发终局——起疑只是逼近，秘密尚未坐实）。
+    # 兼容历史字面量「全曝光」。
+    _RESOLVED_STATES = ("暴露", "已公开", "全曝光")
     secrets = snap.get("secrets") or []
-    if secrets and all(s.get("state") != "潜伏" for s in secrets):
+    if secrets and all(s.get("state") in _RESOLVED_STATES for s in secrets):
         reasons.append("secrets_resolved")
 
     # 终局态 3（可选增强）：剧本作者显式标注的结局标记

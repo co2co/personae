@@ -59,6 +59,9 @@ def new(cast, scene_place="", world_name="", scene_time=""):
                 "bottom_line": e.get("bottom_line", ""),
                 "keys": e.get("keys", []),
                 "state": "潜伏",
+                # 秘密是否已成公开事实（归属者当众自述/承认，或把柄尽失后世人皆知）。
+                # 置位后 _secret_state 判为「已公开」，不可逆。
+                "public": False,
                 "known_by": [],
                 "exposures": [],
                 # 起疑（线索逼近）记录：介于「潜伏」与「曝光」之间的中间态。
@@ -124,10 +127,17 @@ def load(sid):
     snap = json.loads(p.read_text(encoding="utf-8"))
     # 非破坏式迁移：旧快照把环境推手记为“玩家”，统一归一为“环境推手”
     snap.setdefault("states", {})
+    # 秘密状态字面量迁移（v0.26.0 四态）：历史「全曝光」归一为「已公开」；
+    # 补 public 标志位（旧快照无此字段，缺省 False）。状态本身在本轮 reflect
+    # 归档时由 _secret_state 重算，故此处只做字面量归一，不重算（避免 memory
+    # 反向依赖 director 造成循环导入）。
     for s in snap.get("secrets", []):
         kb = s.get("known_by")
         if isinstance(kb, list) and "玩家" in kb:
             s["known_by"] = ["环境推手" if k == "玩家" else k for k in kb]
+        s.setdefault("public", s.get("state") == "全曝光")
+        if s.get("state") == "全曝光":
+            s["state"] = "已公开"
     return snap
 
 

@@ -171,6 +171,30 @@ def test_legacy_full_expose_state_also_resets():
     assert snap["secrets"][0]["pressure"] == 0
 
 
+def test_suspicion_state_still_ferments():
+    """v0.26.0 四态：起疑是中间态，仍须发酵；「已公开」才是停压终态。"""
+    snap = _snap(["角色甲", "角色丙"], [
+        {"owner": "角色丙", "state": "起疑", "pressure": 2},
+    ])
+    director._update_secret_pressure(snap, [])
+    assert snap["secrets"][0]["pressure"] == 3
+    snap2 = _snap(["角色甲", "角色丙"], [
+        {"owner": "角色丙", "state": "已公开", "pressure": 5},
+    ])
+    director._update_secret_pressure(snap2, [])
+    assert snap2["secrets"][0]["pressure"] == 0
+
+
+def test_suspicion_secret_can_be_pressure_target():
+    """起疑态 + 高压 -> 仍作为强制碰撞目标（对手取起疑者）。"""
+    snap = _snap(["角色甲", "角色乙"], [
+        {"owner": "角色甲", "state": "起疑", "pressure": 5,
+         "suspicions": [{"by": "角色乙"}], "holders": [], "known_by": []},
+    ])
+    targets = director.pressure_targets(snap)
+    assert targets == [("角色甲", "角色乙")]
+
+
 def test_only_one_secret_forced_at_a_time():
     """多条同时顶格时只逼最久未碰的一条——三条并下达会互相打架、全部僵住。"""
     snap = _snap(["角色甲", "角色丙", "角色丁", "角色乙"], [

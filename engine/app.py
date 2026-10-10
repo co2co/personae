@@ -707,7 +707,9 @@ def act():
         memory.append_chat(sid, {"role": "assistant", "content": full})
 
         snap_now = memory.load(sid)
-        exposed = [s for s in snap_now.get("secrets", []) if s.get("state") != "潜伏"]
+        # 只有真正揭开的秘密（暴露/已公开）才算数；「起疑」仍是隐藏态（v0.26.0 四态）。
+        exposed = [s for s in snap_now.get("secrets", [])
+                   if s.get("state") in ("暴露", "已公开", "全曝光")]
         logger.info("director", "状态回写完成：关系 " + str(len(snap_now.get("relations", {}))) + " 条"
                     + " ｜ 本轮行动 " + str(len(snap_now.get("actions", {}))) + " 条"
                     + " ｜ 已暴露秘密 " + str(len(exposed)) + " 条")

@@ -181,6 +181,7 @@
      也不要让用户读到「……事后偶现一丝自厌」这种断句。 */
   .sec-state{ font-weight:600; }
   .sec-state.latent{ color:var(--muted); }
+  .sec-state.suspicious{ color:#8a7746; }
   .sec-state.exposed{ color:var(--warn); }
   .sec-state.full{ color:var(--danger); }
 
@@ -1109,7 +1110,11 @@ function renderSnapshot(snap) {
     const kb = s.known_by || [];
     const envKnows = kb.includes('环境推手');
     const knowers = kb.filter(k => k !== '环境推手' && k !== s.owner);
-    const cls = s.state === '潜伏' ? 'latent' : (s.state === '全曝光' ? 'full' : 'exposed');
+    // 四态样式（v0.26.0）：潜伏=灰、起疑=暗赭、暴露=赭石、已公开=朱砂。
+    // 历史字面量「全曝光」并入已公开（full）。
+    const cls = s.state === '潜伏' ? 'latent'
+              : (s.state === '起疑' ? 'suspicious'
+              : (s.state === '暴露' ? 'exposed' : 'full'));
     let tag = knowers.length ? '（已知者：' + knowers.join('、') + '）'
             : (envKnows ? '（环境推手已知）' : '（未揭露）');
     const susp = (s.suspicions || []).map(x => x.by)

@@ -103,7 +103,8 @@ def test_validate_present_empty_present_returns_as_is():
 
 
 def test_release_handle_drops_and_transfers():
-    """全版把柄消除：仅改 holders、known_by 不变；holders 清空时状态回落潜伏。"""
+    """全版把柄消除：仅改 holders、known_by 不变；holders 清空后因已知情而落「暴露」
+    （v0.26.0 四态：信息不可逆，不再回落「潜伏」；未众人皆知故不判「已公开」）。"""
     s = {"owner": A, "state": "暴露",
          "known_by": [B, C], "holders": [B, C]}
     # 转交第三方：B 失去、D 接手
@@ -116,10 +117,10 @@ def test_release_handle_drops_and_transfers():
     assert director._release_handle(s, C, "", 8) is True
     assert s["holders"] == [D]
     assert s["state"] == "暴露"
-    # D 失去 -> holders 空 -> 回落潜伏
+    # D 失去 -> holders 空，但 known_by 非空 -> 落「暴露」（不回落潜伏）
     assert director._release_handle(s, D, "", 8) is True
     assert s["holders"] == []
-    assert s["state"] == "潜伏"
+    assert s["state"] == "暴露"
     # 不持有该把柄的人 -> 无变更
     assert director._release_handle(s, "角色戊", "", 9) is False
 
@@ -130,6 +131,119 @@ def test_record_exposure_adds_holder():
     director._record_exposure(s, B, "叙事揭露", 3)
     assert B in s["known_by"] and B in s["holders"]
     assert s["state"] == "暴露"
+
+
+# ---- 秘密四态（v0.26.0）----
+# 潜伏 / 起疑 / 暴露（仍为把柄）/ 已公开。优先级：已公开 > 暴露 > 起疑 > 潜伏。
+
+def test_secret_state_four_states():
+    """_secret_state 的四态推定与优先级（无在场名单时按 public 标志宽松判定）。"""
+    # 潜伏：无人知情、无人起疑
+    assert director._secret_state(
+        {"owner": A, "known_by": [], "holders": [], "suspicions": []}) == "潜伏"
+    # 起疑：非归属者起疑，尚无人坐实（张力最足的一段）
+    assert director._secret_state(
+        {"owner": A, "known_by": [], "holders": [],
+         "suspicions": [{"by": B}]}) == "起疑"
+    # 暴露：有人知情且仍握把柄（可要挟）
+    assert director._secret_state(
+        {"owner": A, "known_by": [B], "holders": [B]}) == "暴露"
+    # 暴露：知情但把柄尽失、且非众人皆知（holders 空、known_by 非空）
+    assert director._secret_state(
+        {"owner": A, "known_by": [B], "holders": []}) == "暴露"
+    # 已公开：public 置位且无在场名单时放宽判为已公开
+    assert director._secret_state(
+        {"owner": A, "known_by": [B], "holders": [], "public": True}) == "已公开"
+    # 优先级：public 压过 holders（既公开又有人握把柄 -> 已公开）
+    assert director._secret_state(
+        {"owner": A, "known_by": [B], "holders": [B], "public": True}) == "已公开"
+    # 环境推手不作为知情/把柄持有者
+    assert director._secret_state(
+        {"owner": A, "known_by": [], "holders": ["环境推手"]}) == "潜伏"
+
+
+def test_secret_state_public_requires_common_knowledge():
+    """定义层护栏：public 置位仍须「众人皆知」才判已公开，防第三方当众指控被误标。
+
+    有在场名单时，只要还有在场非归属者不知情，就落回「暴露」——绝不提前判公开。
+    """
+    # public 置位，但在场 [A,B,C] 中仅 B 知情 -> 未众人皆知 -> 暴露
+    assert director._secret_state(
+        {"owner": A, "known_by": [B], "holders": [], "public": True},
+        present=[A, B, C]) == "暴露"
+    # public 置位且在场非归属者（B、C）全部知情 -> 已公开
+    assert director._secret_state(
+        {"owner": A, "known_by": [B, C], "holders": [], "public": True},
+        present=[A, B, C]) == "已公开"
+    # 仅一名在场同伴且已知情 -> 已公开
+    assert director._secret_state(
+        {"owner": A, "known_by": [B], "holders": [], "public": True},
+        present=[A, B]) == "已公开"
+
+
+def test_record_exposure_self_disclosure_marks_public():
+    """归属者自述/承认：只入 known_by、不入 holders，并置 public。
+
+    本人自愿交出，他人无从据此要挟，故不再是「把柄」（区分于他人获取类 via）。
+    未传 present 时按 public 标志判为「已公开」。
+    """
+    s = {"owner": A, "known_by": [], "holders": [], "public": False}
+    director._record_exposure(s, B, "承认", 5)
+    assert B in s["known_by"]
+    assert B not in s["holders"]
+    assert s["public"] is True
+    assert s["state"] == "已公开"
+
+
+def test_release_handle_empty_known_by_falls_to_latent():
+    """holders 空且 known_by 也空时才回落「潜伏」（纯把柄消除、无人知情）。"""
+    s = {"owner": A, "known_by": [], "holders": [B]}
+    assert director._release_handle(s, B, "", 4) is True
+    assert s["holders"] == []
+    assert s["state"] == "潜伏"
+
+
+def test_exposure_via_self_disclosure_marks_public(monkeypatch):
+    """reflect 层：via=「承认」且众人皆知 -> 已公开，且 by 不入 holders。"""
+    snap = _snap_with_secret(A, "角色甲的秘密", [])
+    snap["present"] = [A, B]          # 在场除归属者外仅 B，承认后即众人皆知
+    reply = f"{A}当众承认：“我确实藏了东西。”"
+    payload = {"secret_exposures": [
+        {"owner": A, "by": B, "via": "承认", "evidence": "我确实藏了东西"}]}
+    s = _run_reflect(monkeypatch, snap, reply, payload)
+    assert s["state"] == "已公开"
+    assert B in s.get("known_by", []) and B not in s.get("holders", [])
+    assert s.get("public") is True
+
+
+def test_self_disclosure_partial_audience_not_public(monkeypatch):
+    """归属者只对个别人承认（尚有在场者不知情）时，不判「已公开」，落「暴露」。"""
+    snap = _snap_with_secret(A, "角色甲的秘密", [])   # present=[A,B,C]
+    reply = f"{A}低声对{B}承认：“我确实藏了东西。”"
+    payload = {"secret_exposures": [
+        {"owner": A, "by": B, "via": "承认", "evidence": "我确实藏了东西"}]}
+    s = _run_reflect(monkeypatch, snap, reply, payload)
+    assert s["state"] == "暴露"        # C 尚不知情
+    assert s.get("public") is True     # 标志置位，但未达众人皆知
+
+
+def test_self_disclosure_overrides_existing_holder(monkeypatch):
+    """探针 R6 事故回归：已握把柄者也在场、归属者当众承认（众人皆知）-> 已公开。
+
+    旧版二态下这种情形会因把柄释放而回落「潜伏」，把「天下皆知」显示成「无人知晓」。
+    """
+    snap = _snap_with_secret(A, "角色甲的秘密", [])
+    snap["present"] = [A, B]
+    snap["secrets"][0]["known_by"] = [B]
+    snap["secrets"][0]["holders"] = [B]
+    snap["secrets"][0]["state"] = "暴露"
+    reply = f"{A}当众承认：“我确实藏了东西。”"
+    payload = {"secret_exposures": [
+        {"owner": A, "by": B, "via": "承认", "evidence": "我确实藏了东西"}]}
+    s = _run_reflect(monkeypatch, snap, reply, payload)
+    assert s["state"] == "已公开"
+    assert s.get("public") is True
+    assert s.get("holders") == []      # 本人承认，原把柄作废
 
 
 # ---- 人物位置层（v0.17.6，会话 9f2e16e9 空间矛盾事故）----
@@ -219,8 +333,8 @@ def test_exposure_requires_real_transfer_via(monkeypatch):
     monkeypatch.setattr(director.memory, "save", lambda sid, s: None)
     director.reflect("sid", reply)
     s = snap["secrets"][0]
-    # 不翻暴露，仍是潜伏；降级为起疑
-    assert s["state"] == "潜伏"
+    # 不翻暴露；降级为起疑（v0.26.0 四态：起疑是可显示中间态）
+    assert s["state"] == "起疑"
     assert B not in s.get("known_by", []) and B not in s.get("holders", [])
     assert any(x.get("by") == B for x in s.get("suspicions", []))
 
@@ -242,7 +356,7 @@ def test_exposure_via_whitelist_missing_downgrades(monkeypatch):
     monkeypatch.setattr(director.memory, "save", lambda sid, s: None)
     director.reflect("sid", reply)
     s = snap["secrets"][0]
-    assert s["state"] == "潜伏"
+    assert s["state"] == "起疑"
     assert B not in s.get("known_by", [])
 
 
@@ -304,7 +418,7 @@ def test_exposure_rejects_evidence_off_topic(monkeypatch):
         {"owner": A, "by": B, "via": "被告知",
          "evidence": "还在发痒"}]}
     s = _run_reflect(monkeypatch, snap, reply, payload)
-    assert s["state"] == "潜伏"
+    assert s["state"] == "起疑"
     assert B not in s.get("known_by", [])
     assert any(x.get("by") == B for x in s.get("suspicions", []))
 
@@ -321,7 +435,7 @@ def test_exposure_rejects_inner_monologue(monkeypatch):
         {"owner": A, "by": B, "via": "被告知",
          "evidence": "那个病人最终尸变"}]}
     s = _run_reflect(monkeypatch, snap, reply, payload)
-    assert s["state"] == "潜伏"
+    assert s["state"] == "起疑"
     assert B not in s.get("known_by", [])
 
 
@@ -337,7 +451,7 @@ def test_exposure_rejects_absent_listener(monkeypatch):
         {"owner": A, "by": B, "via": "听见",
          "evidence": "我本可以早点救"}]}
     s = _run_reflect(monkeypatch, snap, reply, payload)
-    assert s["state"] == "潜伏"
+    assert s["state"] == "起疑"
     assert B not in s.get("known_by", [])
 
 

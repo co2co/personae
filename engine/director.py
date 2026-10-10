@@ -31,33 +31,88 @@ EVIDENCE_MIN_LEN = 4
 # 这是 v0.17.3 修复：此前曝光归档只看「举证逐字在正文」+ 纪官语义判断，
 # 纪官会把「角色内心想到他早就知道」这类心理描写误报成「实际得知」，
 # 导致潜伏秘密在开场即被翻成「暴露」（真实会话 256d924c 事故）。
-EXPOSURE_VIA_WHITELIST = ("看见", "听见", "被告知", "发现物证")
+#
+# v0.26.0：新增「自述/承认」——秘密**归属者本人**当众说开。它与「他人获取」类
+# via（看见/听见/被告知/发现物证）语义不同：本人自愿交出，他人无从据此要挟，
+# 故只写 known_by、不入 holders，并把秘密标记为「已公开」（见 SELF_DISCLOSURE_VIA）。
+EXPOSURE_VIA_WHITELIST = ("看见", "听见", "被告知", "发现物证", "自述", "承认")
+
+# 归属者自述/承认类 via：秘密由本人当众说开，信息扩散但不再构成把柄。
+# 单独成组是为了让 _record_exposure 区分「他人获取（把柄入手）」与「本人交出（把柄作废）」：
+# 前者入 holders -> 暴露（仍为把柄）；后者只入 known_by 且置 public -> 已公开。
+SELF_DISCLOSURE_VIA = ("自述", "承认")
 
 # （机会等级/内容尺度机制已随 NSFW 整体废弃，v0.8.0：ALONE/DEFENSE_DOWN/OBSTACLE/OPP_NOTE 已移除）
 
 
-def _secret_state(leverage):
-    """in-world 暴露状态：只要有人握有该秘密作为把柄（leverage 非空）即为「暴露」；
-    仅环境推手/无人握把柄则「潜伏」。leverage 传 holders（握把柄者），
-    与 known_by（知情者）分离——信息不可逆，但把柄可失去。"""
-    return "暴露" if any(k != ENV_PUSHER for k in leverage) else "潜伏"
+def _secret_state(s, present=None):
+    """推定一条秘密当前所处的一态（四态：潜伏 / 起疑 / 暴露 / 已公开）。
+
+    优先级：已公开 > 暴露 > 起疑 > 潜伏。
+
+    - 已公开：秘密已成公开事实，无人能再据此胁迫。触发条件 = 归属者本人当众自述/承认
+      （s["public"] 置位）**且众人皆知**（在场非归属者全部已知情）。第二重「众人皆知」
+      是定义层护栏：模型易把「第三方的当众指控」也填成自述类 via（实测探针 R2 事故），
+      若只看 public 标志会提前把「只有个别人知情」的秘密误标公开。有在场名单时以
+      「在场非归属者是否都知情」为准；无在场名单（离线/单测）时退化为只看 public 标志。
+    - 暴露：有人确已知情（known_by 非空，含把柄持有者），即「暴露（仍为把柄）」；
+      秘密在部分人之间流转、尚未众人皆知。
+    - 起疑：尚无人坐实，但有非归属者起了疑心（线索逼近）——张力最足的一段。
+    - 潜伏：无人知情、无人起疑。
+
+    与旧版二态（暴露/潜伏）的差异：旧版只看 holders，把柄一释放就回落「潜伏」，
+    导致「归属者当众承认、天下皆知」被错误显示为「潜伏」（实测探针 R6 事故）。
+    v0.26.0 引入四态，把「已公开」与「暴露」分开，并让 known_by 非空者永不回落潜伏。
+    """
+    if s.get("public"):
+        peers = [p for p in (present or [])
+                 if p and p != ENV_PUSHER and p != s.get("owner")]
+        known = s.get("known_by") or []
+        # 有在场名单：须众人皆知才算公开；尚有人不知情则不判公开（落回暴露/起疑）。
+        if not peers or all(p in known for p in peers):
+            return "已公开"
+    holders = s.get("holders")
+    if holders is None:
+        holders = s.get("known_by", [])
+    if any(k != ENV_PUSHER for k in holders):
+        return "暴露"
+    # 已知情（holders 空 = 把柄已失效/转走，或本人交出）：仍未众人皆知 -> 暴露（不判公开）。
+    if any(k != ENV_PUSHER for k in (s.get("known_by") or [])):
+        return "暴露"
+    owner = s.get("owner")
+    if any((x.get("by") or "") not in (ENV_PUSHER, owner)
+           for x in (s.get("suspicions") or [])):
+        return "起疑"
+    return "潜伏"
 
 
-def _record_exposure(s, by, via, round_no):
-    """记录一次秘密曝光：写入知情者集合与把柄持有集合，并重算暴露状态。
+def _record_exposure(s, by, via, round_no, present=None):
+    """记录一次秘密曝光：写入知情者集合、（视 via）把柄持有集合，并重算状态。
 
-    全版语义：曝光 = 某人得知秘密 = 同时成为知情者(known_by)与把柄持有者(holders)。
+    两类 via 语义分离（v0.26.0）：
+    - 他人获取（看见/听见/被告知/发现物证）：by 同时成为知情者(known_by)与把柄持有者
+      (holders) -> 状态「暴露（仍为把柄）」。
+    - 归属者自述/承认（SELF_DISCLOSURE_VIA）：by 只成为知情者，**不入 holders**——
+      秘密由本人当众交出，他人无从据此要挟；同时置 s["public"]。只有「众人皆知」
+      （在场非归属者全知情，由 _secret_state 判定）才真正翻「已公开」。
+
     known_by 不可逆（知道了就无法不知道），holders 可因把柄消除而移除。
+    present 用于 _secret_state 的「众人皆知」判定（缺省则退化为只看 public 标志）。
     """
     s.setdefault("holders", list(s.get("known_by", [])))
     if by not in s["known_by"]:
         s["known_by"].append(by)
-    if by not in s["holders"]:
+    if via in SELF_DISCLOSURE_VIA:
+        # 本人交出：扩知情、把柄作废（清 holders）-> 置公开标志。
+        # 是否真公开由 _secret_state 结合在场名单判（须众人皆知）。
+        s["public"] = True
+        s["holders"] = []
+    elif by not in s["holders"]:
         s["holders"].append(by)
     s.setdefault("exposures", []).append({"by": by, "via": via, "round": round_no})
     # 确知情即结算其起疑记录：起疑是逼近过程，曝光是终点，二者不并存
-    _clear_suspicion(s, by)
-    s["state"] = _secret_state(s["holders"])
+    _clear_suspicion(s, by, present)
+    s["state"] = _secret_state(s, present)
 
 
 def _ledger_entry(snap, secret, by, round_no):
@@ -93,7 +148,7 @@ def _ledger_entry(snap, secret, by, round_no):
 _SUSPICION_CAP = 4
 
 
-def _record_suspicion(s, by, clue, round_no):
+def _record_suspicion(s, by, clue, round_no, present=None):
     """记录一次「起疑」——线索逼近但尚未坐实，是潜伏与曝光之间的中间态。
 
     曝光是二值且不可逆的，而戏剧张力最足的恰恰是曝光之前那段逼近过程。
@@ -111,14 +166,17 @@ def _record_suspicion(s, by, clue, round_no):
             if old.get("clue") == entry["clue"] and old.get("round") == round_no:
                 return False
             susp[i] = entry
+            s["state"] = _secret_state(s, present)
             return True
     susp.append(entry)
     if len(susp) > _SUSPICION_CAP:
         del susp[:len(susp) - _SUSPICION_CAP]
+    # 由无到有的一条起疑：状态须从「潜伏」翻到「起疑」（四态下起疑是可显示态）。
+    s["state"] = _secret_state(s, present)
     return True
 
 
-def _clear_suspicion(s, by):
+def _clear_suspicion(s, by, present=None):
     """某人确已知情后结算其起疑记录。
 
     知情是起疑的终态，两者并存会同时注入「你在怀疑他」与「你握有他的把柄」
@@ -129,15 +187,18 @@ def _clear_suspicion(s, by):
     if len(rest) == len(susp):
         return False
     s["suspicions"] = rest
+    s["state"] = _secret_state(s, present)
     return True
 
 
-def _release_handle(s, frm, to, round_no):
+def _release_handle(s, frm, to, round_no, present=None):
     """把柄失效/转手（全版）：仅操作 holders（握把柄者），known_by（知情者）不变。
 
     to 为空表示彻底失去（药物被丢弃、证据被销毁、当众说开后不再构成胁迫）。
-    holders 清空时 _secret_state 自动回落「潜伏」——这是「机会等级永久锁死」三因素中
-    「秘密暴露后无回落路径」这一项的修复。known_by 不移除（信息不可逆）。
+    holders 清空后由 _secret_state 重算状态：信息不可逆，known_by 非空者不再回落
+    「潜伏」——归入「暴露（已知情）」，若归属者已公开且众人皆知则为「已公开」
+    （v0.26.0 四态：旧版回落「潜伏」会让已天下皆知的秘密显示成没人知道，见探针 R6 事故）。
+    known_by 不移除（信息不可逆）。
     返回 True 表示确有变更。
     """
     s.setdefault("holders", list(s.get("known_by", [])))
@@ -148,7 +209,7 @@ def _release_handle(s, frm, to, round_no):
     if to and to != s.get("owner") and to not in hb:
         hb.append(to)
     s["holders"] = hb
-    s["state"] = _secret_state(hb)
+    s["state"] = _secret_state(s, present)
     s.setdefault("releases", []).append(
         {"from": frm, "to": to or None, "via": "把柄失效/转手", "round": round_no})
     return True
@@ -1295,10 +1356,10 @@ def _update_secret_pressure(snap, touches):
         if o:
             touched[o] = bool(t.get("touched"))
     for s in snap.get("secrets", []):
-        # 非「潜伏」即已公开（"暴露"，历史快照可能有 "全曝光"）——公开了就没有发酵问题。
-        # 早前写成 == "曝光"，与引擎实际状态字面量对不上，这条守卫从未生效：
-        # 压测实证已曝光的秘密压力挂 5 空转 4 轮，还继续占用强制镜头名额。
-        if s.get("state") != "潜伏":
+        # 仍未揭开（潜伏/起疑）才需要发酵压力；「暴露/已公开」是已揭开态，压力恒 0。
+        # v0.26.0：起疑是中间态而非终态，仍须继续发酵（否则一有疑点就停压、
+        # 张力不再推进）。早前写成 != "潜伏"，起疑出现后会被误判为已揭开。
+        if s.get("state") not in ("潜伏", "起疑"):
             s["pressure"] = 0
             continue
         if touched.get(s.get("owner"), False):
@@ -1319,8 +1380,8 @@ def pressure_targets(snap, present=None):
     for s in snap.get("secrets") or []:
         if (s.get("pressure") or 0) < PRESSURE_FORCE:
             continue
-        # 同上一处：状态字面量是「潜伏 / 暴露」，不是「曝光」。
-        if s.get("state") != "潜伏":
+        # 同上一处：只有仍未揭开（潜伏/起疑）的秘密才需要强制碰撞推它一把。
+        if s.get("state") not in ("潜伏", "起疑"):
             continue
         owner = s.get("owner")
         if owner not in present:
@@ -1585,7 +1646,7 @@ def reflect(sid, reply, directive=""):
             '  "relations": { "源 → 目标": "关系定性（只写稳定的人物关系定位，如\'妈妈，独占欲\'，不要包含本轮具体动作描写）" },\n'
             '  "actions": { "角色名": "本轮该角色做的一句具体行为（不含关系定性，只写这回合发生了什么）" },\n'
             '  "goals": { "角色名": "新的短期目标" },\n'
-            '  "secret_exposures": [{"owner": "秘密归属者", "by": "本轮得知该秘密的角色名", "via": "信息获取方式，只能填「看见/听见/被告知/发现物证」四类之一", "evidence": "本轮叙事原文片段"}],\n'
+            '  "secret_exposures": [{"owner": "秘密归属者", "by": "本轮得知该秘密的角色名", "via": "信息获取方式，只能填「看见/听见/被告知/发现物证/自述/承认」六类之一", "evidence": "本轮叙事原文片段"}],\n'
             '  "secret_suspicions": [{"owner": "秘密归属者", "by": "本轮起了疑心的角色名", "evidence": "本轮叙事原文片段（引发怀疑的那句话/那个细节）"}],\n'
             '  "handle_releases": [{"owner": "秘密归属者", "from": "失去把柄的人", "to": "接过把柄的人（彻底失去则填空字符串）", "evidence": "本轮叙事原文片段"}],\n'
             '  "secret_touches": [{"owner": "秘密归属者", "touched": true}],\n'
@@ -1602,6 +1663,7 @@ def reflect(sid, reply, directive=""):
             "- actions 覆盖本轮所有在场角色的一句行为摘要，用于展示\'这回合谁做了什么\'；这是回合级信息，可每轮整体覆盖。\n"
             "- secret_exposures 只填本轮叙事里**确实发生**了「某人得知了某秘密」的条目；仅凭角色起了疑心、或只是提到相关物品，都不算。\n"
             "- secret_exposures 的「得知」必须是**信息实际发生了跨角色传递**：该角色本轮**亲眼看见**秘密事实（如看见伤痕、物证、现场）、**亲耳听见**对方自述或他人转述、**被当面告知**、或**亲手发现**了能坐实秘密的物证。除此之外一律不算暴露。\n"
+            "- secret_exposures 的 via 若填 **「自述」或「承认」**，专指**秘密归属者本人**当众说出/承认了秘密（而非他人打听到）：此时把「听到的在场者」逐条填进 by（同一秘密可有多条），via 填「自述」或「承认」。这类曝光的后果是秘密**转为公开事实、他人再也拿它要挟不了归属者**（引擎据此置为「已公开」），故只用于本人真的说开的轮次，不要拿他人转述来填。\n"
             "- **内心活动不算得知**：正文里写「某人心想他早就知道」「某人暗自看穿」「某人早已心知肚明」「某人在心里确认了」这类**心理描写、内心独白、回忆、猜透**，即使明写了他「知道」，也**不是**实际的信息传递，**绝不填 secret_exposures**——它们只代表该角色单方面的心证，可能填进 secret_suspicions（起疑），不得翻成暴露。判断的唯一标准是：这一轮里，秘密事实有没有**从一个人传到另一个人**；没有传递动作，就没有暴露。\n"
             "- secret_suspicions 填**线索逼近但尚未坐实**的条目：某人察觉对方言行反常、追问只得到含糊其辞的回答、发现了与旧事相关的物品或痕迹、或对某人的说法明显不信。只有当事人已经确知真相才算 secret_exposures，不算起疑。\n"
             "- secret_suspicions 的 by 不能是秘密归属者本人，也不能是已确知该秘密的人；同一处细节不要同时填进 secret_exposures 与 secret_suspicions，拿不准就填起疑（较轻），宁可让秘密晚一点被揭开。\n"
@@ -1746,28 +1808,35 @@ def reflect(sid, reply, directive=""):
                     continue
                 if by in (s.get("known_by") or []) or by in (s.get("holders") or []):
                     continue
-                _record_suspicion(s, by, exp.get("evidence"), snap["scene"]["round"])
+                _record_suspicion(s, by, exp.get("evidence"),
+                                  snap["scene"]["round"], present)
                 break
             continue
+        self_disc = via in SELF_DISCLOSURE_VIA
         for s in snap.get("secrets", []):
             if s.get("owner") != owner:
                 continue
             holders = s.setdefault("holders", list(s.get("known_by", [])))
-            if by in holders:
+            # 他人获取类：已握把柄者不重复入账（把柄已在手，非新信息）。
+            # 本人自述类无此限制——即便 by 已知情/已握把柄，归属者当众说开这一事实
+            # 也须把状态翻到「已公开」（把柄作废），不能被「已在 holders」短路掉。
+            if not self_disc and by in holders:
                 break
             # 语义护栏（v0.17.6，会话 467f1e4c）：via 合法 + 举证逐字在正文，
             # 仍须通过「事实锚点相关」+「施受方在场」两关，才采信为暴露。
             # 任一不过 = 证据虽在正文、却不构成该秘密的实际传递（内心独白/话题错位/
             # 不在场者），降级为起疑——宁可漏记，不可误记。
-            if not (_evidence_related(exp.get("evidence"), s)
-                    and _evidence_transfer(exp.get("evidence"), by, owner)):
+            # 本人自述/承认天然成立（施受双方就是 owner 与 by，且本人复述必是真实传递），
+            # 不做语义护栏，直接采信（是否真「已公开」由 _secret_state 结合在场名单判）。
+            if not self_disc and not (_evidence_related(exp.get("evidence"), s)
+                                      and _evidence_transfer(exp.get("evidence"), by, owner)):
                 logger.warn("secret", "曝光语义未通过（锚点/施受方缺失），降级为起疑："
                             "%s 对 %s 的秘密（via=%r）" % (by, owner, via))
                 if by not in (s.get("known_by") or []):
                     _record_suspicion(s, by, exp.get("evidence"),
-                                      snap["scene"]["round"])
+                                      snap["scene"]["round"], present)
                 break
-            _record_exposure(s, by, via, snap["scene"]["round"])
+            _record_exposure(s, by, via, snap["scene"]["round"], present)
             _ledger_entry(snap, s, by, snap["scene"]["round"])
             break
 
@@ -1790,11 +1859,12 @@ def reflect(sid, reply, directive=""):
             # 已确知真相者不再记起疑（知情是起疑的终态）
             if by in (s.get("known_by") or []) or by in (s.get("holders") or []):
                 continue
-            _record_suspicion(s, by, sus.get("evidence"), snap["scene"]["round"])
+            _record_suspicion(s, by, sus.get("evidence"),
+                              snap["scene"]["round"], present)
             break
 
     # 把柄消除：同样按举证归档。仅操作 holders（握把柄者），known_by 保持不变；
-    # holders 清空时 _secret_state 自动回落「潜伏」（状态回落路径）。
+    # holders 清空后由 _secret_state 重算（信息不可逆，不回落「潜伏」）。
     for rel in _as_dict_list(data.get("handle_releases")):
         owner = rel.get("owner")
         frm = rel.get("from")
@@ -1807,7 +1877,7 @@ def reflect(sid, reply, directive=""):
             continue
         for s in snap.get("secrets", []):
             if s.get("owner") == owner and _release_handle(
-                    s, frm, to, snap["scene"]["round"]):
+                    s, frm, to, snap["scene"]["round"], present):
                 break
 
     # 秘密发酵压力：纪官判语义（本轮有没有触及），代码管计数（累加/归零/封顶）。
