@@ -77,6 +77,11 @@ def _excluded(rel_engine):
     parts = rel.split("/")
     if parts[0] in EXCLUDE_DIRS:
         return True
+    # 防御性排除：任何 backup_* 目录/文件都不得进分发包——备份含改动前旧源码，
+    # 可能残留未洗白的本地路径/密钥，属分发红线（2026-10-12 实踩：backup 文件夹
+    # 位于 engine/ 下被误打包，现加此规则并约定备份一律放项目根而非 engine/）。
+    if any(p.startswith("backup_") for p in parts):
+        return True
     for sp in EXCLUDE_SUBPATHS:
         if rel == sp or rel.startswith(sp + "/"):
             return True
