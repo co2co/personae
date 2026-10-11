@@ -6,6 +6,39 @@
 
 ---
 
+## 2026-10-12 v0.28.0 三层泛用防复读 + 采样 UI 收敛为「重复度惩罚」
+
+**性质**：新增能力（MINOR，机制层——新增与后端解耦的三层防复读体系，并把采样参数 UI 从 llama.cpp 私有字段收敛为单一「重复度惩罚」滑杆）。
+
+### 背景
+- 触发：simon 报告会话 87e4ac46 出现用词重复（「还要多久？」「是他吗？」「穿好」「我去看看窗户」及周围段落）。该会话跑在 ninfer 后端，是 prefill 优化前跑的。
+- 根因（完整证据链，实测定性）：复读是**采样层缺失重复惩罚**导致，与 prefill 优化（上下文缓存层）无关。
+  1. `llm.py` 原配 `repeat_penalty=1.1` + `repeat_last_n=256`（llama.cpp 私有扩展），但后端已切 ninfer。
+  2. ninfer 不支持 repeat_penalty（仅 presence/frequency penalty），且对未知字段**返回 200 静默忽略**（非 4xx），导致 `_strip_penalty` 降级逻辑（只在 4xx 剥字段）不触发 → repeat_penalty 被原样发、被 ninfer 无视 → 采样层零重复惩罚。
+  3. 复读模式两类：轮内自重复（轮 19「我去看看窗户」整段重复两次）+ 跨轮重复（轮 15/17「还要多久」40 字；轮 1/3 甚至 71 字逐字重复，人工漏看）。
+
+### 改动
+- `llm.py`：参数协商层——默认改发 OpenAI 标准字段 `frequency_penalty=0.3`（所有 OpenAI 兼容后端都支持），`repeat_penalty` 降为「标准字段被 4xx」时的 llama.cpp 特化后备。三级降级：标准字段 → repeat_penalty → 全剥。`_WRITABLE`/`_SAMPLING_DEFAULT_KEYS` 移除 repeat_*（降为纯内部后备，保留在 DEFAULTS 供 `_swap_to_repeat` 用）。
+- `director.py`：新增 `detect_narrative_repeat()` 导演层叙事去重——三重检测（8-gram 重叠率>0.2 抓整段复读 + 30 字公共子串抓局部复读 + 前半/后半自重复检测），完全与后端采样参数解耦。
+- `app.py`：`act()` 生成完成后、落盘前检测复读，命中即降温度重生成（最多 1 次），前端发 `regenerate` 状态清空重收。
+- `prompter.py`：铁律⑨ 注入「避免机械重复」软约束。
+- `static/index.html`：采样栏 `repeat_penalty`/`repeat_last_n` 两个输入框 → 单个「重复度惩罚」滑杆（0~2 step 0.05，默认 0.3，拖动实时显示数值），映射 `frequency_penalty`。
+- `package.py`：config 洗白白名单从 repeat_* 改为 frequency/presence_penalty，遇旧 config 残留的 repeat_* 一律剔除。
+- `tests/test_llm_repeat_penalty.py`：重写为新契约（27 用例）——标准字段优先、repeat_* 不再落盘、三级降级协商。
+
+### 设计决定
+- **不「识别后端类型」**，用「协商重试」取代识别：`/v1/models` 不返回后端身份、ninfer 会静默吞未知字段，靠探测不可靠；「先发通用字段、被 4xx 就换专用字段」更稳，天然完成参数名自动映射。
+- 泛用性优先：单靠采样参数无法跨后端统一（repeat_penalty 是 llama.cpp 私有、frequency/presence 是 OpenAI 标准），故三层防御——参数协商（覆盖大多数后端）+ 导演层去重（完全解耦，任何后端都有效）+ 提示词软约束（兜底）。
+- UI 单一「重复度惩罚」语义映射 frequency_penalty（simon 选定）：用户零理解门槛，引擎内部保留 repeat_* 作协商后备。
+
+### 版本
+- v0.27.0 → **v0.28.0**（MINOR，新增三层防复读能力 + UI 收敛）。
+- 校验：全量 `pytest tests/` **302 passed / 1 skipped**；检测函数对真实会话 87e4ac46 复读数据 100% 命中（含人工漏看的 71 字跨轮重复）、正常数据不误判、性能 0.8-2.2ms；实机端到端 frequency_penalty=0.3 被 ninfer 接受、流式正常。
+
+### 遗留 / 后续
+- 导演层去重的重试上限固定 1 次、降温度系数 0.5、阈值 0.2（8-gram）/ 30 字（公共子串）为初版经验值，可在真实剧本长跑中按误判/漏检比例再调。
+
+
 ## 2026-10-11 v0.27.0 移除 LLM 降级（fallback）机制 + top_k 出厂默认 40→20
 
 **性质**：能力移除（MINOR，机制层——移除 v0.21.0 引入的「主配置失败自动降级到 fallback」韧性机制，并把 top_k 出厂默认从 40 下调到 20；涉及 llm/app 前端无改动，动引擎机制设定）。

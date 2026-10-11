@@ -659,12 +659,11 @@
           </label>
         </div>
         <div class="row" style="margin-top:10px;">
-          <span style="font-size:12.5px;color:var(--muted);">repeat_penalty</span>
-          <input id="cfg-rp" class="field" type="number" step="0.05" style="max-width:110px">
-          <span style="font-size:12.5px;color:var(--muted);">repeat_last_n</span>
-          <input id="cfg-rn" class="field" type="number" step="16" style="max-width:110px">
+          <span style="font-size:12.5px;color:var(--muted);">重复度惩罚</span>
+          <input id="cfg-freq" class="field" type="range" min="0" max="2" step="0.05" style="flex:1;max-width:260px;">
+          <span id="cfg-freq-val" class="sub" style="margin:0;min-width:36px;text-align:right;">0.30</span>
         </div>
-        <div class="sub" style="margin:8px 0 0;line-height:1.6;"><code>min_p</code> 动态截断：只保留「概率 ≥ min_p × 最高概率」的候选，比固定 <code>top_p</code> 更抗长输出走神（正文退化、同一段剧情被整段重写）。填 0 则不启用。重复惩罚：<code>repeat_penalty</code> 1.0 = 不惩罚，调高可减少复读但过高会让用词僵硬；<code>repeat_last_n</code> 是作用范围（只管最近 N 个 token，0 = 全部）。</div>
+        <div class="sub" style="margin:8px 0 0;line-height:1.6;"><code>min_p</code> 动态截断：只保留「概率 ≥ min_p × 最高概率」的候选，比固定 <code>top_p</code> 更抗长输出走神（正文退化、同一段剧情被整段重写）。填 0 则不启用。重复度惩罚：拖高可抑制复读（同一句话/同一段剧情反复出现），0 = 不惩罚，0.3 为保守推荐值；过高会让用词僵硬甚至输出中断，一般不超过 1.0。引擎会自动适配不同后端。</div>
         <div class="row" style="margin-top:12px;align-items:center;gap:10px;">
           <button id="cfg-sampling-reset" class="btn btn-sm">恢复默认采样参数</button>
           <span class="sub" style="margin:0;">一键回填出厂默认值（仅改输入框，点「保存」生效）。</span>
@@ -1284,8 +1283,9 @@ document.getElementById('open-system').onclick = async () => {
   document.getElementById('cfg-minp').value = c.min_p ?? 0.02;
   document.getElementById('cfg-topk').value = c.top_k ?? 40;
   document.getElementById('cfg-maxtok').value = c.max_tokens ?? 4096;
-  document.getElementById('cfg-rp').value = c.repeat_penalty ?? 1.1;
-  document.getElementById('cfg-rn').value = c.repeat_last_n ?? 256;
+  const freq = c.frequency_penalty ?? 0.3;
+  document.getElementById('cfg-freq').value = freq;
+  document.getElementById('cfg-freq-val').textContent = Number(freq).toFixed(2);
   document.getElementById('cfg-think').checked = !!c.enable_thinking;
   cfgSamplingDefaults = (c.sampling_defaults && typeof c.sampling_defaults === 'object')
     ? c.sampling_defaults : null;
@@ -1391,16 +1391,23 @@ document.getElementById('cfg-sampling-reset').onclick = () => {
   const d = cfgSamplingDefaults;
   const map = {
     'cfg-temp': d.temperature, 'cfg-topp': d.top_p, 'cfg-minp': d.min_p,
-    'cfg-topk': d.top_k, 'cfg-maxtok': d.max_tokens, 'cfg-rp': d.repeat_penalty,
-    'cfg-rn': d.repeat_last_n,
+    'cfg-topk': d.top_k, 'cfg-maxtok': d.max_tokens, 'cfg-freq': d.frequency_penalty,
   };
   for (const id in map) {
     const el = document.getElementById(id);
     if (el && map[id] != null) el.value = map[id];
   }
+  // 滑杆数值同步刷新
+  const fv = document.getElementById('cfg-freq');
+  document.getElementById('cfg-freq-val').textContent = Number(fv.value).toFixed(2);
   cfgMsg.style.color = 'var(--pos)';
   cfgMsg.textContent = '已回填出厂默认采样参数，点「保存」生效';
 };
+
+// 重复度惩罚滑杆：拖动时实时刷新数值显示
+document.getElementById('cfg-freq').addEventListener('input', (e) => {
+  document.getElementById('cfg-freq-val').textContent = Number(e.target.value).toFixed(2);
+});
 
 document.getElementById('sys-save').onclick = async () => {
   // 保存前先把界面上每张卡片的当前输入同步进内存，确保落盘即所见
@@ -1413,8 +1420,7 @@ document.getElementById('sys-save').onclick = async () => {
     min_p: parseFloat(document.getElementById('cfg-minp').value),
     top_k: parseInt(document.getElementById('cfg-topk').value, 10),
     max_tokens: parseInt(document.getElementById('cfg-maxtok').value, 10),
-    repeat_penalty: parseFloat(document.getElementById('cfg-rp').value),
-    repeat_last_n: parseInt(document.getElementById('cfg-rn').value, 10),
+    frequency_penalty: parseFloat(document.getElementById('cfg-freq').value),
     enable_thinking: document.getElementById('cfg-think').checked,
   };
   // 仅当列表非空时才写入生效连接，避免删光后误保存清空当前可用连接。

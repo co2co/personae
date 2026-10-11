@@ -35,13 +35,27 @@ DEFAULTS = {
     # 0.02 是 llama.cpp 自身缺省值，属保守档；0.05 以上会明显压缩随机性。
     "min_p": 0.02,
     # 重复惩罚：抑制长输出末尾的 n-gram 回卷（同一段剧情被整段重发）。
-    # 1.0 = 不惩罚（llama.cpp 服务端默认，也是 OpenAI 兼容网关的缺省行为）。
-    # 实测本地 27B 在 temperature=1.0 / top_k=40 下，输出到千字量级有可观概率整段复读；
-    # 1.1 起明显收敛。取值过高会让用词僵硬、丧失随机性，故默认取 1.1（保守档）。
+    #
+    # ★ 泛用性决策（v0.22.x，2026-10-12）：默认改用 OpenAI 官方标准字段
+    #   frequency_penalty / presence_penalty，而非 llama.cpp 私有的 repeat_penalty。
+    #   理由：frequency/presence 是 OpenAI Chat Completions 官方字段，所有自称
+    #   「OpenAI 兼容」的后端都有义务实现（ninfer / vLLM / SGLang / 硅基流动 /
+    #   OpenAI 官方 / llama.cpp 的 OpenAI 兼容层）。而 repeat_penalty 只有
+    #   llama.cpp 系认，其余后端会静默忽略（ninfer 甚至返回 200 但完全无视，
+    #   见 2026-10-12 会话 87e4ac46 复读根因排查），等于零防护。
+    #
+    #   frequency_penalty 语义：按 token 在「已生成内容」中的出现频次惩罚，频次越高
+    #   惩罚越重，直接抑制「整段重复」与「句式回卷」。0.3 为保守档——能压住复读，
+    #   又不至于把角色名、场景词这类「合理重复」压到断句（实测 1.5 起会提前收尾、
+    #   2.0 直接空输出，故切不可取高值）。
+    "frequency_penalty": 0.3,
+    # presence_penalty：按 token「是否出现过」惩罚（出现即罚，与频次无关）。
+    # 用于抑制「同一句话换个说法再写一遍」的变体复读。0.0 为中性；此处取 0.0
+    # 表示默认不启用，仅暴露给前端，由用户按剧本需要自行上调。
+    "presence_penalty": 0.0,
+    # 以下 repeat_* 保留仅作 llama.cpp 特化后备（标准字段被 4xx 时降级使用）。
+    # 语义：1.0 = 不惩罚；repeat_last_n 只对最近 N token 生效。
     "repeat_penalty": 1.1,
-    # 惩罚作用范围：只对最近 N 个 token 生效（llama.cpp 的 repeat_last_n）。
-    # 0 = 惩罚全部上下文。256 足够覆盖「复读的段落在数千 token 内」这一实际场景，
-    # 又不必让惩罚波及很早的剧情事实（那里重复是合理的，如角色名、场景描写）。
     "repeat_last_n": 256,
     "enable_thinking": False,
     "saved_models": [],
@@ -99,8 +113,10 @@ def setting(name):
 # 前端「恢复默认」要回填的采样参数键（纯出厂值）。
 # 单独成表而非内联：sampling_defaults 必须只含 DEFAULTS 出厂值，不能被 file 覆盖，
 # 否则「恢复默认」会把用户当前已改的值再写回去，失去意义。
+# 注：repeat_penalty / repeat_last_n 已不在此表——它们是 llama.cpp 特化的内部后备，
+# 仅在标准字段被网关 4xx 时由 _swap_to_repeat 启用，不暴露给用户（见 UI「重复度惩罚」）。
 _SAMPLING_DEFAULT_KEYS = ("temperature", "top_p", "top_k", "min_p",
-                          "max_tokens", "repeat_penalty", "repeat_last_n")
+                          "max_tokens", "frequency_penalty", "presence_penalty")
 
 
 def config_view():
@@ -117,9 +133,11 @@ def config_view():
     return cfg
 
 
-# 用户可通过 UI 改动的字段；其余内部字段不暴露
+# 用户可通过 UI 改动的字段；其余内部字段不暴露。
+# repeat_penalty / repeat_last_n 刻意不在其中：它们是 llama.cpp 特化的内部后备
+# （标准字段被 4xx 时降级启用），用户只需面对一个「重复度惩罚」（映射 frequency_penalty）。
 _WRITABLE = {"base_url", "api_key", "model", "budget", "max_tokens", "top_k",
-             "temperature", "top_p", "min_p", "repeat_penalty", "repeat_last_n",
+             "temperature", "top_p", "min_p", "frequency_penalty", "presence_penalty",
              "enable_thinking", "saved_models", "providers"}
 
 
@@ -131,9 +149,10 @@ def save_config(partial):
             continue
         if k == "enable_thinking":
             v = bool(v)
-        elif k in ("budget", "max_tokens", "top_k", "repeat_last_n"):
+        elif k in ("budget", "max_tokens", "top_k"):
             v = _num(v, k, int)
-        elif k in ("temperature", "top_p", "min_p", "repeat_penalty"):
+        elif k in ("temperature", "top_p", "min_p", "frequency_penalty",
+                   "presence_penalty"):
             v = _num(v, k, float)
         elif k == "saved_models":
             v = list(v) if isinstance(v, (list, tuple)) else []
@@ -174,26 +193,45 @@ def _num(value, key, cast):
 
 
 def _penalty_params(repeat_penalty, repeat_last_n, min_p=None):
-    """非标准采样扩展（重复惩罚 + min_p）。
+    """重复惩罚（OpenAI 标准字段优先）+ min_p。
 
-    两者都只在**偏离中性值**时才发：中性值与各后端缺省行为一致，发过去没有增益，
-    却可能被严格校验的 OpenAI 兼容网关（vLLM / DeepSeek 等）判为未知参数而 400。
-    - repeat_penalty：1.0 为中性（= 不惩罚）
+    ★ 泛用性（v0.22.x）：默认发 frequency_penalty / presence_penalty（OpenAI 官方
+    标准字段，所有 OpenAI 兼容后端都支持），repeat_penalty 降为 llama.cpp 特化后备。
+
+    只在**偏离中性值**时才发：中性值与各后端缺省行为一致，发过去没有增益，
+    却可能被严格校验的网关判为未知参数而 400。
+    - frequency_penalty：0.0 为中性（= 不惩罚）
+    - presence_penalty：0.0 为中性
+    - repeat_penalty：1.0 为中性（llama.cpp 语义，仅降级时用）
     - min_p：0 为中性（= 不启用动态截断，交后端缺省）
+    """
+    out = {}
+    # 标准字段优先：frequency/presence 是所有 OpenAI 兼容后端的共同语言。
+    fp = _num(setting("frequency_penalty"), "frequency_penalty", float)
+    if fp != 0.0:
+        out["frequency_penalty"] = fp
+    pp = _num(setting("presence_penalty"), "presence_penalty", float)
+    if pp != 0.0:
+        out["presence_penalty"] = pp
+    # min_p 走独立分支：默认 0.02 非中性，故正常会发送；显式填 0 才不发。
+    mp = _num(setting("min_p") if min_p is None else min_p, "min_p", float)
+    if mp > 0.0:
+        out["min_p"] = mp
+    return out
+
+
+def _repeat_fallback_params(repeat_penalty, repeat_last_n):
+    """llama.cpp 特化后备：标准字段被网关 4xx 时改发 repeat_penalty。
+
+    仅当后端连 frequency/presence 都不认（极罕见，说明不是真 OpenAI 兼容）时启用。
     """
     out = {}
     rp = _num(repeat_penalty, "repeat_penalty", float)
     if rp != 1.0:
         out["repeat_penalty"] = rp
-        # repeat_last_n 是 llama.cpp 扩展，与 repeat_penalty 配对才有意义；
-        # 网关若认 repeat_penalty 也通常认这个，但没给出值时用后端缺省更稳。
         rn = _num(repeat_last_n, "repeat_last_n", int)
         if rn:
             out["repeat_last_n"] = rn
-    # min_p 走独立分支：默认 0.02 非中性，故正常会发送；显式填 0 才不发。
-    mp = _num(setting("min_p") if min_p is None else min_p, "min_p", float)
-    if mp > 0.0:
-        out["min_p"] = mp
     return out
 
 
@@ -216,13 +254,24 @@ def _base_payload(messages, temperature, top_p, max_tokens, top_k, base_model,
     return payload
 
 
-# 网关不认时需剥离的非标准扩展字段（repeat_* 与 min_p 同属 llama.cpp 扩展）
+# 标准字段（OpenAI 官方）：被 4xx 时降级用。
+_STD_FIELDS = ("frequency_penalty", "presence_penalty")
+# llama.cpp 特化扩展（repeat_* 与 min_p）：标准字段被 4xx 后的后备，或再被 4xx 时剥离。
 _EXT_FIELDS = ("repeat_penalty", "repeat_last_n", "min_p")
 
 
 def _strip_penalty(payload):
-    for k in _EXT_FIELDS:
+    """剥离所有非标准/已尝试的惩罚字段，退回后端缺省行为。"""
+    for k in (*_STD_FIELDS, *_EXT_FIELDS):
         payload.pop(k, None)
+    return payload
+
+
+def _swap_to_repeat(payload, repeat_penalty, repeat_last_n):
+    """把标准字段换成 llama.cpp 的 repeat_penalty（后端不认标准字段时）。"""
+    for k in _STD_FIELDS:
+        payload.pop(k, None)
+    payload.update(_repeat_fallback_params(repeat_penalty, repeat_last_n))
     return payload
 
 
@@ -245,15 +294,25 @@ def _stream_once(messages, temperature, top_p, max_tokens, top_k, timeout, base_
         return requests.post(url, json=p, headers=headers, stream=True, timeout=timeout)
 
     resp = _post(payload)
-    # 网关不认 repeat_penalty/repeat_last_n（非标准扩展）时会 4xx。
-    # 此时去掉这两个字段重试一次：宁可退回该后端的缺省惩罚，也不能整轮生成失败。
-    # getattr 兜底：测试桩/非常规响应对象可能没有 status_code，此时不重试。
-    if (getattr(resp, "status_code", 200) in (400, 404, 422)
-            and any(k in payload for k in _EXT_FIELDS)):
-        resp.close()
-        payload = _strip_penalty(dict(payload))
-        payload["stream"] = True
-        resp = _post(payload)
+    # ★ 参数协商（v0.22.x，泛用性）：三级降级，逐级探测后端能力。
+    #   1) 默认已发标准字段 frequency/presence（见 _base_payload）。
+    #   2) 若 4xx（后端不认标准字段，罕见）→ 换 llama.cpp 的 repeat_penalty 重试。
+    #   3) 若仍 4xx → 剥离全部惩罚字段，退回该后端缺省行为。
+    #   注：ninfer 这类「静默吞未知字段」的后端对标准字段是认的（frequency 实测生效），
+    #   故不会走到降级；此链路只兜底那些严格校验标准字段的网关。
+    #   getattr 兜底：测试桩/非常规响应对象可能没有 status_code，此时不重试。
+    if getattr(resp, "status_code", 200) in (400, 404, 422):
+        if any(k in payload for k in _STD_FIELDS):
+            resp.close()
+            payload = _swap_to_repeat(dict(payload), repeat_penalty, repeat_last_n)
+            payload["stream"] = True
+            resp = _post(payload)
+        if getattr(resp, "status_code", 200) in (400, 404, 422) \
+                and any(k in payload for k in _EXT_FIELDS):
+            resp.close()
+            payload = _strip_penalty(dict(payload))
+            payload["stream"] = True
+            resp = _post(payload)
     with resp:
         resp.raise_for_status()
         # 上游不返回 charset 时 requests 会按 latin-1 解码，中文直接变乱码

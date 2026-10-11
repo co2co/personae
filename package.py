@@ -125,16 +125,23 @@ def build(out_name=None):
                         # 不在此处硬编码字面量——否则引擎调了默认值而这里没跟上，
                         # 新装用户就会拿到开发者机器上的旧值（v0.21.2 实踩：磁盘 temperature=1.0
                         # 被原样打进包，而出厂默认已是 0.85）。min_p 存 null 时也要写回真值。
+                        # 注（v0.28.0）：repeat_penalty/repeat_last_n 已从采样参数降为
+                        # llama.cpp 特化内部后备（不暴露给用户），故洗白白名单改为
+                        # frequency_penalty/presence_penalty；遇旧 config 残留的 repeat_* 一律剔除。
                         for k in ("temperature", "top_p", "top_k", "min_p",
-                                  "repeat_penalty", "repeat_last_n", "max_tokens"):
+                                  "frequency_penalty", "presence_penalty", "max_tokens"):
                             if k in _ENGINE_DEFAULTS:
                                 cfg[k] = _ENGINE_DEFAULTS[k]
                         # null/缺失一律剔除：setting() 虽已把 null 兜底成默认值，
                         # 但包里留 null 会让读包的人困惑，也让 config_view 回填出 null。
                         for k in ("temperature", "top_p", "top_k", "min_p",
+                                  "frequency_penalty", "presence_penalty",
                                   "repeat_penalty", "repeat_last_n"):
                             if cfg.get(k) is None:
                                 cfg.pop(k, None)
+                        # 旧 config 残留的 llama.cpp 私有字段直接剔除，避免污染新装用户的默认态
+                        for k in ("repeat_penalty", "repeat_last_n"):
+                            cfg.pop(k, None)
                         z.writestr(arcname, json.dumps(cfg, ensure_ascii=False, indent=2))
                     except Exception:
                         z.write(full, arcname)
