@@ -176,6 +176,7 @@
   .scene-line{ font-size:14px; color:var(--ink-2); margin-top:8px; line-height:1.6; }
   .rel-row,.sec-row{ font-size:13.5px; padding:7px 0; border-bottom:1px dashed var(--line-2); color:var(--ink-2); }
   .rel-row:last-child,.sec-row:last-child{ border-bottom:none; }
+  .rel-row.loc-missing{ color:var(--muted); }
   /* 关系定性常是一整段叙述，逐条限高会截出半句话、语义不完整。
      面板内部已有滚动兜底（.panel-body-scroll），这里不再限高——宁可面板内滚动，
      也不要让用户读到「……事后偶现一丝自厌」这种断句。 */
@@ -1092,9 +1093,16 @@ function renderSnapshot(snap) {
 
   // 人物位置（谁在哪里）：与「现状」分离的独立唯一真相源，分队/离场时
   // 逐人展示实际位置，避免同一角色在物件状态里被写成两处。
-  document.getElementById('locations').innerHTML = Object.entries(snap.locations || {})
-    .map(([k, v]) => `<div class="rel-row">${k}：${(v && v.place) || '（未知）'}</div>`)
-    .join('') || '<div class="rel-row">（尚未记录任何位置）</div>';
+  // 兜底展示：在场但从未有过位置记录的角色，显式标「（位置未记录）」而非 silent 缺席
+  // ——locations 初始为空、由导演官逐轮增量补写，开局原地未动的角色会缺席；簿记真相源
+  // （snap.locations）不变，此处只把缺口透明化，避免用户误判成栏目漏渲染/硬编码。
+  const locRows = Object.entries(snap.locations || {})
+    .map(([k, v]) => `<div class="rel-row">${k}：${(v && v.place) || '（未知）'}</div>`);
+  const locKnown = new Set(Object.keys(snap.locations || {}));
+  for (const n of (snap.present || [])) {
+    if (!locKnown.has(n)) locRows.push(`<div class="rel-row loc-missing">${n}：<i>（位置未记录）</i></div>`);
+  }
+  document.getElementById('locations').innerHTML = locRows.join('') || '<div class="rel-row">（尚未记录任何位置）</div>';
 
   // 刻意不渲染：relations / actions / goals。
   // 这三者都是「引擎算出来的中间结果」而非「世界本身」——关系定性、每回合行为

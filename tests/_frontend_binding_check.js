@@ -65,7 +65,7 @@ global.EventSource = class { constructor(){} close(){} addEventListener(){} };
 // fetch mock：把 /api/act 返回一条最小 SSE 流
 global.fetch = function (url, opts) {
   fetchCalls.push({ url, method: (opts && opts.method) || 'GET', body: opts && opts.body });
-  const sse = 'data: {"delta":"测试"}\n\ndata: {"done":true,"reply":"测试","snapshot":{"scene":{"round":1,"place":"P"},"present":["A"],"states":{},"secrets":[]}}\n\n';
+  const sse = 'data: {"delta":"测试"}\n\ndata: {"done":true,"reply":"测试","snapshot":{"scene":{"round":1,"place":"P"},"present":["A"],"states":{},"secrets":[],"locations":{"角色B":{"place":"走廊","round":1}}}}\n\n';
   return Promise.resolve({
     ok: true,
     json: () => Promise.resolve(
@@ -126,6 +126,12 @@ check('cfgProviders 已声明', typeof get('__q').closest === 'function'); // �
     check('请求体含 session', typeof body.session === 'string');
   }
   await new Promise(r => setTimeout(r, 60));
+  // 人物位置兜底展示（2026-10-13 修）：locations 初始为空、导演官按增量补写，
+  // 开局原地未动的角色会 silent 缺席（7 角色会话实测只有 4 人上榜）。present 成员
+  // 无位置记录时必须显式标「（位置未记录）」；有记录的位置照常渲染，行为不回退。
+  const locHtml = get('locations').innerHTML;
+  check('人物位置：无记录的在场角色显式兜底', locHtml.includes('A：') && locHtml.includes('（位置未记录）'));
+  check('人物位置：有记录的位置照常渲染', locHtml.includes('角色B：走廊'));
   await globalThis.__stage2();
   check('按钮发送后已解锁', get('send').disabled === false);
 
