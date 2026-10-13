@@ -346,6 +346,51 @@ def delete_world_route(name):
     return jsonify({"ok": True, "name": name, "referenced": referenced})
 
 
+@app.get("/api/drama/<name>/export")
+def export_drama_route(name):
+    """导出指定剧本（世界书 + 其全部角色）为统一 JSON 模板（见 store.export_drama）。
+
+    前端据此触发文件下载，作为该剧本的备份。剧本（世界书）不存在返回 404。
+    模板带 schema/schema_version 标识，是引擎导入/导出的统一规范——恢复剧本即把
+    该文件内容 POST 回 /api/drama/<name>/import。
+    """
+    name = (name or "").strip()
+    if not name:
+        return jsonify({"error": "剧本名不能为空"}), 400
+    try:
+        tpl = store.export_drama(name)
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 400
+    if tpl is None:
+        return jsonify({"error": f"剧本不存在: {name}"}), 404
+    return jsonify(tpl)
+
+
+@app.post("/api/drama/<name>/import")
+def import_drama_route(name):
+    """导入统一 JSON 模板，恢复/覆盖指定剧本（世界书 + 角色卡，见 store.import_drama）。
+
+    name 为「目标剧本名」：模板里 world 与角色卡的 world 一律对齐到它。body 即模板对象
+    （GET /api/drama/<name>/export 的返回）。导入后前端刷新剧本库即可见。
+    """
+    name = (name or "").strip()
+    if not name:
+        return jsonify({"error": "剧本名不能为空"}), 400
+    try:
+        body = request.get_json(force=True)
+    except Exception:
+        return jsonify({"error": "请求体不是合法 JSON"}), 400
+    try:
+        result = store.import_drama(name, body)
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 400
+    logger.info("drama",
+                "导入剧本包「" + name + "」：世界书 " + str(result["world_entries"]) + " 条"
+                + " ｜ 角色 " + str(len(result["imported"])) + " 张"
+                + (" ｜ 清理多余卡 " + str(len(result["deleted"])) + " 张" if result["deleted"] else ""))
+    return jsonify(result)
+
+
 @app.get("/api/config")
 def get_config():
     return jsonify(llm.config_view())

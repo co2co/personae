@@ -36,6 +36,10 @@ MAIN_FLOW_PROBES = [
     ("async function selectDrama", "选中剧本的联动加载"),
     ("id=\"d-tab-world\"", "世界书设定 tab 按钮"),
     ("id=\"d-tab-chars\"", "角色表 tab 按钮"),
+    # v0.28.3 剧本级导入/导出：按钮从角色表 tab 提到剧本详情头部（删除剧本左侧）
+    ("id=\"d-export\"", "剧本导出 JSON 按钮"),
+    ("id=\"d-import\"", "剧本导入 JSON 按钮"),
+    ("id=\"drama-import\"", "剧本导入文件选择器"),
 ]
 
 

@@ -726,7 +726,12 @@
               <button id="d-tab-world" class="btn btn-sm">世界书设定</button>
               <button id="d-tab-chars" class="btn btn-sm">角色表</button>
             </div>
-            <button id="w-del" class="btn btn-sm btn-danger" style="margin-left:auto;">删除剧本</button>
+            <div class="row" style="gap:6px;margin-left:auto;">
+              <button id="d-export" class="btn btn-sm" title="把当前剧本（角色表+世界书）导出为 JSON 备份文件">导出 JSON</button>
+              <button id="d-import" class="btn btn-sm" title="从 JSON 备份恢复当前剧本（覆盖角色表与世界书）">导入 JSON</button>
+              <input id="drama-import" type="file" accept=".json,application/json" style="display:none">
+              <button id="w-del" class="btn btn-sm btn-danger">删除剧本</button>
+            </div>
           </div>
 
           <!-- tab：世界书设定（原世界书面板整体迁入，逻辑不变） -->
@@ -753,12 +758,10 @@
             </div>
           </div>
 
-          <!-- tab：角色表（原角色库整体迁入，列表按当前剧本过滤） -->
+          <!-- tab：角色表（原角色库整体迁入，列表按当前剧本过滤；剧本级导入/导出已提到剧本详情头部） -->
           <div id="drama-char-tab" class="hide">
             <div class="row" style="gap:8px;margin:2px 0 8px;">
               <button id="char-new" class="btn btn-sm">+ 新建角色</button>
-              <button id="char-import-btn" class="btn btn-sm">导入 JSON</button>
-              <input id="char-import" type="file" accept=".json,application/json" style="display:none">
             </div>
             <div class="mgr">
               <div>
@@ -1576,7 +1579,7 @@ function refreshCharList() {
     const box = document.getElementById('char-list');
     box.innerHTML = names.length
       ? names.map(n=>`<div class="mgr-item" data-n="${n}">${n}</div>`).join('')
-      : '<div class="sub" style="padding:8px;">本剧本下还没有角色。点「+ 新建角色」或用「导入 JSON」。</div>';
+      : '<div class="sub" style="padding:8px;">本剧本下还没有角色。点「+ 新建角色」，或用顶部「导入 JSON」恢复整个剧本（含角色表与世界书）。</div>';
     box.querySelectorAll('.mgr-item').forEach(el=>el.onclick=()=>loadChar(el.dataset.n));
   });
 }
@@ -1627,22 +1630,71 @@ document.getElementById('char-new').onclick = () => {
   cwsel.value = DRAFT_WORLD || (cwsel.options[0] ? cwsel.options[0].value : '');
   charMsg.style.color='var(--muted)'; charMsg.textContent='新建模式：默认归属当前剧本，填好角色名后保存即创建。';
 };
-document.getElementById('char-import-btn').onclick = () => document.getElementById('char-import').click();
-document.getElementById('char-import').onchange = (e) => {
+// ---- 剧本级导入 / 导出（统一 JSON 模板，备份与恢复剧本） ----
+// 放在剧本详情头部（删除剧本左侧），作用对象是「当前选中剧本」：
+// 导出 = 该剧本的世界书 + 其全部角色，打包成 store.export_drama 的统一模板；
+// 导入 = 解析模板文件，整份恢复/覆盖该剧本（角色表 + 世界书）。
+// 目标剧本名默认取「文件内 drama 字段」，用户可在确认时改成当前选中剧本（恢复成另一个剧本名）。
+function _dramaMsg(text, color) {
+  worldMsg.style.color = 'var(' + (color || 'muted') + ')';
+  worldMsg.textContent = text;
+}
+async function downloadDramaJson(name, tpl) {
+  const blob = new Blob([JSON.stringify(tpl, null, 2)], {type: 'application/json'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = name + '.json';
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+document.getElementById('d-export').onclick = async () => {
+  const name = DRAFT_WORLD;
+  if (!name) { _dramaMsg('请先在左侧选择要导出的剧本', 'danger'); return; }
+  _dramaMsg('正在导出剧本「' + name + '」…');
+  const r = await fetch('/api/drama/' + encodeURIComponent(name) + '/export').then(res => res.json());
+  if (r && r.schema) {
+    await downloadDramaJson(name, r);
+    _dramaMsg('已导出剧本「' + name + '」：世界书 ' + (r.world?.entries?.length ?? 0) + ' 条 ｜ 角色 ' + (r.characters?.length ?? 0) + ' 张（已下载 ' + name + '.json）', 'pos');
+  } else {
+    _dramaMsg('导出失败：' + ((r && r.error) || '未知错误'), 'danger');
+  }
+};
+document.getElementById('d-import').onclick = () => document.getElementById('drama-import').click();
+document.getElementById('drama-import').onchange = async (e) => {
   const f = e.target.files[0];
   if (!f) return;
   const reader = new FileReader();
-  reader.onload = () => {
-    try {
-      const obj = JSON.parse(reader.result);
-      _charOrig = obj;
-      fillChar(obj, obj.name || f.name.replace(/\.json$/i, ''));
-      charMsg.style.color='var(--muted)';
-      charMsg.textContent='已从文件载入：'+(obj.name||f.name)+'。检查人设后点保存即可入库（未识别字段会一并保留）。';
-    } catch(err) { charMsg.style.color='var(--danger)'; charMsg.textContent='JSON 解析失败：'+err.message; }
+  reader.onload = async () => {
+    let tpl;
+    try { tpl = JSON.parse(reader.result); }
+    catch (err) { _dramaMsg('JSON 解析失败：' + err.message, 'danger'); e.target.value = ''; return; }
+    if (!tpl || typeof tpl !== 'object') { _dramaMsg('不是合法的 JSON 对象', 'danger'); e.target.value = ''; return; }
+    // 兼容：老导出文件 / 手工整理，没有 world/characters 结构时给明确提示
+    if (!tpl.world && !Array.isArray(tpl.characters)) {
+      _dramaMsg('文件缺少 world / characters 字段，不是剧本包模板', 'danger'); e.target.value = ''; return;
+    }
+    // 目标剧本名：默认取文件内 drama，允许用户在确认框改成当前选中剧本（恢复成另一个剧本名）
+    const fileDrama = (tpl.drama || '').trim();
+    const fallback = DRAFT_WORLD || fileDrama;
+    const target = prompt('导入剧本包「' + (fileDrama || '(未命名)') + '」\n\n将整份覆盖该剧本的角色表与世界书（此操作会覆盖当前数据、清理多余角色卡）。\n请输入要恢复到的剧本名（默认 ' + (fallback || '留空取消') + '）：', fallback || '').trim();
+    if (!target) { e.target.value = ''; return; }
+    const r = await fetch('/api/drama/' + encodeURIComponent(target) + '/import', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(tpl),
+    }).then(res => res.json());
+    e.target.value = '';
+    if (r && r.ok) {
+      _dramaMsg('已恢复剧本「' + target + '」：世界书 ' + r.world_entries + ' 条 ｜ 角色 ' + r.imported.length + ' 张' + (r.deleted.length ? ' ｜ 清理多余卡 ' + r.deleted.length + ' 张' : ''), 'pos');
+      DRAFT_WORLD = target;
+      await refreshDramas(target);
+      loadCharacters();
+    } else {
+      _dramaMsg('导入失败：' + ((r && r.error) || '未知错误'), 'danger');
+    }
   };
   reader.readAsText(f);
-  e.target.value = '';
 };
 document.getElementById('char-save').onclick = async () => {
   const name = document.getElementById('c-name').value.trim();
