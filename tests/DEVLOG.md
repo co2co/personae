@@ -6,6 +6,51 @@
 
 ---
 
+## 2026-10-14 删除剧本升级为剧本级删除：世界书 + 全部角色卡一并删除（store.delete_drama + /api/drama/<name>/delete + 前端 w-del 改调，semver PATCH→v0.28.5）
+
+**性质**：数据层 + 路由 + 前端的功能修正（让「删除剧本」对齐 v0.28.3 确立的「剧本=世界书+全部角色」概念）。非架构改动，未动引擎机制设定，不触发 30 轮压测。未提交未发版，待 simon 拍板。
+
+**动机**：v0.28.3 已把「剧本」定义为「一本世界书 + 该剧本全部角色」，导入/导出都按这个形状走（`/api/drama/<name>/export|import`）。但「删除剧本」按钮（前端 `w-del`）仍停在旧逻辑——调 `DELETE /api/world/<name>`，该路由只删世界书、角色卡保留（变成无 world 归属的孤儿），与「剧本」概念自相矛盾。用户明确要求：删除剧本应把对应世界书和角色都删掉。
+
+**改动清单**：
+- `store.py`：新增 `delete_drama(name)`——先 `delete_world(name)` 删世界书，再 `worlds_referencing(name)` 取全部归属角色卡逐张 `delete_card`；世界书与角色都不存在时返回 `None`（路由据此 404），否则返回 `{ok,name,world_removed,characters_deleted}`。与 `export_drama`/`import_drama` 同处「剧本包」区块，复用既有 `worlds_referencing`/`delete_world`/`delete_card`，不重复造轮子。
+- `app.py`：新增 `DELETE /api/drama/<name>/delete`（空名 400、剧本不存在 404，成功后 `logger.info` 记世界书/角色删除数）。原 `DELETE /api/world/<name>`（世界书单删 + referenced 二次确认）保留不动——它仍是「只删世界书」这一独立语义的承载，未被删除剧本入口使用。
+- `static/index.html`：`w-del.onclick` 由调 `/api/world/<name>`（含 referenced 二次确认强制删除分支）改为调 `/api/drama/<name>/delete`（单次 confirm 明确告知「世界书 + 全部角色卡一并删除」，删后提示成功含角色数）。新语义下角色本就要一并删，旧的「仍被引用→强制删除」分支失去意义，移除。
+- `tests/test_drama_io.py`：新增 6 用例（store 层删剧本清世界书+全部卡/不存在返 None/空名抛错/仅世界书无角色；HTTP 层 200 清世界书+卡、404 不存在）。
+- `tests/test_frontend_binding.py`：加 2 条静态探针（w-del 绑定、删除走 `/api/drama/<name>/delete` 剧本级端点），防回归到旧世界书单删。
+
+**验证数据**：`engine/venv pytest tests/test_drama_io.py tests/test_store_cache.py tests/test_frontend_binding.py -q` **31 passed**（含 node 沙箱）；前端探针逐字匹配确认 w-del 已走新端点。
+
+**设计决定**：
+- 新增剧本级删除端点而非改 `/api/world/<name>` 的语义：保持「删世界书」与「删剧本」两条独立语义并存，`/api/world` 仍是世界书单删的精确工具，删除剧本入口切到剧本级端点。
+- 前端去掉「referenced 二次确认强制删除」分支：新语义下归属角色本来就被一并删除，不存在「删完世界书角色仍引用它」的歧义，单次 confirm 足够。
+- 复用 `worlds_referencing`（按 world 字段归属取卡），与 export/import 的归属判定同源，删/导/入三者的「角色归属」口径一致。
+
+**踩坑**：
+- 前端探针串必须与 index.html 逐字一致（含单引号包裹 + `+encodeURIComponent(name)+` 拼接形式），否则静态探针探针不中。
+
+**遗留**：提交、打包（含 examples 恢复）等 simon 拍板。
+
+### 同批·叙事指令回声抑制（prompter 输出纪律补 ⑥，semver 同 v0.28.5）
+
+**性质**：提示词约束层微调（堵一类「写作技法标签混入正文」的模型回声），非架构改动、未动引擎机制设定，不触发 30 轮压测。与删除剧本同属 v0.28.5 未提交批次。
+
+**动机**：会话 `9a7cb89f` 末 2 回合（尤其第 4 回合）可见正文里反复出现「写作技法 / 描写标准」类条目的方法说明句（「心理通过身体写出」「把外部压力重新压回来」「谁先动 / 事前犹豫」之类自我批注），严重破坏代入感。根因定位见下。
+
+**根因定位（定量对照，非引擎机制 bug）**：
+- 同一模型（线上 tencent/Hy4-preview）、同一世界（高氏王朝）、同一常驻标准条（亲密描写标准，constant+after 每轮注入末条 user 消息）下，22 轮上帝视角压测（`tests/_gaoshi_e2e_out/`，含 R19/R20 高强度性场景各 1.4k 字）**技法标签回声 0 命中**；而 `9a7cb89f` 末 2 回合 **9 处逐字命中** → 同配置差异，排除引擎注入/机制根因，归因到**模型偶发**把「约束条目」当「内容」复述。
+- 引擎侧两个**次要促成位**（非根因，未改）：① `narrative_clean.clean_narrative` 的元信息正则覆盖「导演自指/铁律复述/局势列举/安全前言/亲密自我审查」，但**不含**技法标准标签回声；② 标准条 `position=after` 每轮重复注入末条 user 消息，近因最强处恰好是模型最容易「读到就抄」的位置。二者是「若模型已回声、引擎能否兜住」的缓解位，非「为什么会回声」的原因。
+
+**改动**：
+- `engine/prompter.py`：`[输出纪律]` 块补第 ⑥ 条——明确「世界书里的写作技法/描写标准/尺度要求类条目是给作者的执行约束、不是剧情内容，只按其要求的方式写，严禁把条目名称/要求文字/技法标签复述进正文」，并给中性示例（心理通过身体写出 / 把外部压力重新压回来 / 谁先动·事前犹豫）。措辞通用、无具体剧本名/角色名/题材词，符合引擎普适性红线。
+- `tests/test_prompter.py`：新增守卫 `test_output_discipline_forbids_craft_standard_echo`——断言 `[输出纪律]` 块存在且含「技法/描写标准/复述/正文」四锚点，防回退。
+
+**验证数据**：全量 `engine/venv pytest tests/ -q` **330 passed, 1 skipped, 1 deselected**（新增 1 守卫，零回归）。
+
+**设计决定**：选提示词约束（方案 B）而非改 `narrative_clean` 正则或改标准条 `position`：⑥ 从源头堵「把约束当内容」的模型惯性，覆盖面广于单点正则；标准条 `position=after` 的强近因是既有设计杠杆（NSFW 描写层唯一有效杠杆，见 MEMORY），不为堵回声而削弱它。模型偶发回声仍可能残留，属模型质量问题，非引擎可根治，⑥ 为成本最低的通用抑制。
+
+---
+
 ## 2026-10-14 纪官回写 P1 治本：JSON 截断 + 尾部畸形两层根因（REFLECT_MAX_TOKENS 上调 + schema 字段重排 + _salvage_json 回退式，semver PATCH→v0.28.4）
 
 **性质**：解析层稳健性修复（治 P1 秘密簿记整轮丢失）。非架构改动、未动引擎机制设定（秘密状态机/举证门/亲缘冻结均不动），不触发 30 轮压测。未提交未发版，待 simon 拍板。
