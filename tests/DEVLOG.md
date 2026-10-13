@@ -6,6 +6,35 @@
 
 ---
 
+## 2026-10-14 纪官回写 P1 治本：JSON 截断 + 尾部畸形两层根因（REFLECT_MAX_TOKENS 上调 + schema 字段重排 + _salvage_json 回退式，semver PATCH→v0.28.4）
+
+**性质**：解析层稳健性修复（治 P1 秘密簿记整轮丢失）。非架构改动、未动引擎机制设定（秘密状态机/举证门/亲缘冻结均不动），不触发 30 轮压测。未提交未发版，待 simon 拍板。
+
+**动机**：「高氏王朝」22 轮上帝视角压测发现 4/6 秘密全程停在「潜伏」，叙事文本里却已多次暴露。旧归因（MEMORY 记为 `_evidence_transfer` 门要求证据含 by/owner 名）经实机探针推翻——R04 探针证明 `_evidence_ok`/`_evidence_related`/`_evidence_transfer` 三门**全通过**，门本身没问题。真实根因是**纪官（reflect）回写 JSON 整轮丢失**，且分两层。
+
+**根因（实测定位）**：
+- **第一层·截断**：`REFLECT_MAX_TOKENS=1800` 对满负荷轮（6 角色，输出实测 2.6~4.3k 字符≈2~3k+ token）不够，且旧 schema 把冗长的 `relations`/`actions`/`goals` 排在 `secret_exposures` **之前**——截断时恰先把秘密簿记砍掉。
+- **第二层·尾部畸形**：即便 reflect 已显式 `temperature=0.3` + `enable_thinking:False`，模型（Hy4-preview）仍偶发在**尾部**吐结构性坏 JSON。三份实测样本各一种形态：R03 尾部键漂成**单引号**（`'location_updates'`/`'who'`）；R04 尾部**裸控制符**（字符串值塞未转义换行 `"value": "\n由甲交给乙…"`）；R12 尾部**裸键 + 夹带自我纠正英文长串**（`who: ""` + 一坨 `_invalid_location_note_removed_by_engine…`）。**坏区恒在尾部，头部（秘密簿记，已排最前）恒合法**，但旧 `_salvage_json` 只取「最后一个完整成员边界」，该边界落在坏区 → `json.loads` 失败 → 整轮返回 `None` → reflect 静默丢轮（仅一条 warn 日志）。
+
+**改动清单**：
+- `director.py`：① `REFLECT_MAX_TOKENS` 1800→2800（满负荷轮给足余量）。② reflect 输出 schema **字段重排**：`secret_exposures`/`secret_suspicions`/`handle_releases`/`secret_touches` 前置（截断优先级），冗长 `relations`/`actions`/`goals` 及其后事实保全/群演/场景字段殿后。③ `_salvage_json` 由「只取最后一个完整边界」改**回退式**：沿字符流收集**所有** depth==1 顶层成员边界切点，从最新往最旧逐个 `json.loads(s[:cut] + "}")`，返回第一个成功的——即「取最后一个**能解析**的边界」，坏区之前的合法头部簿记保住，牺牲的只是尾部低危冗长字段。纯截断场景（旧行为）第一步即命中，语义不变。
+- `tests/test_reflect_robust.py`：① `test_reflect_allows_generous_token_budget` 阈值 1500→2500（锁 2800 额度）。② `test_reflect_schema_orders_secret_bookkeeping_first`（断言四秘密簿记字段彼此相邻且整体排在 relations/actions/goals 前）。③ `test_truncated_output_preserves_leading_secret_bookkeeping`（截断兜底：前置簿记被抢救、半截尾部丢弃）。④ `test_malformed_tail_singlequote_keys_salvages_head` / `test_malformed_tail_bare_control_char_salvages_head`（**尾部畸形回退**：头部合法簿记救回、坏成员丢弃，中性占位名甲/乙）。⑤ `test_pure_truncation_behaviour_unchanged`（回退式不得破坏既有纯截断语义）。
+
+**验证数据**：① 改后用引擎真实 `_extract_json` 实跑三份原始样本——R01（纯截断）行为不变 7 键；R03 救回 exp=1（苏雅芝 经自述 得知高昌）；R04 救回 exp=3（陆敏 经看见×2/承认 得知高琳）；R12 救回 sus=1（陆敏 起疑高琳）。**改前 R03/R04/R12 全 `None`（整轮丢）**。② 单文件 `pytest tests/test_reflect_robust.py -q` **11 passed**；全量 `pytest tests/ -q` **323 passed, 1 skipped, 1 deselected**（新增 3 守卫，零回归）。探针脚本 `tests/_probe_gaoshi_rootcause.py` + 原始样本 `tests/_gaoshi_e2e_out/_rootcause/`（工作树，勿入 git）。
+
+**设计决定**：
+- 治**第二层**而非换模型：坏区恒在尾部、头部恒合法这一结构，让一个**通用、无题材、无角色特化**的解析层改动就能治本（符合「叙事偏离根因是模型惯性就做通用机制改进，不做角色特化修补」红线）。模型侧畸形（preview 质量）仍会偶发，但不再导致整轮丢失——降级为「丢尾部低危字段」。
+- 字段重排与回退 salvage 是**双保险**：重排保证截断时先牺牲冗长字段；回退 salvage 保证即便尾部畸形也能救回头部。
+- 未动 `_evidence_*` 举证门：它工作正常，是独立于本 P1 的另一类问题（场景描述型暴露降级起疑，见 MEMORY 独立待修）。
+
+**踩坑**：
+- 初判以为「R03/R04/R12 改后仍解析失败 = 还是截断」，逐字读原始输出才发现**有首尾括号、非截断**——是模型尾部畸形。`_extract_json`/`_salvage_json` 实跑三份文件定位后才定回退式方案，未拍脑袋。
+- 回退式 salvage 收集**所有** depth==1 切点（旧版只记最后一个），从后往前试——若只记最后一个会复现旧 bug（坏区边界先命中即失败）。
+
+**遗留**：提交、打包（含 examples 恢复 + 泄漏扫描）等 simon 拍板。`_evidence_transfer` 场景描述型暴露降级起疑为独立待修，与本 P1 无关。
+
+---
+
 ## 2026-10-13 剧本包统一导入导出（store 统一 JSON 模板 + 路由 + 前端按钮迁移增强，semver PATCH→v0.28.3）
 
 **性质**：新增用户可见功能（剧本级备份/恢复）+ 统一导入导出 JSON 模板规范。数据层 + 路由 + 前端，非架构改动，不触发 30 轮压测。未提交未发版，待 simon 拍板。
