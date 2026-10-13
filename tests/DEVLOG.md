@@ -6,6 +6,25 @@
 
 ---
 
+## 2026-10-13 剧本库整合 UI（角色库+世界书合并为单一入口，前端重构 + 快照加 world 字段）
+
+**性质**：前端 UI 重构（合并割裂的两入口）+ 后端快照加 `world` 归属字段（数据透出级）。日常迭代（UI/数据层），不触发 30 轮压测。未提交未发版，待 simon 拍板。
+
+**改动清单**：
+- `memory.py`：`new()` 快照 `snap` 加 `"world": world_name`（会话开在世界名下随快照固化）；`list_sessions()` 摘要加 `"world": snap.get("world","")`。存量会话无此字段，前端回退从首张在场角色卡读 world。
+- `static/index.html`：顶栏删 `#open-chars`/`#open-worlds` 两按钮，改单按钮 `#open-dramas`「剧本库」；删 `#char-modal`+`#world-modal`，新建 `#drama-modal` 双栏布局（左 `#drama-list` 剧本卡列表 + 右 tab 头切换 `#drama-world-tab` 世界书设定 / `#drama-char-tab` 角色表）。新增 `DRAFT_WORLD` 状态变量、`refreshDramas(keep)`（前端聚合 `/api/worlds`+`/api/characters/by-world`+`/api/sessions`）、`selectDrama(name)`、`setDramaTab(tab)`、`refreshCharList()`（by-world 过滤）。`w-del`/`w-save`/`w-test-btn` 改用 `DRAFT_WORLD` 替代原 `w-name` 下拉；删 `loadWorldNames()`。`si-apply` 成功改调 `refreshDramas`+`loadCharacters`。会话卡 `renderSessions` 加 world 展示 + 存量回退 fetch。文案统一「剧本库」。CSS `.drama-cols` 双栏 + 移动端响应式，`modal-box.wide` 900→1060px。
+- `tests/test_frontend_binding.py`：加 6 条静态探针（#open-dramas/#drama-modal/refreshDramas/selectDrama/#d-tab-world/#d-tab-chars）。
+
+**验证数据**：`_frontend_binding_check.js` 沙箱 14 项 ALL PASS；全量 pytest **302 passed 1 skipped**；临时 5052 实例 API 全通（/api/worlds、/api/characters/by-world、/api/sessions、/ 均 200），验证后已杀进程释放端口。
+
+**设计决定**：纯前端聚合（不新增后端端点）；角色表按剧本过滤（by-world），不再全量混列；`c-world` 下拉保留可选（导入后改派归属合法），新建默认选中当前剧本；会话模态与剧本总结模态独立保留；主流程禁区（#start/send/sendBtn/Enter/cfgProviders/cfgActiveKey/cfgOpen）零改动。
+
+**踩坑**：交互沙箱脚本 `_tmp_drama_ui_check.js` 的 mock DOM 不支持 `innerHTML` 解析（`createElement` 返回节点的 `firstElementChild` 恒为 undefined），在 `makeEntryNode` 第一步即崩——属 mock 能力缺陷非代码 bug（脚本 `new Function(code)()` 已成功执行完，证明内联脚本无缺 id/绑定错误，该核心价值已由正式 `_frontend_binding_check.js`+pytest 覆盖）。脚本为工作树一次性产物，已删除不留误导。
+
+**遗留**：存量会话 world 回退依赖首张在场卡（present 为空的会话回退不到，前端显示空，可接受）。提交打包等 simon。
+
+---
+
 ## 2026-10-13 补配「百日亲政」secret 条目（数据层修复，引擎零改动）
 
 **性质**：剧本数据层修复（simon 追问【秘密】栏目是否自适应时查证发现），无引擎代码改动、无版本发布。
