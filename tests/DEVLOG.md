@@ -6,6 +6,18 @@
 
 ---
 
+## 2026-10-13 发版 v0.28.2（剧本库整合 UI 随包 + 泄漏扫描通过）
+
+**性质**：发版。semver PATCH（v0.28.1→v0.28.2，新增用户可见前端功能 + 数据透出）。
+
+**流程**：
+- 分组提交：`30cff16` feat(frontend+memory) 剧本库整合 UI（memory.py + index.html + test_frontend_binding.py，3 files +243/-127）；`d4c6624` docs(DEVLOG) 剧本库 UI 条目。
+- 打包：`git checkout 66df65d -- engine/data/examples/` 临时恢复净版官方 demo 进工作树（package.py 排除 `data/characters`/`data/worlds` 但**不排除** `data/examples`，examples 是官方引导内容合法随包）→ `engine/venv python package.py` 生成 `personae-v0.28.2.zip`（**30 条目 207.9 KB**）→ 打包后 `git reset HEAD` 清索引 + 删工作树 examples 回到测试态。
+- 泄漏扫描（venv python 按文件读 llm.DEFAULTS，不 import 不硬编码）：私人黑名单词（百日亲政 + 私人 7 角色名）包内容 **0 命中**（脚本自身定义词命中已排除）；盘符 `[A-Z]:\` **NONE**；config 主段洗白全 PASS（base_url/api_key/model 空、providers=[]、fallback 无残留）；采样参数（temperature/top_p/top_k/min_p/frequency_penalty/presence_penalty/max_tokens）与 DEFAULTS **逐项一致**；包条目无 backup/dramas 泄漏、examples 净版 6 条白名单正确随包。
+- 最终态：git 干净（?? 仅工作树备份/临时产物）；工作树只装新剧本「百日亲政」；包带官方净版 demo；删旧包 `personae-v0.28.1.zip`。
+
+---
+
 ## 2026-10-13 剧本库整合 UI（角色库+世界书合并为单一入口，前端重构 + 快照加 world 字段）
 
 **性质**：前端 UI 重构（合并割裂的两入口）+ 后端快照加 `world` 归属字段（数据透出级）。日常迭代（UI/数据层），不触发 30 轮压测。未提交未发版，待 simon 拍板。
