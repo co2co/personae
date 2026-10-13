@@ -151,3 +151,19 @@ def test_build_session_has_no_speaker_block_contract():
     assert "[分段格式]" not in sysmsg, "分段格式契约已移除，不得重新引入"
     # 输出格式块本身应保留（它承载的是叙事要求，不是格式强制）
     assert "[输出格式]" in sysmsg
+
+
+def test_output_discipline_forbids_craft_standard_echo():
+    """输出纪律须含「禁止把世界书技法/描写标准复述进正文」一条（v0.28.5 减损）。
+
+    对应会话 9a7cb89f：模型把世界书「亲密描写标准」条目的技法标签原文
+    （「心理通过身体写出」「把外部压力重新压回来」等）当成正文内容吐出来，
+    污染叙事。根因是线上模型指令回声（非引擎机制 bug），此条从源头压住：
+    明确「技法标准是执行约束、只按其方式写、不得复述标签」。
+    断言措辞锚点（「技法」「描写标准」「复述」「正文」）而非整句，给将来微调留余地。
+    """
+    sysmsg = "\n".join(m["content"] for m in prompter.build_session(
+        CARDS, "继续", [], MIN_SNAP))
+    assert "[输出纪律]" in sysmsg, "输出纪律块缺失"
+    for kw in ("技法", "描写标准", "复述", "正文"):
+        assert kw in sysmsg, "输出纪律缺少技法标准回声抑制的关键锚点：%s" % kw
