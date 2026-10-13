@@ -6,6 +6,49 @@
 
 ---
 
+## 2026-10-13 剧本包统一导入导出（store 统一 JSON 模板 + 路由 + 前端按钮迁移增强，semver PATCH→v0.28.3）
+
+**性质**：新增用户可见功能（剧本级备份/恢复）+ 统一导入导出 JSON 模板规范。数据层 + 路由 + 前端，非架构改动，不触发 30 轮压测。未提交未发版，待 simon 拍板。
+
+**动机**：此前剧本库只有「角色表」一栏有单张角色导入 JSON，世界书无导入导出，无法整体备份/恢复一个剧本。本条目把导入导出从角色表提出来、放到剧本详情头（删除剧本左侧），升级为「导入与导出 JSON」，且**统一模板规范**——以后引擎所有剧本导入/导出都基于这一形状，便于高效管理与版本演化。
+
+**统一模板规范**（`store.SCHEMA_ID = "personae.drama"`，`SCHEMA_VERSION = 1`）：
+```
+{
+  "schema": "personae.drama",     # 固定标识，区分本模板与其它 JSON
+  "schema_version": 1,            # 结构版本，将来改形状时 +1
+  "drama": "<剧本名>",            # = 世界书文件名 / 角色卡 world 值
+  "exported_at": "<ISO8601>",     # 导出时间
+  "exported_by": "personae/<版本>",# 导出引擎版本（读 engine/VERSION，非剧本设定）
+  "world": { "name": ..., "entries": [...] },   # data/worlds/<剧本名>.json 原对象，逐字照搬
+  "characters": [ ...完整角色卡... ]            # world == <剧本名> 的全部卡，按名升序
+}
+```
+约定：world 是原始对象逐字照搬；characters 收录 `world==剧本名` 的全部卡，卡内引擎未识别扩展字段（avatar/extensions 等）随卡原样保留，导入不丢元数据。普适性红线：本规范只描述「剧本包」通用形状，不含任何剧本名/角色名/题材词；`exported_by` 版本号是引擎事实非剧本设定。
+
+**改动清单**：
+- `store.py`：新增模板常量（SCHEMA_ID/SCHEMA_VERSION/_SCHEMA_META_KEYS）+ `_engine_version()`（读 engine/VERSION）+ `_drama_characters(name)`（按 world 归属取全部卡、按名升序）+ `export_drama(name)`（导统一模板对象，世界书不存在返回 None）+ `import_drama(name, template)`（整份覆盖世界书走 save_world、角色卡按模板名单整份重建且 world 强制对齐目标名、模板外但当前归属目标的多余卡删除=精确还原、其它剧本一律不碰；返回 {ok,name,world_entries,imported,deleted}；兼容旧版无 schema 的裸 {world,characters}）。
+- `app.py`：新增 `GET /api/drama/<name>/export`（返回模板 JSON，剧本不存在 404、空名 400）+ `POST /api/drama/<name>/import`（body 为模板对象，非法 JSON/缺 world+characters 400；成功后 logger.info 记条目/角色/清理数）。
+- `static/index.html`：删角色表旧 `#char-import-btn`/`#char-import`；剧本详情头新增 `#d-export`（导出 JSON，fetch export 触发 Blob 下载 `<剧本名>.json`）+ `#d-import`（触发隐藏 `#drama-import` 文件选择器）+ 导入走 FileReader→JSON.parse→校验→prompt 目标名（默认文件内 drama，允许改成当前选中剧本）→POST import→`refreshDramas`+`loadCharacters`。空态文案改「点『+ 新建角色』，或用顶部『导入 JSON』恢复整个剧本（含角色表与世界书）」。
+- `tests/test_frontend_binding.py`：加 3 条静态探针（#d-export/#d-import/#drama-import）。
+- `tests/test_drama_io.py`（新，16 用例）：store 层（导出形状/归属/扩展字段保留/剧本不存在/空名、导入还原/world 对齐/模板外清理/跨剧本不碰、错误分支/旧版兼容）+ HTTP 层（export 200/404、import 往返/非法 body 400/缺字段 400）。fixture 自隔离 `store.DATA_DIR`（conftest 只隔离 memory.SESS_DIR）。
+
+**验证数据**：`engine/venv pytest tests/test_drama_io.py tests/test_frontend_binding.py -v` 20 passed；全量 `pytest tests/ -q` **318 passed, 1 skipped, 1 deselected**（与改动前基线一致，零回归）。
+
+**设计决定**：
+- 导入语义=**恢复快照到目标剧本**（非把源剧本搬走）：源剧本的世界书与角色不动，目标剧本整份覆盖 + 多余卡清理。
+- world 强制对齐目标名：杜绝「从 A 导出的备份恢复到 B 但卡仍指向 A」的 world 错位（与 /api/character 世界存在性校验同向）。
+- 精确还原=模板外多余卡删除：恢复后角色表与备份名单完全一致，不留残卡。
+- 扩展字段随卡原样透传：导入不丢 avatar 等元数据（与前端角色保存保留策略一致）。
+
+**踩坑**：
+- 前端 `const target = (prompt(...).trim();` 误多打一个未闭合的 `(`，且提示串里用了**全角括号**`（）`（不计入 ASCII 配平）——`test_inline_script_parses` 括号配平探针（`(` 1358 vs `)` 1357）与 node 沙箱 `SyntaxError: Unexpected token ';'` 双捕获，删多余 `(` 修复。
+- `test_import_aligns_world_to_target_name` 初版断言错：把「恢复快照到乙」误写成「把甲搬去乙」，断言 `load_world_raw("甲") is None`；正确语义是源剧本甲保留，已改为断言甲仍存在且设定未变。
+
+**遗留**：提交、打包（含 examples 恢复 + 泄漏扫描）等 simon 拍板。本条目仅引擎 + 前端 + 测试，未动 config/打包链路。
+
+---
+
 ## 2026-10-13 发版 v0.28.2（剧本库整合 UI 随包 + 泄漏扫描通过）
 
 **性质**：发版。semver PATCH（v0.28.1→v0.28.2，新增用户可见前端功能 + 数据透出）。
