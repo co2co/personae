@@ -447,13 +447,20 @@ def brief(sid, directive):
 
 
 def _salvage_json(text):
-    """抢救被 max_tokens 截断的半成品 JSON：保留已完整输出的成员，丢弃半截那个。
+    """抢救无法整体解析的半成品 JSON：保留已完整输出的头部成员，丢弃坏掉的尾部。
 
-    纪官输出条目多（关系/行动/目标/秘密三类/事实两层），一旦超出 max_tokens，
-    尾部会在字符串中间被切断，整体解析失败、整轮回写全丢——比丢一两条严重得多。
-    这里沿字符流跟踪括号深度与字符串状态，回退到最后一个完整成员的末尾再补 '}'。
+    纪官输出条目多（关系/行动/目标/秘密三类/事实两层），尾部可能在两种情况下损坏、
+    导致整体解析失败而整轮回写全丢——比丢一两条严重得多：
+      ① 截断：超出 max_tokens，尾部在字符串中间被硬切；
+      ② 畸形：模型偶发在尾部吐出结构性坏 JSON（单引号键、裸控制符、裸键、夹带自我
+         纠正长串）。实测这类坏区**恒在尾部**，头部（秘密簿记，已排最前）保持合法。
+    这里沿字符流跟踪括号深度与字符串状态，收集**所有**深度回到 1（顶层成员边界）的
+    候选切点，再**从最新往最旧逐个试解析**，返回第一个成功的。
 
-    只接受深度回到 1（顶层对象内、成员之间）的位置，避免切进未闭合的子结构。
+    回退式的意义：取"最后一个**能解析**的边界"而非"最后一个边界"——尾部坏区之前的
+    边界能解析成功，头部合法簿记就保住了，牺牲的只是尾部低危的冗长字段，与 reflect
+    输出字段重排确立的"截断优先级"一致。纯截断场景（R01）行为不变：最后一个边界本就能
+    解析，回退第一步即命中。
     """
     s = text.strip()
     if not s.startswith("{"):
@@ -461,7 +468,7 @@ def _salvage_json(text):
     depth = 0
     in_str = False
     esc = False
-    cut = -1                      # 最后一个完整成员的结束下标（不含）
+    cuts = []                     # 所有顶层成员边界切点（不含该切点自身）
     i = 0
     while i < len(s):
         ch = s[i]
@@ -482,18 +489,20 @@ def _salvage_json(text):
                 if depth < 0:
                     return None           # 括号不配对，放弃抢救
                 if depth == 1 and ch == "}":
-                    cut = i + 1           # 刚闭合一个顶层成员
+                    cuts.append(i + 1)    # 刚闭合一个顶层成员
             elif ch == "," and depth == 1:
-                cut = i                   # 成员分隔符：其前是完整成员
+                cuts.append(i)            # 成员分隔符：其前是完整成员
         i += 1
-    # 不要求末尾深度回到 1：截断本就发生在任意深度，只要找到最后一个完整成员即可。
-    # 卡在字符串里也不影响——cut 停在此前一个已闭合的成员末尾，切掉半截即可。
-    if cut <= 1:
-        return None                           # 连一个完整成员都没有
-    try:
-        return json.loads(s[:cut] + "}")
-    except json.JSONDecodeError:
-        return None
+    # 不要求末尾深度回到 1：截断/畸形本就发生在任意深度，只要存在可解析的完整边界即可。
+    # 从最新往最旧回退：尾部坏区之前的边界能解析成功即命中，保住头部合法簿记。
+    for cut in reversed(cuts):
+        if cut <= 1:
+            continue                          # 连一个完整成员都没有
+        try:
+            return json.loads(s[:cut] + "}")
+        except json.JSONDecodeError:
+            continue                          # 该边界之前仍含坏区，继续往更前回退
+    return None
 
 
 def _is_complete_json(text):
@@ -1319,7 +1328,10 @@ PRESSURE_FORCE = PRESSURE_MAX
 # 同时只强制一条碰撞：多条并下达会互相打架，结果是全部僵住（见 pressure_targets）。
 PRESSURE_FORCE_LIMIT = 1
 # 纪官回写的输出额度：条目多（关系/行动/目标/秘密三类/事实两层），给窄了会被截断。
-REFLECT_MAX_TOKENS = 1800
+# v0.28.4：实测满负荷轮（6 角色）输出 2.6~4.3k 字符（约 2~3k+ token），1800 明显不够，
+# 截断后 JSON 变非法、_extract_json 解析失败、整轮秘密簿记静默丢失（4/6 暗牌全程潜伏）。
+# 上调至 2800 给足余量；配合 reflect 输出字段重排（秘密簿记前置）双保险。
+REFLECT_MAX_TOKENS = 2800
 
 
 def _update_silent_rounds(snap, present):
@@ -1641,15 +1653,19 @@ def reflect(sid, reply, directive=""):
             f"背景人物（无独立角色卡、不在场）：{off_text}\n"
             f"{dir_block}"
             f"本轮叙事：\n{reply}\n\n"
+            # 字段顺序即截断优先级：秘密簿记（exposures/suspicions/handle_releases/touches）排最前，
+            # 冗长的 relations/actions/goals 排其后，事实保全与群演/场景信息殿后。
+            # 这样即便输出被 max_tokens 截断，也优先牺牲低危的冗长字段，保住核心簿记
+            # （v0.28.4 治：REFLECT_MAX_TOKENS 不足时 JSON 截断→整轮秘密簿记丢失，4/6 暗牌全程潜伏）。
             "请输出 JSON：\n"
             "{\n"
-            '  "relations": { "源 → 目标": "关系定性（只写稳定的人物关系定位，如\'妈妈，独占欲\'，不要包含本轮具体动作描写）" },\n'
-            '  "actions": { "角色名": "本轮该角色做的一句具体行为（不含关系定性，只写这回合发生了什么）" },\n'
-            '  "goals": { "角色名": "新的短期目标" },\n'
             '  "secret_exposures": [{"owner": "秘密归属者", "by": "本轮得知该秘密的角色名", "via": "信息获取方式，只能填「看见/听见/被告知/发现物证/自述/承认」六类之一", "evidence": "本轮叙事原文片段"}],\n'
             '  "secret_suspicions": [{"owner": "秘密归属者", "by": "本轮起了疑心的角色名", "evidence": "本轮叙事原文片段（引发怀疑的那句话/那个细节）"}],\n'
             '  "handle_releases": [{"owner": "秘密归属者", "from": "失去把柄的人", "to": "接过把柄的人（彻底失去则填空字符串）", "evidence": "本轮叙事原文片段"}],\n'
             '  "secret_touches": [{"owner": "秘密归属者", "touched": true}],\n'
+            '  "relations": { "源 → 目标": "关系定性（只写稳定的人物关系定位，如\'妈妈，独占欲\'，不要包含本轮具体动作描写）" },\n'
+            '  "actions": { "角色名": "本轮该角色做的一句具体行为（不含关系定性，只写这回合发生了什么）" },\n'
+            '  "goals": { "角色名": "新的短期目标" },\n'
             '  "state_updates": [{"subject": "对象（如某道门、某件物品、某人的伤）", "value": "当前状态一句话"}],\n'
             '  "location_updates": [{"who": "角色名", "place": "该角色本轮结束时所在的具体地点"}],\n'
             '  "aux_updates": [{"name": "新出场人物的名字或稳定称呼", "note": "一句话身份说明（如「隔壁的住户」「巡夜的保安」）", "replaces": "该人物在「已登记群演」里的旧称呼（仅当本轮才得知其真名时填）"}],\n'
