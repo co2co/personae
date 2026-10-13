@@ -29,6 +29,13 @@ MAIN_FLOW_PROBES = [
     ("sendBtn.onclick = send", "「注入扰动」按钮绑定"),
     ("addEventListener('keydown'", "输入框 Enter 键绑定"),
     ("let cfgProviders = []", "系统设置的提供商清单变量声明"),
+    # v0.28.2 剧本库整合：原「角色库/世界书」两入口合并为「剧本库」单入口
+    ("id=\"open-dramas\"", "「剧本库」顶栏入口"),
+    ("id=\"drama-modal\"", "剧本库模态"),
+    ("async function refreshDramas", "剧本库列表聚合逻辑"),
+    ("async function selectDrama", "选中剧本的联动加载"),
+    ("id=\"d-tab-world\"", "世界书设定 tab 按钮"),
+    ("id=\"d-tab-chars\"", "角色表 tab 按钮"),
 ]
 
 

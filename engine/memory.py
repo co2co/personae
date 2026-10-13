@@ -80,6 +80,9 @@ def new(cast, scene_place="", world_name="", scene_time=""):
 
     snap = {
         "present": present,
+        # 剧本归属：会话开在世界名之下，随快照固化。前端「剧本库/会话管理」
+        # 据此把运行时会话挂回所属剧本。存量会话无此字段，前端回退从角色卡读 world。
+        "world": world_name,
         "scene": {"place": scene_place, "time": scene_time, "weather": "", "round": 0, "same_scene": 0},
         "relations": relations,
         # 权威关系基线：与 relations 一同固化自角色卡 relations 字段。
@@ -188,6 +191,8 @@ def list_sessions():
         out.append({
             "session": sid,
             "present": snap.get("present", []),
+            # 剧本归属（快照 world 字段）；存量会话无此字段则为空串，前端回退处理。
+            "world": snap.get("world", "") or "",
             "scene": sc.get("place", ""),
             "round": sc.get("round", 0),
             "updated": int(folder.stat().st_mtime),

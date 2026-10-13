@@ -317,10 +317,12 @@
       transform:translateX(100%); transition:transform .2s ease; }
     .rail-left.open{ transform:translateX(0); }
     .rail-right:not(.collapsed){ transform:translateX(0); }
-    /* 管理面板（角色库 / 世界书）双列在手机上改单列 */
+    /* 管理面板（剧本库 / 角色表）双列在手机上改单列 */
     .mgr{ grid-template-columns:1fr; }
     .mgr-list{ border-right:none; border-bottom:1px solid var(--line); max-height:38vh;
                margin-bottom:12px; padding-right:0; }
+    .drama-cols{ grid-template-columns:1fr; }
+    .drama-left{ border-right:none; border-bottom:1px solid var(--line); }
     /* 弹窗在手机端占满且可滚动 */
     .modal{ padding:0; align-items:flex-start; }
     .modal-box{ width:100%; max-width:94vw; max-height:calc(100vh - 24px); }
@@ -339,8 +341,12 @@
     #ending-banner{ flex-wrap:wrap; }
     #ending-banner .eb-text{ min-width:0; }
   }
-  /* 初始化管理面板（角色库 / 世界书） */
-  .modal-box.wide{ width:min(900px, 94vw); }
+  /* 初始化管理面板（剧本库 / 角色表） */
+  .modal-box.wide{ width:min(1060px, 94vw); }
+  /* 剧本库双栏：左剧本列表 / 右剧本详情（世界书设定 + 角色表两 tab） */
+  .drama-cols{ display:grid; grid-template-columns:240px 1fr; gap:18px; margin-top:6px; }
+  .drama-left{ border-right:1px solid var(--line); padding-right:14px; }
+  .drama-right{ min-width:0; }
   .mgr{ display:grid; grid-template-columns:220px 1fr; gap:18px; margin-top:6px; }
   .mgr-list{ max-height:62vh; overflow:auto; border-right:1px solid var(--line); padding-right:8px; }
   .mgr-item{ padding:9px 11px; border-radius:9px; cursor:pointer; font-size:14px; color:var(--ink-2); }
@@ -585,8 +591,7 @@
   <span class="spacer"></span>
   <button id="open-menu" class="btn btn-sm" aria-label="打开菜单">菜单</button>
   <nav id="topnav" class="topnav">
-    <button id="open-chars" class="btn btn-sm">角色库</button>
-    <button id="open-worlds" class="btn btn-sm">世界书</button>
+    <button id="open-dramas" class="btn btn-sm">剧本库</button>
     <button id="open-script-import" class="btn btn-sm">从剧本生成</button>
     <button id="open-left" class="btn btn-sm">世界状态</button>
     <button id="open-sessions" class="btn btn-sm">会话</button>
@@ -696,81 +701,105 @@
   </div>
 </div>
 
-<!-- 角色库 -->
-<div id="char-modal" class="modal hide">
+<!-- 剧本库（一个剧本 = 一本世界书 + 该世界全部角色 + 其进行中的会话，按剧本聚合管理） -->
+<div id="drama-modal" class="modal hide">
   <div class="modal-box wide">
-    <h3>角色库</h3>
-    <div class="sub">新建或编辑角色卡，保存后下次开局即可选用。</div>
-    <div class="mgr">
-      <div>
-        <button id="char-new" class="btn btn-sm">+ 新建角色</button>
-        <button id="char-import-btn" class="btn btn-sm">导入 JSON</button>
-        <input id="char-import" type="file" accept=".json,application/json" style="display:none">
-        <div class="mgr-list" id="char-list"></div>
-      </div>
-        <div class="mgr-form">
-          <div class="sub" style="margin-bottom:10px;">带 <span class="req">*</span> 为必填项，不填推演引擎无法完整发挥；其余为可选，留空由系统自动生成。</div>
-
-          <label>所属世界 <span class="req">*</span></label>
-          <select id="c-world" class="field"></select>
-          <div class="sub" style="margin:-4px 0 10px;">角色只能归属于系统已存在的世界书；下拉选择、不可手填，避免错写 world 导致开局加载错世界（如误写 home）。</div>
-
-          <label>角色名 <span class="req">*</span></label>
-          <input id="c-name" class="field">
-          <label>description（身份 / 外貌 / 处境） <span class="req">*</span></label>
-          <textarea id="c-desc" class="field"></textarea>
-          <label>core_desire（核心渴望，推演驱动力） <span class="req">*</span></label>
-          <textarea id="c-desire" class="field"></textarea>
-          <label>core_fear（核心恐惧，越线底线） <span class="req">*</span></label>
-          <textarea id="c-fear" class="field"></textarea>
-
-          <details class="opt-group">
-            <summary>更多字段（可选；留空由系统自动生成）</summary>
-            <label>personality（其余性格，可选；注入角色人设块）</label>
-            <textarea id="c-pers" class="field"></textarea>
-            <label>short_goal（短期目标：开局意图种子，进入推演后由系统自动演化）</label>
-            <textarea id="c-goal" class="field"></textarea>
-            <label>relations（初始关系 JSON 种子，如 {"角色B":"表甥"}；留空系统自动生成）</label>
-            <textarea id="c-rel" class="field"></textarea>
-          </details>
-
-        <div class="modal-foot">
-          <button id="char-delete" class="btn">删除</button>
-          <button id="char-save" class="btn btn-primary">保存</button>
+    <h3>剧本库</h3>
+    <div class="sub">一个剧本 = 一本世界书 + 该剧本全部角色。左栏选剧本，右栏管理它的「世界书设定」与「角色表」。</div>
+    <div class="drama-cols">
+      <div class="drama-left">
+        <div class="row" style="gap:8px;margin-bottom:8px;align-items:center;">
+          <span style="font-size:13px;font-weight:600;color:var(--ink-2);">剧本</span>
+          <button id="d-new" class="btn btn-sm" style="margin-left:auto;">+ 新剧本</button>
         </div>
-        <div class="cfg-msg" id="char-msg"></div>
+        <div id="drama-list" style="max-height:64vh;overflow:auto;"></div>
       </div>
-    </div>
-  </div>
-</div>
-
-<!-- 世界书 -->
-<div id="world-modal" class="modal hide">
-  <div class="modal-box wide">
-    <h3>世界书</h3>
-    <div class="sub">管理世界设定与秘密。保存即整份覆盖写入 data/worlds/&lt;名&gt;.json。</div>
-    <div style="font-size:12px;color:var(--muted);margin:6px 0 4px;line-height:1.6;">
-      两类条目：<b style="color:var(--ink-2);">设定</b>（默认，触发词命中场景/对话才注入 prompt）；
-      <b style="color:#d6453e;">秘密</b>（勾选后<b>不</b>注入 prompt，仅在开局 seed 进该角色的秘密表，按曝光逻辑推进）。
-      顺序自上而下即注入优先级（顶部最高），拖 ⠿ 调整。
-    </div>
-    <div class="row" style="margin:8px 0;gap:10px;flex-wrap:wrap;">
-      <select id="w-name" class="field"></select>
-      <button id="w-new" class="btn btn-sm">+ 新建世界</button>
-      <button id="w-del" class="btn btn-sm btn-danger">删除世界</button>
-      <button id="w-add" class="btn btn-sm">+ 新增条目</button>
-      <button id="w-save" class="btn btn-primary" style="margin-left:auto;">保存整份</button>
-    </div>
-    <div id="w-entries" style="max-height:48vh;overflow:auto;"></div>
-    <div style="margin-top:14px;padding-top:12px;border-top:1px solid var(--line);">
-      <div class="row" style="gap:8px;align-items:flex-end;">
-        <div style="flex:1;">
-          <label style="font-size:12.5px;color:var(--ink-2);">命中预览（粘贴一段场景/对话文本，看哪些条目会触发）</label>
-          <textarea id="w-test" class="field" placeholder="例如：他们打算在仓库里过夜，门外有人在敲门试探；角色乙的旧伤还没好"></textarea>
+      <div class="drama-right">
+        <div id="drama-empty" class="hit-empty" style="margin-top:8px;">
+          还没有任何剧本。点左上「+ 新剧本」创建一个（剧本名即世界书名），
+          或用「从剧本生成」把剧本一键提炼成角色与设定。
         </div>
-        <button id="w-test-btn" class="btn btn-sm">测试命中</button>
+        <div id="drama-detail" class="hide">
+          <div class="row" style="margin:2px 0 8px;gap:10px;flex-wrap:wrap;align-items:center;">
+            <span style="font-size:14px;font-weight:600;color:var(--ink);" id="drama-title"></span>
+            <div class="row" style="gap:6px;">
+              <button id="d-tab-world" class="btn btn-sm">世界书设定</button>
+              <button id="d-tab-chars" class="btn btn-sm">角色表</button>
+            </div>
+            <button id="w-del" class="btn btn-sm btn-danger" style="margin-left:auto;">删除剧本</button>
+          </div>
+
+          <!-- tab：世界书设定（原世界书面板整体迁入，逻辑不变） -->
+          <div id="drama-world-tab">
+            <div style="font-size:12px;color:var(--muted);margin:4px 0;line-height:1.6;">
+              两类条目：<b style="color:var(--ink-2);">设定</b>（默认，触发词命中场景/对话才注入 prompt）；
+              <b style="color:#d6453e;">秘密</b>（勾选后<b>不</b>注入 prompt，仅在开局 seed 进该角色的秘密表，按曝光逻辑推进）。
+              顺序自上而下即注入优先级（顶部最高），拖 ⠿ 调整。保存即整份覆盖写入 data/worlds/&lt;剧本名&gt;.json。
+            </div>
+            <div class="row" style="margin:8px 0;gap:10px;flex-wrap:wrap;">
+              <button id="w-add" class="btn btn-sm">+ 新增条目</button>
+              <button id="w-save" class="btn btn-primary" style="margin-left:auto;">保存整份</button>
+            </div>
+            <div id="w-entries" style="max-height:40vh;overflow:auto;"></div>
+            <div style="margin-top:14px;padding-top:12px;border-top:1px solid var(--line);">
+              <div class="row" style="gap:8px;align-items:flex-end;">
+                <div style="flex:1;">
+                  <label style="font-size:12.5px;color:var(--ink-2);">命中预览（粘贴一段场景/对话文本，看哪些条目会触发）</label>
+                  <textarea id="w-test" class="field" placeholder="例如：他们打算在仓库里过夜，门外有人在敲门试探；角色乙的旧伤还没好"></textarea>
+                </div>
+                <button id="w-test-btn" class="btn btn-sm">测试命中</button>
+              </div>
+              <div id="w-hits" style="margin-top:8px;max-height:18vh;overflow:auto;"></div>
+            </div>
+          </div>
+
+          <!-- tab：角色表（原角色库整体迁入，列表按当前剧本过滤） -->
+          <div id="drama-char-tab" class="hide">
+            <div class="row" style="gap:8px;margin:2px 0 8px;">
+              <button id="char-new" class="btn btn-sm">+ 新建角色</button>
+              <button id="char-import-btn" class="btn btn-sm">导入 JSON</button>
+              <input id="char-import" type="file" accept=".json,application/json" style="display:none">
+            </div>
+            <div class="mgr">
+              <div>
+                <div class="mgr-list" id="char-list"></div>
+              </div>
+              <div class="mgr-form">
+                <div class="sub" style="margin-bottom:10px;">带 <span class="req">*</span> 为必填项，不填推演引擎无法完整发挥；其余为可选，留空由系统自动生成。</div>
+
+                <label>所属剧本 <span class="req">*</span></label>
+                <select id="c-world" class="field"></select>
+                <div class="sub" style="margin:-4px 0 10px;">角色必须归属于某个已存在的剧本（世界书）；下拉选择、不可手填，避免错写 world 导致开局加载错世界。默认即当前剧本，导入 JSON 后可改派归属。</div>
+
+                <label>角色名 <span class="req">*</span></label>
+                <input id="c-name" class="field">
+                <label>description（身份 / 外貌 / 处境） <span class="req">*</span></label>
+                <textarea id="c-desc" class="field"></textarea>
+                <label>core_desire（核心渴望，推演驱动力） <span class="req">*</span></label>
+                <textarea id="c-desire" class="field"></textarea>
+                <label>core_fear（核心恐惧，越线底线） <span class="req">*</span></label>
+                <textarea id="c-fear" class="field"></textarea>
+
+                <details class="opt-group">
+                  <summary>更多字段（可选；留空由系统自动生成）</summary>
+                  <label>personality（其余性格，可选；注入角色人设块）</label>
+                  <textarea id="c-pers" class="field"></textarea>
+                  <label>short_goal（短期目标：开局意图种子，进入推演后由系统自动演化）</label>
+                  <textarea id="c-goal" class="field"></textarea>
+                  <label>relations（初始关系 JSON 种子，如 {"角色B":"表甥"}；留空系统自动生成）</label>
+                  <textarea id="c-rel" class="field"></textarea>
+                </details>
+
+              <div class="modal-foot">
+                <button id="char-delete" class="btn">删除</button>
+                <button id="char-save" class="btn btn-primary">保存</button>
+              </div>
+              <div class="cfg-msg" id="char-msg"></div>
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
-      <div id="w-hits" style="margin-top:8px;max-height:22vh;overflow:auto;"></div>
     </div>
     <div class="cfg-msg" id="world-msg"></div>
   </div>
@@ -948,7 +977,7 @@ async function loadCharacters() {
   if (keep && (worlds || []).includes(keep)) sel.value = keep;
   // 没有世界书时给出可执行的指引，而不是留一个空白下拉。
   document.getElementById('npcs').innerHTML = (worlds || []).length
-    ? '' : '<div class="npcs-empty">还没有任何世界书。先到「角色库/世界书」新建一个世界，或用「导入剧本」把剧本一键转成角色与设定。</div>';
+    ? '' : '<div class="npcs-empty">还没有任何剧本。先到「剧本库」新建一个剧本，或用「从剧本生成」把剧本一键转成角色与设定。</div>';
   document.getElementById('npcs-note').textContent = '';
   await syncNpcs();
 }
@@ -966,11 +995,11 @@ async function syncNpcs() {
   renderNpcs(names);
   note.innerHTML = names.length
     ? ''
-    : '该世界下还没有角色。可到「角色库」新建，或用「导入剧本」自动生成。';
+    : '该剧本下还没有角色。可到「剧本库」新建，或用「从剧本生成」自动生成。';
   const un = d.unassigned || [];
   if (un.length) {
     note.innerHTML += '　另有 ' + un.length + ' 个角色未归属任何世界（'
-      + escHtml(un.join('、')) + '），不会出现在本局：请到「角色库」为它们选择所属世界。';
+      + escHtml(un.join('、')) + '），不会出现在本局：请到「剧本库」为它们选择所属剧本。';
   }
 }
 
@@ -1000,7 +1029,7 @@ async function startSession() {
   if (!cast.length) {
     startBtn.disabled = false;
     setupStatus.className = 'setup-status';
-    setupStatus.textContent = '该世界下没有可用的在场角色，请先到「角色库」添加或勾选';
+    setupStatus.textContent = '该剧本下没有可用的在场角色，请先到「剧本库」添加或勾选';
     return;
   }
   const place = document.getElementById('scene').value.trim();
@@ -1456,23 +1485,98 @@ document.getElementById('sys-save').onclick = async () => {
   setTimeout(() => sysModal.classList.add('hide'), 700);
 };
 
-// ---- 初始化流程：角色库 / 世界书 ----
+// ---- 剧本库（原「角色库」「世界书」两面板合并：剧本 = 世界书 + 其角色表） ----
 document.querySelectorAll('.modal').forEach(m => m.addEventListener('click', e => {
   if (e.target === m) m.classList.add('hide');
 }));
-const charModal = document.getElementById('char-modal');
-const worldModal = document.getElementById('world-modal');
+const dramaModal = document.getElementById('drama-modal');
 const charMsg = document.getElementById('char-msg');
 const worldMsg = document.getElementById('world-msg');
+// DRAFT_WORLD = 剧本库当前选中剧本；空串 = 未选中（无剧本）。
+let DRAFT_WORLD = '';
 
-document.getElementById('open-chars').onclick = () => { charMsg.textContent=''; refreshCharList(); charModal.classList.remove('hide'); };
-document.getElementById('open-worlds').onclick = () => { worldMsg.textContent=''; loadWorldNames(); worldModal.classList.remove('hide'); };
+document.getElementById('open-dramas').onclick = async () => {
+  worldMsg.textContent='';
+  dramaModal.classList.remove('hide');
+  await refreshDramas(DRAFT_WORLD);
+};
+
+// 左栏：剧本卡列表（聚合 /api/worlds + /api/characters/by-world + /api/sessions）。
+// keep：刷新后要保留选中的剧本（新建/导入/删除后调用）。
+async function refreshDramas(keep) {
+  const listEl = document.getElementById('drama-list');
+  let worlds = [], sessions = [];
+  try { worlds = (await fetch('/api/worlds').then(r=>r.json())) || []; } catch(e){ worlds = []; }
+  try { sessions = (await fetch('/api/sessions').then(r=>r.json())) || []; } catch(e){ sessions = []; }
+  const counts = {};
+  for (const w of worlds) counts[w] = (await fetch('/api/characters/by-world?world=' + encodeURIComponent(w)).then(r=>r.json())).names || [];
+  if (!worlds.length) {
+    listEl.innerHTML = '';
+    document.getElementById('drama-empty').classList.remove('hide');
+    document.getElementById('drama-detail').classList.add('hide');
+    return;
+  }
+  document.getElementById('drama-empty').classList.add('hide');
+  listEl.innerHTML = worlds.map(w => {
+    const nchars = (counts[w] || []).length;
+    const sess = sessions.filter(s => (s.world || '') === w);
+    const sessChips = sess.map(s => `<span class="chip">进行中 R${s.round}</span>`).join('');
+    return `<div class="mgr-item drama-card" data-w="${escAttr(w)}">
+      <div style="font-weight:600;">${escHtml(w)}</div>
+      <div class="sub" style="margin-top:3px;">${nchars} 角色 ｜ ${sessChips || '无进行中会话'}</div>
+    </div>`;
+  }).join('');
+  listEl.querySelectorAll('.drama-card').forEach(el => el.onclick = () => selectDrama(el.dataset.w));
+  const pick = (keep && worlds.includes(keep)) ? keep
+    : (DRAFT_WORLD && worlds.includes(DRAFT_WORLD) ? DRAFT_WORLD : worlds[0]);
+  await selectDrama(pick);
+}
+
+// 选中剧本：右栏切到该剧本的世界书设定 + 角色表。
+async function selectDrama(name) {
+  DRAFT_WORLD = name || '';
+  const listEl = document.getElementById('drama-list');
+  listEl.querySelectorAll('.drama-card').forEach(el => el.classList.toggle('active', el.dataset.w === DRAFT_WORLD));
+  if (!DRAFT_WORLD) return;
+  document.getElementById('drama-empty').classList.add('hide');
+  document.getElementById('drama-detail').classList.remove('hide');
+  document.getElementById('drama-title').textContent = DRAFT_WORLD;
+  await loadWorld(DRAFT_WORLD);
+  refreshCharList();
+  setDramaTab('world');
+}
+
+// 右栏 tab 切换：世界书设定 / 角色表。
+function setDramaTab(tab) {
+  const isWorld = tab === 'world';
+  document.getElementById('drama-world-tab').classList.toggle('hide', !isWorld);
+  document.getElementById('drama-char-tab').classList.toggle('hide', isWorld);
+  const tw = document.getElementById('d-tab-world');
+  const tc = document.getElementById('d-tab-chars');
+  tw.className = 'btn btn-sm' + (isWorld ? ' btn-primary' : '');
+  tc.className = 'btn btn-sm' + (!isWorld ? ' btn-primary' : '');
+}
+document.getElementById('d-tab-world').onclick = () => setDramaTab('world');
+document.getElementById('d-tab-chars').onclick = () => { setDramaTab('chars'); loadWorldOptions(); };
+
+// 新建剧本：即新建一本世界书（保存条目时落盘；新建后直接可编辑）。
+document.getElementById('d-new').onclick = async () => {
+  const name = (prompt('新剧本名（作世界书文件名，建议英文/拼音）：')||'').trim();
+  if (!name) return;
+  worldMsg.style.color='var(--muted)';
+  worldMsg.textContent='新剧本「'+name+'」已创建（添加设定/角色后保存即落盘）。';
+  await refreshDramas(name);
+};
 
 function refreshCharList() {
   loadWorldOptions();
-  fetch('/api/characters').then(r=>r.json()).then(list=>{
+  if (!DRAFT_WORLD) return;
+  fetch('/api/characters/by-world?world=' + encodeURIComponent(DRAFT_WORLD)).then(r=>r.json()).then(d=>{
+    const names = d.names || [];
     const box = document.getElementById('char-list');
-    box.innerHTML = (list||[]).map(n=>`<div class="mgr-item" data-n="${n}">${n}</div>`).join('');
+    box.innerHTML = names.length
+      ? names.map(n=>`<div class="mgr-item" data-n="${n}">${n}</div>`).join('')
+      : '<div class="sub" style="padding:8px;">本剧本下还没有角色。点「+ 新建角色」或用「导入 JSON」。</div>';
     box.querySelectorAll('.mgr-item').forEach(el=>el.onclick=()=>loadChar(el.dataset.n));
   });
 }
@@ -1482,11 +1586,12 @@ async function loadWorldOptions() {
   try { list = await fetch('/api/worlds').then(r=>r.json()); } catch(e){ list = []; }
   if (list && list.length) {
     sel.disabled = false;
-    sel.innerHTML = '<option value="">— 请选择所属世界 —</option>'
-      + list.map(n=>`<option value="${escAttr(n)}">${escHtml(n)}</option>`).join('');
+    sel.innerHTML = list.map(n=>`<option value="${escAttr(n)}">${escHtml(n)}</option>`).join('');
+    // 默认归属当前剧本；导入的卡若 world 指向其他剧本，fillChar 会按其原值选择
+    if (DRAFT_WORLD && list.includes(DRAFT_WORLD)) sel.value = DRAFT_WORLD;
   } else {
     sel.disabled = true;
-    sel.innerHTML = '<option value="" selected>（无可用世界，请先在世界书面板创建）</option>';
+    sel.innerHTML = '<option value="" selected>（无可用剧本，请先在剧本库创建）</option>';
   }
 }
 function fillChar(c, name) {
@@ -1517,8 +1622,10 @@ document.getElementById('char-new').onclick = () => {
   document.querySelectorAll('#char-list .mgr-item').forEach(el=>el.classList.remove('active'));
   ['c-name','c-desc','c-pers','c-desire','c-fear','c-goal','c-rel']
     .forEach(id=>document.getElementById(id).value='');
-  document.getElementById('c-world').selectedIndex = 0;  // 回到占位项，强制选择所属世界
-  charMsg.style.color='var(--muted)'; charMsg.textContent='新建模式：填好角色名后保存即创建。';
+  // 新建角色默认归属当前剧本（下拉不再有占位项，必须选一个已存在剧本）
+  const cwsel = document.getElementById('c-world');
+  cwsel.value = DRAFT_WORLD || (cwsel.options[0] ? cwsel.options[0].value : '');
+  charMsg.style.color='var(--muted)'; charMsg.textContent='新建模式：默认归属当前剧本，填好角色名后保存即创建。';
 };
 document.getElementById('char-import-btn').onclick = () => document.getElementById('char-import').click();
 document.getElementById('char-import').onchange = (e) => {
@@ -1540,10 +1647,10 @@ document.getElementById('char-import').onchange = (e) => {
 document.getElementById('char-save').onclick = async () => {
   const name = document.getElementById('c-name').value.trim();
   if (!name) { charMsg.style.color='var(--danger)'; charMsg.textContent='角色名不能为空'; return; }
-  // 所属世界必填校验：角色必须归属于某个已存在的世界书（下拉选择，不可手填）
+  // 所属剧本必填校验：角色必须归属于某个已存在的剧本（下拉选择，不可手填）
   const world = document.getElementById('c-world').value;
   if (!world) {
-    charMsg.style.color='var(--danger)'; charMsg.textContent='请先选择「所属世界」：角色必须归属于某个世界书'; return;
+    charMsg.style.color='var(--danger)'; charMsg.textContent='请先选择「所属剧本」：角色必须归属于某个剧本'; return;
   }
   // 必填人设校验：不填无法完整发挥推演引擎
   const required = [['c-desc','description（身份/外貌/处境）'],['c-desire','核心渴望'],['c-fear','核心恐惧']];
@@ -1585,16 +1692,7 @@ document.getElementById('char-delete').onclick = async () => {
   else { charMsg.style.color='var(--danger)'; charMsg.textContent='删除失败：'+(r.error||'未知错误'); }
 };
 
-// 世界书
-function loadWorldNames() {
-  fetch('/api/worlds').then(r=>r.json()).then(list=>{
-    const sel = document.getElementById('w-name');
-    sel.innerHTML = (list||[]).map(n=>`<option>${n}</option>`).join('') || '<option value="">（无）</option>';
-    if (list && list.length) loadWorld(list[0]);
-    else renderWorldEntries([]);  // 删到空时清空条目区，避免残留被删世界的设定项
-    sel.onchange = () => loadWorld(sel.value);
-  });
-}
+// 世界书（剧本库「世界书设定」tab：剧本名即世界书名，选剧本即选中世界）
 async function loadWorld(name) {
   const d = await fetch('/api/world/'+encodeURIComponent(name)).then(r=>r.json());
   const entries = (d.entries||[]).slice().sort((a,b)=> (b.priority??0)-(a.priority??0));
@@ -1737,38 +1835,28 @@ function renderWorldEntries(entries) {
   });
   box.addEventListener('drop', e => { e.preventDefault(); });
 })();
-document.getElementById('w-new').onclick = () => {
-  const name = (prompt('新世界名（作文件名，建议英文/拼音）：')||'').trim();
-  if (!name) return;
-  const sel = document.getElementById('w-name');
-  if (![...sel.options].some(o=>o.value===name)) {
-    sel.insertAdjacentHTML('beforeend', `<option>${escHtml(name)}</option>`);
-  }
-  sel.value = name;
-  renderWorldEntries([]);
-  document.getElementById('w-hits').innerHTML = '';
-  worldMsg.style.color='var(--muted)'; worldMsg.textContent='新世界，添加条目后保存整份。';
-};
 document.getElementById('w-add').onclick = () => {
   const box = document.getElementById('w-entries');
   box.appendChild(makeEntryNode({}, box.children.length, true));  // 新增空白条目默认展开
   box.scrollTop = box.scrollHeight;
 };
 document.getElementById('w-del').onclick = async () => {
-  const name = document.getElementById('w-name').value.trim();
-  if (!name) { worldMsg.style.color='var(--danger)'; worldMsg.textContent='请先选择要删除的世界'; return; }
-  if (!confirm('确认删除世界「'+name+'」？此操作不可撤销，整份设定与秘密将丢失。')) return;
+  const name = DRAFT_WORLD;
+  if (!name) { worldMsg.style.color='var(--danger)'; worldMsg.textContent='请先在左侧选择要删除的剧本'; return; }
+  if (!confirm('确认删除剧本「'+name+'」？此操作不可撤销，整份世界书设定与秘密将丢失（角色卡保留，但会失去世界归属）。')) return;
   let r = await fetch('/api/world/'+encodeURIComponent(name), {method:'DELETE'}).then(res=>res.json());
   if (!r.ok && r.referenced) {  // 仍有角色绑定：二次确认后强制删除
     const list = r.referenced.join('、');
-    if (!confirm('以下角色仍绑定此世界：\n'+list+'\n删除后这些角色开局将失去该世界设定。\n仍要强制删除「'+name+'」？')) return;
+    if (!confirm('以下角色仍归属此剧本：\n'+list+'\n删除后这些角色开局将失去该剧本的世界设定。\n仍要强制删除「'+name+'」？')) return;
     r = await fetch('/api/world/'+encodeURIComponent(name), {method:'DELETE',
         headers:{'Content-Type':'application/json'}, body:JSON.stringify({confirm:true})}).then(res=>res.json());
   }
   if (!r.ok) { worldMsg.style.color='var(--danger)'; worldMsg.textContent='删除失败：'+(r.error||'未知错误'); return; }
-  worldMsg.style.color='var(--pos)'; worldMsg.textContent='已删除世界：'+name;
+  worldMsg.style.color='var(--pos)'; worldMsg.textContent='已删除剧本：'+name;
   document.getElementById('w-hits').innerHTML = '';
-  await loadWorldNames();  // 刷新下拉并加载第一个剩余世界
+  DRAFT_WORLD = '';   // 释放选中，让 refreshDramas 自动选第一个剩余剧本
+  await refreshDramas();
+  loadCharacters();   // 同步开场区的「世界选择」下拉
 };
 function collectWorldEntries() {
   return [...document.querySelectorAll('#w-entries .entry')].map((el, idx) => {
@@ -1793,15 +1881,15 @@ function collectWorldEntries() {
   });
 }
 document.getElementById('w-save').onclick = async () => {
-  const name = document.getElementById('w-name').value.trim();
-  if (!name) { worldMsg.style.color='var(--danger)'; worldMsg.textContent='请先选择或新建世界'; return; }
+  const name = DRAFT_WORLD;
+  if (!name) { worldMsg.style.color='var(--danger)'; worldMsg.textContent='请先在左侧选择剧本'; return; }
   const entries = collectWorldEntries();
   const r = await fetch('/api/world/'+encodeURIComponent(name), {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({entries})}).then(r=>r.json());
-  if (r.ok) { worldMsg.style.color='var(--pos)'; worldMsg.textContent='已保存世界：'+name+'（'+entries.length+' 条）'; loadWorld(name); }
+  if (r.ok) { worldMsg.style.color='var(--pos)'; worldMsg.textContent='已保存剧本设定：'+name+'（'+entries.length+' 条）'; loadWorld(name); }
   else { worldMsg.style.color='var(--danger)'; worldMsg.textContent='保存失败：'+r.error; }
 };
 document.getElementById('w-test-btn').onclick = async () => {
-  const name = document.getElementById('w-name').value.trim();
+  const name = DRAFT_WORLD;
   if (!name) return;
   const text = document.getElementById('w-test').value;
   const entries = collectWorldEntries();
@@ -1833,10 +1921,15 @@ function renderSessions(list) {
     const d = new Date((s.updated || 0) * 1000);
     const t = isNaN(d) ? '' : d.toLocaleString('zh-CN', {hour12: false});
     const chips = (s.present || []).map(n => `<span class="chip">${escHtml(n)}</span>`).join('');
+    const worldKnown = !!(s.world);
     return `<div class="entry session-item" data-sid="${escAttr(s.session)}">
       <div class="row" style="justify-content:space-between;align-items:flex-start;gap:14px;">
         <div style="flex:1;min-width:0;">
-          <div style="font-size:12.5px;color:var(--muted);">会话 ${escHtml(s.session)} ｜ 回合 R${s.round} ｜ 阶段 ${escHtml(s.intimacy_phase)} ｜ ${escHtml(t)}</div>
+          <div style="font-size:12.5px;color:var(--muted);">
+            会话 ${escHtml(s.session)}
+            ｜ <span class="sess-world" data-sid="${escAttr(s.session)}" ${worldKnown?'':'data-fallback="1"'}>${worldKnown ? '剧本 '+escHtml(s.world) : '剧本（存量会话，回退中…）'}</span>
+            ｜ 回合 R${s.round} ｜ 阶段 ${escHtml(s.intimacy_phase)} ｜ ${escHtml(t)}
+          </div>
           <div class="chips" style="margin-top:7px;">${chips}</div>
           <div class="scene-line">场景：${escHtml(s.scene || '（未设置）')}</div>
         </div>
@@ -1849,6 +1942,17 @@ function renderSessions(list) {
   }).join('');
   sessionListEl.querySelectorAll('.sess-resume').forEach(b => b.onclick = () => resumeSession(b.dataset.sid));
   sessionListEl.querySelectorAll('.sess-del').forEach(b => b.onclick = () => delSession(b.dataset.sid));
+  // 存量会话快照无 world 字段（v0.28.2 前开的局）：从首张在场角色卡回读归属剧本。
+  (list || []).filter(s => !s.world).forEach(s => {
+    const first = (s.present || [])[0];
+    if (!first) return;
+    fetch('/api/character/' + encodeURIComponent(first)).then(r => r.json()).then(c => {
+      const escSid = (typeof CSS !== 'undefined' && CSS.escape) ? CSS.escape(s.session) : String(s.session).replace(/"/g, '\\"');
+      const el = sessionListEl.querySelector('.sess-world[data-sid="' + escSid + '"]');
+      if (el && c && c.world) el.textContent = '剧本 ' + c.world;
+      else if (el) el.textContent = '剧本（未归属）';
+    }).catch(() => {});
+  });
 }
 async function resumeSession(sid) {
   const [snap, chat] = await Promise.all([
@@ -2227,7 +2331,7 @@ document.getElementById('si-apply').onclick = async () => {
   }
   msg.style.color = fail ? 'var(--danger)' : 'var(--pos)';
   msg.textContent = '导入完成：成功 ' + ok + (fail ? '，失败 ' + fail : '');
-  if (!fail) { if (typeof refreshCharList === 'function') refreshCharList(); if (typeof loadWorldNames === 'function') loadWorldNames(); document.getElementById('si-apply').style.display = 'none'; }
+  if (!fail) { loadCharacters(); if (typeof refreshDramas === 'function') refreshDramas(wname); document.getElementById('si-apply').style.display = 'none'; }
 };
 
 document.getElementById('si-copy').onclick = () => {
