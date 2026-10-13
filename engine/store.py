@@ -489,3 +489,27 @@ def import_drama(name, template):
         "imported": imported,
         "deleted": deleted,
     }
+
+
+def delete_drama(name):
+    """删除一个剧本 = 整份世界书 + 该剧本全部角色卡（world == name）。
+
+    与 export_drama / import_drama 同属「剧本」概念：删剧本不是只删世界书、
+    把角色卡留成无归属的孤儿，而是世界书与角色一并清掉，保持磁盘干净。
+
+    返回 {ok, name, world_removed, characters_deleted}；世界书与角色都不存在
+    （原本就没这个剧本）时返回 None，由路由层据此回 404。
+    """
+    name = (name or "").strip()
+    if not name:
+        raise ValueError("剧本名不能为空")
+    world_removed = delete_world(name)
+    deleted = [c for c in worlds_referencing(name) if delete_card(c)]
+    if not world_removed and not deleted:
+        return None
+    return {
+        "ok": True,
+        "name": name,
+        "world_removed": world_removed,
+        "characters_deleted": deleted,
+    }

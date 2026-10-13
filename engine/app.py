@@ -391,6 +391,28 @@ def import_drama_route(name):
     return jsonify(result)
 
 
+@app.delete("/api/drama/<name>/delete")
+def delete_drama_route(name):
+    """删除一个剧本 = 整份世界书 + 该剧本全部角色卡（见 store.delete_drama）。
+
+    与 export/import 同属「剧本」概念：删剧本不再是只删世界书、把角色卡留成
+    无归属孤儿，而是世界书与角色一并清掉。其它剧本的角色一律不碰。
+    """
+    name = (name or "").strip()
+    if not name:
+        return jsonify({"error": "剧本名不能为空"}), 400
+    try:
+        result = store.delete_drama(name)
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 400
+    if result is None:
+        return jsonify({"ok": False, "error": "剧本不存在（世界书与角色均不存在）"}), 404
+    logger.info("drama",
+                "删除剧本「" + name + "」：世界书 " + ("1 本" if result["world_removed"] else "0 本")
+                + " ｜ 角色 " + str(len(result["characters_deleted"])) + " 张")
+    return jsonify(result)
+
+
 @app.get("/api/config")
 def get_config():
     return jsonify(llm.config_view())

@@ -40,6 +40,9 @@ MAIN_FLOW_PROBES = [
     ("id=\"d-export\"", "剧本导出 JSON 按钮"),
     ("id=\"d-import\"", "剧本导入 JSON 按钮"),
     ("id=\"drama-import\"", "剧本导入文件选择器"),
+    # v0.28.5 删除剧本走剧本级端点（世界书 + 全部角色卡一并删除），不再走旧的 /api/world DELETE
+    ("getElementById('w-del').onclick = async", "「删除剧本」按钮绑定"),
+    ("'/api/drama/'+encodeURIComponent(name)+'/delete'", "删除剧本调用剧本级删除端点"),
 ]
 
 

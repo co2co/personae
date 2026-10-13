@@ -1895,16 +1895,11 @@ document.getElementById('w-add').onclick = () => {
 document.getElementById('w-del').onclick = async () => {
   const name = DRAFT_WORLD;
   if (!name) { worldMsg.style.color='var(--danger)'; worldMsg.textContent='请先在左侧选择要删除的剧本'; return; }
-  if (!confirm('确认删除剧本「'+name+'」？此操作不可撤销，整份世界书设定与秘密将丢失（角色卡保留，但会失去世界归属）。')) return;
-  let r = await fetch('/api/world/'+encodeURIComponent(name), {method:'DELETE'}).then(res=>res.json());
-  if (!r.ok && r.referenced) {  // 仍有角色绑定：二次确认后强制删除
-    const list = r.referenced.join('、');
-    if (!confirm('以下角色仍归属此剧本：\n'+list+'\n删除后这些角色开局将失去该剧本的世界设定。\n仍要强制删除「'+name+'」？')) return;
-    r = await fetch('/api/world/'+encodeURIComponent(name), {method:'DELETE',
-        headers:{'Content-Type':'application/json'}, body:JSON.stringify({confirm:true})}).then(res=>res.json());
-  }
+  if (!confirm('确认删除剧本「'+name+'」？此操作不可撤销，整份世界书设定与秘密、以及归属此剧本的全部角色卡将一并删除。')) return;
+  let r = await fetch('/api/drama/'+encodeURIComponent(name)+'/delete', {method:'DELETE'}).then(res=>res.json());
   if (!r.ok) { worldMsg.style.color='var(--danger)'; worldMsg.textContent='删除失败：'+(r.error||'未知错误'); return; }
-  worldMsg.style.color='var(--pos)'; worldMsg.textContent='已删除剧本：'+name;
+  worldMsg.style.color='var(--pos)';
+  worldMsg.textContent='已删除剧本：'+name+'（世界书 + '+(r.characters_deleted.length)+' 张角色卡）';
   document.getElementById('w-hits').innerHTML = '';
   DRAFT_WORLD = '';   // 释放选中，让 refreshDramas 自动选第一个剩余剧本
   await refreshDramas();

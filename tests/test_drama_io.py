@@ -223,3 +223,60 @@ def test_import_endpoint_bad_body_400(client):
 def test_import_endpoint_missing_fields_400(client):
     r = client.post("/api/drama/%E7%94%B2/import", json={"foo": "bar"})
     assert r.status_code == 400
+
+
+# ---------------------------------------------------------------------------
+# 5. store 层 + HTTP 层：删除剧本（世界书 + 全部角色卡，一并清掉）
+# ---------------------------------------------------------------------------
+
+def test_delete_drama_removes_world_and_all_cards(data):
+    """删剧本 = 世界书 + 该剧本全部角色卡，其它剧本不碰。"""
+    _seed()
+    res = store.delete_drama("甲")
+    assert res["ok"] is True and res["name"] == "甲"
+    assert res["world_removed"] is True
+    assert sorted(res["characters_deleted"]) == ["甲角", "甲角2"]
+    # 世界书没了
+    assert store.load_world_raw("甲") is None
+    # 甲的两张卡全删，乙角保留（world==乙，不碰）
+    assert set(store.list_characters()) == {"乙角"}
+    assert store.load_card("乙角")["world"] == "乙"
+
+
+def test_delete_drama_missing_returns_none(data):
+    """世界书与角色都不存在 → 返回 None（路由据此回 404）。"""
+    _seed()
+    assert store.delete_drama("不存在") is None
+
+
+def test_delete_drama_empty_name_raises(data):
+    _seed()
+    with pytest.raises(ValueError):
+        store.delete_drama("   ")
+
+
+def test_delete_drama_orphan_world_only(data):
+    """只有世界书、没有归属角色 → 删世界书，characters_deleted 为空。"""
+    store.save_world("甲", [{"keys": ["x"], "content": "甲的设定"}])
+    res = store.delete_drama("甲")
+    assert res["ok"] is True and res["world_removed"] is True
+    assert res["characters_deleted"] == []
+
+
+def test_delete_drama_endpoint_removes_world_and_cards(client):
+    """HTTP：DELETE /api/drama/<name>/delete 一并清掉世界书 + 角色。"""
+    _seed()
+    r = client.delete("/api/drama/%E7%94%B2/delete")  # 甲
+    assert r.status_code == 200, r.get_json()
+    d = r.get_json()
+    assert d["ok"] is True and d["name"] == "甲"
+    assert d["world_removed"] is True
+    assert sorted(d["characters_deleted"]) == ["甲角", "甲角2"]
+    assert store.load_world_raw("甲") is None
+    assert set(store.list_characters()) == {"乙角"}
+
+
+def test_delete_drama_endpoint_missing_404(client):
+    _seed()
+    r = client.delete("/api/drama/%E4%B8%8D%E5%AD%98%E5%9C%A8/delete")  # 不存在
+    assert r.status_code == 404
