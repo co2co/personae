@@ -221,8 +221,8 @@ def run(base_url, rounds, timeout, cast=None, scene=None):
                 "relations": snap.get("relations", {}),
                 "present_violation": done.get("present_violation"),
                 "ending": bool(done.get("ending_candidate")),
-                # v0.17.2 纪官语义提取观测：群演登记 / 越界告警 / 场景切换信号
-                "aux": [a.get("name") for a in (snap.get("aux") or [])],
+                # v0.30.0 起临时群演（aux）机制废除，群演观测字段保留为空以便旧报告对齐
+                "aux": [],
                 "offscreen_violated": snap.get("offscreen_violated") or [],
                 "scene_shift": snap.get("scene_shift"),
             })
@@ -235,7 +235,7 @@ def run(base_url, rounds, timeout, cast=None, scene=None):
                   f"present={len(rec['present'])} focus={rec['focus']} "
                   f"暴露={rec['exposed']} 起疑={susp_n} 账本={rec.get('ledger', 0)} "
                   f"违例={rec['present_violation']} ending={rec['ending']} "
-                  f"群演={len(rec['aux'])} 越界={len(rec['offscreen_violated'])} "
+                  f"越界={len(rec['offscreen_violated'])} "
                   f"换场={'是' if (rec['scene_shift'] or {}).get('changed') else '-'}",
                   flush=True)
     finally:
@@ -355,9 +355,7 @@ def analyze(records, errors):
     first_fact_round = next((r["round"] for r in ok if r.get("facts")), "-")
     state_sizes = [len(r.get("states") or {}) for r in ok]
 
-    # v0.17.2 纪官语义提取落地观测
-    aux_last = (ok[-1].get("aux") or []) if ok else []
-    aux_peak = max([len(r.get("aux") or []) for r in ok] or [0])
+    # v0.17.2 纪官语义提取落地观测（群演观测已随 v0.30.0 机制废除停用）
     offscreen_rounds = sum(1 for r in ok if r.get("offscreen_violated"))
     shift_rounds = sum(1 for r in ok if (r.get("scene_shift") or {}).get("changed"))
     # 删正文回归哨兵：极短回复或残句（以句号/逗号开头）
@@ -402,8 +400,6 @@ def analyze(records, errors):
         "常量层首次入表轮次": first_fact_round,
         "状态层键数(末轮/峰值)": (f"{state_sizes[-1]}/{max(state_sizes)}"
                                   if state_sizes else "-"),
-        "群演登记(末轮/峰值)": f"{len(aux_last)}/{aux_peak}",
-        "群演名单(末轮)": "、".join(aux_last) or "无",
         "背景人物越界告警轮数": offscreen_rounds,
         "场景切换信号轮数": shift_rounds,
         "极短回复轮数(<200字)": short_rounds,
@@ -445,17 +441,13 @@ def build_report(meta, records, summary, errors):
                    f"| {'是' if r.get('present_violation') else '否'} "
                    f"| {named} |")
     out.append("")
-    out.append("## 纪官语义提取观测（群演登记 / 越界告警 / 换场信号）")
+    out.append("## 纪官语义提取观测（越界告警 / 换场信号）")
     out.append("")
-    out.append("| 轮 | 群演总数 | 本轮新增 | 越界告警 | 换场信号 | 换场去向 |")
-    out.append("|---|---|---|---|---|---|")
-    prev_aux = set()
+    out.append("| 轮 | 越界告警 | 换场信号 | 换场去向 |")
+    out.append("|---|---|---|---|---|")
     for r in records:
         if r.get("error"):
             continue
-        cur = list(r.get("aux") or [])
-        new = [n for n in cur if n not in prev_aux]
-        prev_aux |= set(cur)
         viol = r.get("offscreen_violated") or []
         sh = r.get("scene_shift") or {}
         if not cur and not viol and not sh:

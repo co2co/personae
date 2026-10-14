@@ -87,8 +87,6 @@
          background:var(--accent-soft); color:var(--accent-strong); border:1px solid #ecd9d1; }
   /* 连续静默轮数标记：轻量提示「引擎已注意到这个角色」，不抢戏 */
   .chip-warn{ font-size:10px; margin-left:4px; opacity:.65; font-weight:400; }
-  /* 临时群演：蓝色底色，与剧本角色（粉色）区分——在场但不属于剧本卡组 */
-  .chip-aux{ background:#e3edf7; color:#2f5d8a; border-color:#c6dcee; }
   .spacer{ flex:1; }
 
   /* ---------- 顶栏 ---------- */
@@ -170,9 +168,6 @@
   .panel.collapsed .panel-body{ display:none; }
 
   .chips{ display:flex; gap:8px; flex-wrap:wrap; }
-  /* 群演单独占一行，与剧本角色拉开距离（颜色之外再加一道结构分隔） */
-  .chips-row{ display:flex; gap:8px; flex-wrap:wrap; width:100%; }
-  .chips-aux-row{ margin-top:2px; padding-top:8px; border-top:1px dashed var(--line-2); }
   .scene-line{ font-size:14px; color:var(--ink-2); margin-top:8px; line-height:1.6; }
   .rel-row,.sec-row{ font-size:13.5px; padding:7px 0; border-bottom:1px dashed var(--line-2); color:var(--ink-2); }
   .rel-row:last-child,.sec-row:last-child{ border-bottom:none; }
@@ -564,8 +559,6 @@
   .tag, .chip{ background:var(--surface-2); border-color:var(--line); }
   .tag.on{ background:var(--pos-soft); color:var(--pos); border-color:#c9d8b6; }
   .chip{ background:var(--accent-soft); color:var(--accent-strong); border-color:#e6c3ad; }
-  /* 临时群演保持蓝色（须排在 .chip 之后以覆盖上面的暖色，与剧本角色区分） */
-  .chip-aux{ background:#e3edf7; color:#2f5d8a; border-color:#c6dcee; }
 
   /* 世界书秘密条目：淡朱砂纸片（原红底更柔和） */
   .entry.secret{ border-color:#dca89a; background:var(--danger-soft); }
@@ -1088,8 +1081,6 @@ function renderSnapshot(snap) {
 
   // 在场角色：chip 右上角标数字 = 该角色连续静默轮数（引擎在防「角色被遗忘」）。
   // 只给轻量提示，不单开面板——这是引擎内部节奏，不是玩法信息。
-  // 临时群演（aux）排在剧本角色之后，蓝色底色区分：它们确实在场、且跨回合
-  // 保持连续性，但不属于剧本卡组——混排会让用户误以为是正式登场角色。
   const silent = snap.silent_rounds || {};
   const chipOf = (n) => {
     const s = silent[n] || 0;
@@ -1098,20 +1089,7 @@ function renderSnapshot(snap) {
     return `<span class="chip">${n}${warn}</span>`;
   };
   const castHtml = (snap.present || []).map(n => chipOf(n)).join('');
-  // 已退场群演（死亡/彻底离开队伍）从在场列表注销，与正式角色离场对称；
-  // 仍保留在 aux 数据里（防重新出场被当新人重复登记），只在此处不展示。
-  // is_generic（身份/职业泛称，如「秀女/宫女」）不渲染成在场 chip：它不是个体，
-  // 是身份标签。判据由后端 player_view 注入（与登记拒收同源），前端只读标记不复刻词表。
-  const auxList = (snap.aux || []).filter(a => a && a.name && a.status !== '已退场' && !a.is_generic);
-  const auxHtml = auxList.map(a => {
-    const tip = [a.role, a.intro_round ? `R${a.intro_round} 加入` : '', a.status]
-      .filter(Boolean).join(' ｜ ');
-    return `<span class="chip chip-aux" title="${tip}">${a.name}</span>`;
-  }).join('');
-  // 群演单独一行：既满足 simon 要求的「排在剧本角色之后」，也让两类角色
-  // 一眼可分（粉色=剧本卡组、蓝色=导演引入的群演），不靠颜色单独承担区分。
-  document.getElementById('present').innerHTML =
-    castHtml + (auxHtml ? `<div class="chips-row chips-aux-row">${auxHtml}</div>` : '');
+  document.getElementById('present').innerHTML = castHtml;
   const sc = snap.scene || {};
   let line = '场景：' + (sc.place || '');
   if (sc.time) line += '（' + sc.time + '）';

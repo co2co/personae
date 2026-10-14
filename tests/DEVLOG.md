@@ -6,6 +6,28 @@
 
 ---
 
+## 2026-10-14 废除临时群演（aux）机制（semver MINOR→v0.30.0）
+
+**性质**：机制整体移除（simon 拍板）。临时角色生命周期不再由引擎兜底——不登记、不追踪、不管退场，交还 LLM 与玩家自主管理：模型或玩家记得、需要利用临时人物，就自行发挥（注入扰动时明确指定即可）。**触发 MINOR**：对外可见行为变更（在场面板不再出现蓝色群演 chip、纪官 JSON 少两个字段、快照少一个顶层键），属破坏性语义变更。
+
+**动机**：临时群演上「在场角色」面板的漏洞（泛称 chip 混入、改名合并漏判等）历经 v0.16.1/v0.17.1/v0.17.2/v0.28.6 多轮治理仍未治本；该功能非核心，投入产出不成比例，故整体废除。
+
+**改动**：
+- `engine/director.py`：整块删除 aux registry（约 470 行）——词表与判据（`_AUX_*`、`_is_aux_*`）、`_resolve_aux_aliases`、`discover_aux_speakers`、`_prune_aux_aliases`、`register_aux`、`parse_aux_introductions`；reflect 纪官提示词删「已登记群演」回喂与 `aux_updates`/`aux_departures` 两个字段及其全部规则；reflect 回写删 aux 登记/改名合并/退场注销处理；`background_names_from_relations` 不再把 aux 计入已知名单。
+- `engine/app.py`：快照外发白名单移除 `aux`；player_view 删 `is_generic` 注入；send 流程删【引入角色】显式登记分支；在场校验 `keep_set` 不再并入 aux 名单（未入册名字在 validate_present 中本就当叙述行保留，台词不会被剥离）。
+- `engine/prompter.py`：背景人物口径不再排除 aux。
+- `engine/memory.py`：新会话快照不再初始化 `aux` 键（旧会话遗留的 `aux` 键无害，仅不再被读用）。
+- `engine/static/index.html`：在场面板删除蓝色群演 chip 行、`chip-aux`/`chips-aux-row` 样式及 auxList 过滤逻辑。
+- `tests/`：删除 `test_aux_registration.py`；test_director.py 删 9 个 aux 纪官用例；test_player_view.py 删 2 个 aux 外发/is_generic 用例；test_relation_gate.py 删 aux 排除背景用例并清理 snap 键；test_prompter.py 注释去失效文件引用；stress_longcontext.py 群演观测列停用（字段保留为空，报告表格删群演列）。
+
+**验证**：全量 `tests/` **294 passed, 1 skipped, 1 deselected**；全部改动文件 py_compile 通过。
+
+**设计决定**：
+- 临时角色彻底「去机制化」：引擎对临时人物只保留两条天然行为——validate_present 只剥「在册但非保留」的说话人（临时名从不在册，其台词当叙述行保留，不会被切碎）；背景人物判定只看关系表与角色卡库（临时人物不进这两处即不受失责自检约束）。
+- 不做数据迁移：旧会话快照里的 `aux` 键原样留在磁盘、随白名单收窄自然不再外发；无兼容分支、无回填。
+
+---
+
 ## 2026-10-14 引擎回归官方默认：移除内置亲密尺度（铁律⑧中性化 + 停出厂播种，semver MINOR→v0.29.0）
 
 **性质**：引擎本体「尺度默认值」政策变更（simon 拍板，长期）。**不禁止**——引擎系统层不再内置任何亲密/性尺度设定，但玩家可自己在世界书里自建【亲密叙事标准】条目（引擎系统层玩家动不了，世界书数据层玩家完全自主）。**触发 MINOR（v0.28.8→v0.29.0）**：对外可见行为变更——新建世界书不再自动播种尺度条目、系统提示词尺度基调改变，属破坏性语义变更而非补丁。

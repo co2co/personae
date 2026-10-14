@@ -144,7 +144,7 @@ def test_build_session_has_no_speaker_block_contract():
     原本以散文为主体的正文（大段环境/动作/心理描写 + 引号对白）被压成
     「角色甲：（动作）台词」的流水账。叙事质量优先于机制完整度，故 v0.17.0 整体移除。
 
-    依赖该格式的机制已改用不依赖格式的判据（见 test_aux_registration.py 的散文形态用例）。
+    依赖该格式的机制均已随版本演进移除或改用不依赖格式的判据。
     """
     sysmsg = "\n".join(m["content"] for m in prompter.build_session(
         CARDS, "继续", [], MIN_SNAP))

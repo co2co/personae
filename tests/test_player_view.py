@@ -30,8 +30,6 @@ from fixtures import A, B  # noqa: E402
 # 秘密的内部字段：这些都不该出现在玩家视图里
 SECRET_INTERNAL = ("content", "bottom_line", "keys", "pressure", "exposures")
 # 快照顶层内部字段：同上。
-# 注意 aux 不在此列——临时群演是「谁在这局出现过」的事实，用户需要知道，
-# 前端把它挂在在场角色面板末尾以蓝色底色区分。
 SNAP_INTERNAL = ("relations_base", "kinship_base", "address", "recent")
 
 
@@ -55,8 +53,6 @@ def _snap():
         "relations_base": {f"{A} → {B}": "母亲"},
         "kinship_base": {f"{A} → {B}": "母亲"},
         "address": {f"{A} → {B}": "妈妈"},
-        "aux": [{"name": "路人", "role": "摊主",
-                 "intro_round": 2, "status": "活跃"}],
         "recent": {},
     }
 
@@ -146,38 +142,6 @@ def test_session_new_returns_player_view(monkeypatch):
     got = r.get_json()["snapshot"]
     assert "content" not in got["secrets"][0]
     assert "address" not in got
-
-
-def test_player_view_exposes_aux():
-    """临时群演须外发：用户需要知道谁在这局里出现过。
-
-    前端把它挂到「在场角色」面板末尾并用蓝色底色区分——在场但不属于剧本卡组。
-    """
-    v = app_module.player_view(_snap())
-    assert "aux" in v, "临时群演未外发，半路加入的配角会从用户视野里消失"
-    assert v["aux"][0]["name"] == "路人"
-    # 群演详情可用（tooltip 显示身份与加入回合），但不含引擎内部标记
-    assert v["aux"][0]["role"] == "摊主"
-    assert "note" not in v["aux"][0]
-
-
-def test_player_view_aux_is_generic_flag():
-    """aux 投影须注入 is_generic 标记（前端据此把身份/职业泛称 chip 从在场面板过滤）。
-
-    判据与登记拒收同源（director._is_aux_reject_register），不在前端复刻词表。
-    「路人」是身份泛称 → True；具名「角色丙」→ False。
-    """
-    snap = _snap()
-    snap["aux"] = [
-        {"name": "路人", "role": "摊主", "intro_round": 2, "status": "活跃"},
-        {"name": "角色丙", "role": "会话群演", "intro_round": 3, "status": "活跃"},
-    ]
-    v = app_module.player_view(snap)
-    by_name = {a["name"]: a for a in v["aux"]}
-    assert by_name["路人"]["is_generic"] is True, "身份泛称应被标记"
-    assert by_name["角色丙"]["is_generic"] is False, "具名群演不得被标记"
-    # 注入是展示层信号，不写回内部快照落盘
-    assert "is_generic" not in snap["aux"][0], "is_generic 是投影字段，不得污染内部快照"
 
 
 def test_player_view_no_relation_lock_marker():

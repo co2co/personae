@@ -441,24 +441,15 @@ def test_background_excludes_carded_characters(monkeypatch):
     monkeypatch.setattr(director.store, "list_characters",
                         lambda: ["角色甲", "角色丙"])
     snap = {"relations": {"角色甲 → 角色丙": "妹妹", "角色甲 → 角色戊": "邻居"},
-            "present": ["角色甲"], "aux": []}
+            "present": ["角色甲"]}
     offs = director.background_names_from_relations(snap, ["角色甲"])
     assert offs == ["角色戊"], offs
-
-
-def test_background_excludes_registered_aux(monkeypatch):
-    """已登记的会话群演是有名有姓的活跃参与者，不是背景板。"""
-    monkeypatch.setattr(director.store, "list_characters", lambda: ["角色甲"])
-    snap = {"relations": {"角色甲 → 角色戊": "邻居"},
-            "present": ["角色甲"],
-            "aux": [{"name": "角色戊", "intro_round": 1}]}
-    assert director.background_names_from_relations(snap, ["角色甲"]) == []
 
 
 def test_background_accepts_extra_known(monkeypatch):
     """extra_known 用于复用调用方已算好的名单，避免重复扫盘。"""
     monkeypatch.setattr(director.store, "list_characters", lambda: [])
-    snap = {"relations": {"角色甲 → 角色戊": "邻居"}, "present": ["角色甲"], "aux": []}
+    snap = {"relations": {"角色甲 → 角色戊": "邻居"}, "present": ["角色甲"]}
     assert director.background_names_from_relations(snap, ["角色甲"]) == ["角色戊"]
     assert director.background_names_from_relations(
         snap, ["角色甲"], extra_known=["角色戊", "角色甲"]) == []

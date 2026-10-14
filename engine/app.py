@@ -157,17 +157,13 @@ _SECRET_PUBLIC_FIELDS = ("owner", "state", "known_by", "suspicions")
 
 # 快照顶层字段白名单：未列出的一律不外发（含 relations_base / kinship_base /
 # address / recent 等内部字段）。
-# aux 在白名单内：临时群演是「谁在这局里出现过」的事实，用户需要知道（否则
-# 半路加入的配角会从视野里消失、跨回合失去连续性认知）。前端把它挂到
-# 「在场角色」面板末尾并用蓝色底色区分——它不是剧本角色，但确实在场。
-#
 # relations / actions / goals / ledger 当前**没有 UI 消费者**（v0.16.1 起左栏
 # 刻意不展示它们：那些是引擎的中间产物，摆出来会让玩家照着面板核对而不是
 # 读故事）。仍留在白名单里，因为它们是引擎的核心状态，导出、复盘、二次开发
 # 都要用；白名单的职责是「哪些字段可以外发」，不是「哪些字段当前在渲染」。
 _SNAPSHOT_PUBLIC_FIELDS = (
     "present", "scene", "relations", "actions", "goals",
-    "secrets", "ledger", "states", "silent_rounds", "aux", "locations",
+    "secrets", "ledger", "states", "silent_rounds", "locations",
 )
 
 
@@ -187,16 +183,6 @@ def player_view(snap, debug=False):
         {k: s[k] for k in _SECRET_PUBLIC_FIELDS if k in s}
         for s in (snap.get("secrets") or [])
     ]
-    # aux：给每条注入 is_generic 标记，供前端把「身份/职业泛称」chip 从在场面板过滤掉
-    # （见 index.html 的 auxList filter）。判据与登记拒收同源（director._is_aux_reject_register），
-    # 不在前端复刻词表——否则词表演进要双改。此处是展示层信号，不删数据：
-    # 泛称群演仍随 /api/snapshot 全量外发（debug 排障、导出、复盘都要用完整 aux），
-    # 只是前端不把它渲染成在场 chip。拷贝条目避免把 UI 字段写回内部快照落盘。
-    if "aux" in out:
-        out["aux"] = [
-            dict(a, is_generic=bool(director._is_aux_reject_register(a.get("name") or "")))
-            for a in (out["aux"] or []) if a
-        ]
     return out
 
 
@@ -614,17 +600,6 @@ def act():
         present = snap["present"]                  # 全部为 NPC，环境推手不在场
         cards_present = {c: store.load_card(c) for c in present}
 
-        # 会话级辅助群演：解析导演显式【引入角色】指令并登记（早于生成，使本轮即被识别为合法参与者）
-        if directive:
-            intro = director.parse_aux_introductions(directive)
-            if intro:
-                intro_names = [n for n, _ in intro]
-                intro_notes = {n: r for n, r in intro if r}
-                added = director.register_aux(snap, intro_names, snap["scene"]["round"], intro_notes)
-                if added:
-                    logger.info("aux", "显式登记辅助群演：" + "、".join(added))
-                    memory.save(sid, snap)
-
         # 导演简报（含秘密状态更新、回合数）
         brief, snap = director.brief(sid, directive)
         logger.info("director", "导演简报：回合 R" + str(brief["round"])
@@ -781,11 +756,8 @@ def act():
         full = narrative_clean.clean_narrative(full)
         # present 名单校验/后处理：剥离非在场角色（含已离场者、环境推手）的台词块；
         # 若本轮有镜头焦点，则按焦点子集裁剪，使镜头真正跟随被引向的角色，其余在场者不展开
-        # 会话级辅助群演（导演/叙事引入的临时角色，如半路加入的配角）：并入已知名与保留集，
-        # 使其在叙事里的台词/动作被识别为合法参与者，不被误剥离或误判为背景活动化。
-        aux_names = [a["name"] for a in snap.get("aux", [])]
-        known = store.list_characters() + aux_names
-        keep_set = (set(focus["subjects"]) if focus else set(present)) | set(aux_names)
+        known = store.list_characters()
+        keep_set = set(focus["subjects"]) if focus else set(present)
         full, present_violation = director.validate_present(
             full, present, known, allowed=list(keep_set))
         if present_violation:
@@ -808,10 +780,9 @@ def act():
         else:
             logger.info("model", "背景人物自检通过："
                         + ("、".join(offscreens) + " 保持背景" if offscreens else "无背景人物"))
-        # 群演登记改由纪官语义提取（director.reflect 的 aux_updates 字段，见下方同步阶段）。
-        # v0.17.2 前此处用散文正则 discover_aux_speakers 挖「名字+说话动词+引号」，
-        # 但正则无法区分「他喃喃道」与「陈叔说」，真实会话连续误报（喃喃/胁语气/想要），
-        # 误报不可根治，退出登记链路；函数保留作离线分析与测试守护。
+        # 临时群演（aux）机制已废除（v0.30.0）：临时角色交还 LLM 与玩家自主管理，
+        # 引擎不再登记、追踪或确保其生命周期；未入册的名字在 validate_present
+        # 中当叙述行保留，不会被剥离。
         # 注：原始 token 已实时流式回传，此处不再回吐整段以免重复；
         # 校验后的 canonical 文本经末尾 done.reply 回传，前端据此对齐（极少剥离时无缝修正）。
 

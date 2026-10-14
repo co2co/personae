@@ -401,13 +401,12 @@ def build_session(cards_present, directive, world_hits, snap,
     # 本轮不在场名单的角色也划成背景，提示词一边要求「不得为其撰写出场段落」、
     # 叙事里他却正在演——自相矛盾（真实会话事故）。
     all_cards = set(store.list_characters())
-    aux_names = {a.get("name") for a in (snap.get("aux") or [])}
     rel_names = set()
     for k in snap.get("relations", {}):
         for e in k.split("→"):
             rel_names.add(e.strip())
     offscreens = sorted(n for n in rel_names
-                        if n and n not in all_cards and n not in aux_names)
+                        if n and n not in all_cards)
     offscreen_note = ""
     if offscreens:
         offscreen_note = (
