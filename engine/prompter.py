@@ -373,6 +373,32 @@ def build_session(cards_present, directive, world_hits, snap,
     sc = snap["scene"]
     weather = ("｜ 天气：" + sc["weather"]) if sc.get("weather") else ""
     rel = "\n".join(k + ": " + v for k, v in snap["relations"].items()) or "（初始）"
+    # 关联但无独立角色卡的「背景人物」（如某位仅被提及的亲属）：仅可作背景提及，
+    # 其关系定位为既定事实，严禁模型改写或升级（小姨子→妻子类漂移在此被提示约束）。
+    # 口径：关系表里出现、但没有独立角色卡的人。早前用「不在场卡」判定，把有卡但
+    # 本轮不在场名单的角色也划成背景，提示词一边要求「不得为其撰写出场段落」、
+    # 叙事里他却正在演——自相矛盾（真实会话事故）。故必须以「无独立角色卡」为准。
+    # v0.31.2 恢复：本提示词软约束曾在 v0.31.0 随 offscreen 检测层一并删除——检测层
+    # （正则自检，命中率趋零且曾误删正文）确该删，但此处从不删正文、只做约束，属连带误删。
+    all_cards = set(store.list_characters())
+    rel_names = set()
+    for k in snap.get("relations", {}):
+        for e in k.split("→"):
+            rel_names.add(e.strip())
+    offscreens = sorted(n for n in rel_names if n and n not in all_cards)
+    offscreen_note = ""
+    if offscreens:
+        offscreen_note = (
+            "\n[背景人物·非在场] " + "、".join(offscreens)
+            + "：仅有关系定位、无独立角色卡，属于「非在场」角色，不得稀释剧场张力。"
+            "硬性约束：① 不得为其撰写任何出场段落、镜头聚焦、独白或对白；"
+            "② 即便以回忆/闪回/旁白形式，也**不得让其成为动作主语或拥有具体行为**"
+            "（如『角色丙笑了』『角色丙塞给她糖』『角色丙走过来』这类写法一律禁止）；"
+            "③ 若剧情需要提及，只能由在场角色在其台词或内心活动中以「谈论/回忆/称呼」方式一句话带过，"
+            "且不得借此铺陈成主动情节；④ 其关系定位（见上）为既定事实，"
+            "不得改写为在场/夫妻/恋人等升级关系。背景人物一旦被写成有对白、独白或以主角身份行动，"
+            "即视为越界，务必避免。"
+        )
     # 时间锚缺失时的兜底：不给「时间未明」这种会诱导模型自行脑补时间的字眼，
     # 而是明确约束「本轮不得自行推进/杜撰时间」。旧版写「时间未明」，模型会为了
     # 让环境自洽而自由补一段时间推进（如一轮内从傍晚推到入夜），正是会话 256d924c
@@ -383,7 +409,7 @@ def build_session(cards_present, directive, world_hits, snap,
     else:
         time_clause = "（时间未知——本轮不得自行推进或杜撰时间，保持时间悬置，待环境推手指令明确时间再写）"
     cons = "\n".join("- " + l["account"] for l in snap.get("ledger", [])) or "（暂无）"
-    state_block = "[关系与状态（不可违背）]\n关系：\n" + rel + "\n旧账：\n" + cons
+    state_block = "[关系与状态（不可违背）]\n关系：\n" + rel + offscreen_note + "\n旧账：\n" + cons
     if active_consequences:
         # 被本轮情境触动的旧账：要求体现在叙事里，否则写账毫无意义。
         state_block += ("\n【本轮被触动的旧账】\n"

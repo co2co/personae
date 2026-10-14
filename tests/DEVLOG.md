@@ -6,6 +6,22 @@
 
 ---
 
+## 2026-10-15 恢复背景人物防活动化提示词层（semver PATCH→v0.31.3）
+
+**性质**：恢复 v0.31.0 被连带误删的 offscreen **提示词层**（只恢复 prompt 软约束，不恢复正则检测层）。**触发 PATCH**：恢复类，纯补回既有能力、不改对外语义。
+
+**背景**：v0.31.0「第二批机制精简」删除 offscreen 机制时，把两层一起删了——检测层（`detect_offscreen_activity` 正则自检，命中率趋零 + 曾误删正文 27 字删成句号）确该删；但提示词层（`offscreen_note`，禁止把无卡背景人物写成开口/登场/动作主语 + 关系升级漂移约束）从不删正文、只做 prompt 约束，是被检测层坏名声连坐的。诊断探针（scripts/_probe_offscreen_diagnosis.py，8 次真实后端采样，靶子=已死无卡人物「先皇高帆」）坐实：约束零副作用、且能防「小姨子→妻子」类关系漂移与背景人物活动化。
+
+**恢复范围（最小）**：只恢复 prompter.py 的静态 `offscreen_note` 注入；不恢复「上轮越界点名批评」（依赖纪官 reflect 回写 `offscreen_violated` 的整条语义判定链路，v0.28.8 注释自述「实测真失责≈0」）；不恢复 director 检测层。aux 已废，判定口径去掉 `aux_names` 分支。
+
+**恢复内容**：
+- prompter.py：`rel` 定义后加「无卡背景人物判定 + offscreen_note 生成」，`state_block` 拼接 offscreen_note。判定口径=「关系表里出现、但无独立角色卡」（`store.list_characters` 差集），与 v0.28.8 修正后的口径一致。
+- tests/test_prompter.py：新增 2 守护用例（无卡背景人物必注入 / 全有卡零开销）。
+
+**验证**：全量 287 passed, 1 skipped, 1 deselected；语法/导入检查通过；场景验证「无背景人物零开销、含背景人物正确注入」。
+
+---
+
 ## 2026-10-15 恢复叙事复读检测（semver PATCH→v0.31.2）
 
 **性质**：恢复 v0.31.0 被误删的「生成后复读检测 + 自动重生成」机制。**触发 PATCH**：恢复类，不改对外语义、纯补回既有能力。

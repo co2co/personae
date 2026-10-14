@@ -167,3 +167,40 @@ def test_output_discipline_forbids_craft_standard_echo():
     assert "[输出纪律]" in sysmsg, "输出纪律块缺失"
     for kw in ("技法", "描写标准", "复述", "正文"):
         assert kw in sysmsg, "输出纪律缺少技法标准回声抑制的关键锚点：%s" % kw
+
+
+def test_offscreen_note_injected_for_cardless_relation_name(monkeypatch):
+    """背景人物防活动化软约束：关系表里出现、但无独立角色卡的名字必须触发提示。
+
+    对应 v0.31.2 恢复：offscreen 提示词层曾在 v0.31.0 随检测层被连带误删（检测层
+    命中率趋零+曾误删正文确该删，但此处只做 prompt 约束、从不删正文）。本用例固化
+    「无卡背景人物 → 注入[背景人物·非在场]约束」这一不变式，防再次被当死代码删掉。
+    用中性占位（角色甲/丁有卡、角色戊无卡），不绑任何剧本名（普适性红线）。
+    """
+    import store
+    monkeypatch.setattr(store, "list_characters",
+                        lambda: ["角色甲", "角色丁"])
+    snap = dict(MIN_SNAP)
+    snap["relations"] = {"角色甲 → 角色戊": "某位仅被提及的旧识"}
+    sysmsg = "\n".join(m["content"] for m in prompter.build_session(
+        CARDS, "继续", [], snap))
+    assert "[背景人物·非在场]" in sysmsg, "无卡背景人物未触发活动化约束"
+    assert "角色戊" in sysmsg, "背景人物名未写入约束"
+    # 关系升级漂移约束是防「小姨子→妻子」的核心，必须保留
+    assert "不得改写为在场/夫妻/恋人" in sysmsg
+
+
+def test_offscreen_note_absent_when_all_relations_are_cards(monkeypatch):
+    """反例：关系表里全是已有角色卡的人名时，不得注入背景人物约束（零开销）。
+
+    防止「把有卡但本轮不在场名单的角色」误划成背景——这正是 v0.28.x 早期
+    的真实会话事故（提示词要求「不得出场」却正在演，自相矛盾）。
+    """
+    import store
+    monkeypatch.setattr(store, "list_characters",
+                        lambda: ["角色甲", "角色丁"])
+    snap = dict(MIN_SNAP)
+    snap["relations"] = {"角色甲 → 角色丁": "同队"}
+    sysmsg = "\n".join(m["content"] for m in prompter.build_session(
+        CARDS, "继续", [], snap))
+    assert "[背景人物·非在场]" not in sysmsg
