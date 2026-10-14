@@ -9,9 +9,11 @@ env/
 *.bak-*
 _bak_*/
 _wb_*
-backups/
+backup/
 
-# Packaged backups
+# 发版产物（交付物层，归档用，不进版本库）
+dist/
+audit/
 *.zip
 
 # Runtime data (ephemeral session state)
@@ -30,6 +32,9 @@ engine/data/worlds/
 
 # Test run artifacts（走查生成的 markdown 日志，非源码）
 tests/runs/
+
+# 会话产物（摘录、导出等运行时态输出）
+outputs/
 
 # pytest cache
 .pytest_cache/

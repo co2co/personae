@@ -43,7 +43,20 @@ personae/                 ← 项目根（群像弈，D:/codes/personae）
 > `README.md` / `INSTALL.md`；所有开发类文档与测试脚本集中在 `tests/`。
 > 分发时只需 `engine/`，开发内容不会进入分发包。
 
-> 历史打包与备份留在根目录 `*.zip`、`backups/`（均 gitignore）。
+### 四层物理隔离（项目文件树规范）
+
+除 `engine/` + `tests/` 的源码层外，其余目录按「数据生命周期」分为三层，统一规范（详见技能 `project-tree-standard`）：
+
+| 层 | 目录 | 职责 | 进 git / 包 |
+|---|---|---|---|
+| 源码层 | `engine/` `tests/` + 根目录配置 | 引擎本体 + 测试 + 打包脚本 | 是 / 是 |
+| 交付物层 | `dist/` `audit/` | 发版 zip、审计报告 | 否 / 否 |
+| 作者态层 | `dramas/` `scripts/` | 剧本库、临时对比/压测脚手架 | 否 / 否 |
+| 运行时态层 | `backup/` + sessions/日志/venv | 带日期备份、会话态、缓存 | 否 / 否 |
+
+- 备份统一进 `backup/`（命名 `backup_YYYYMMDD_<主题>/`），发版 zip 统一进 `dist/`，审计报告进 `audit/`。
+- 脚手架脚本（`_probe_*`/`_tmp_*`/`_ab_*` 等含具体剧本角色名的一次性工具）归 `scripts/`，正式测试才是 `test_*.py`。
+- 四层均由 `.gitignore` 兜底，`git add .` 永不误伤私人数据（剧本、密钥、配置、备份）。
 
 ## 快速开始
 
