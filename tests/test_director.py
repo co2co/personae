@@ -862,3 +862,88 @@ def test_reflect_clears_scene_shift_when_unchanged(monkeypatch):
     monkeypatch.setattr(director.store, "list_characters", lambda: [])
     out = director.reflect("sid", "他沉默了很久。")
     assert "scene_shift" not in out
+
+
+# ============================================================================
+# 叙事复读检测（detect_narrative_repeat）回归守护
+# ----------------------------------------------------------------------------
+# v0.28.7 把比对窗口 _COMPARE_ROUNDS 3→30、_MIN_REPEAT_SPAN 30→50：旧 3 轮窗口
+# 盖不住「隔多轮复发的场景母题」（实测会话 a20d1c03 最远一次复读隔了 14 轮被漏检），
+# 上调 min_span 压住大窗口的远距离合理回扣误判。以下用例用中性占位 + 合成文本
+# 固化该行为，防窗口/门槛被改回旧值时悄悄失去召回能力（普适性红线：不绑剧本名）。
+# ============================================================================
+
+# 一个 150 字的唯一「场景母题」块（≥ _MIN_REPEAT_SPAN=50，整段搬的判据）。
+# 用「第 N 行」序号保证块内每段互不重复，整块与任何 filler 轮零重叠。
+_REPEATED_BLOCK = (
+    "长案上摆着青瓷茶盏，窗外落着细碎的雨。"
+    "风把檐角的铜铃吹得轻响，案边的烛火却纹丝不动。"
+    "甲端起茶盏慢慢啜了一口，乙望着窗外出神。"
+    "桌上的书信散开一角，墨迹尚未全干。"
+    "甲把最后一句话压得很低，乙没有接话。"
+)
+
+
+# 15 个彼此内容互不相同的中性短句（每句 ≥ _MIN_REPEAT_SPAN=50 字之外无 50 字
+# 整段与别句/母题块重叠），用作「干净历史轮」池，保证干净轮之间零整段复用。
+_CLEAN_SENTENCES = [
+    "檐下的雨顺着瓦缝滴落，石阶上的青苔被冲出一道浅浅的水痕。",
+    "案头摊开的舆图被一阵穿堂风掀起边角，墨线在纸上微微发颤。",
+    "炉上的铜壶咕嘟作响，白汽顶开壶盖又缩回去，反复了好几次。",
+    "墙角的更漏滴得更慢了些，烛芯结出一粒小小的灯花。",
+    "门缝里透进来的风把桌上的薄页吹得哗哗作响，像有谁在翻页。",
+    "院中的老槐抖落几片残叶，落在石桌上，又被风卷了半圈。",
+    "窗纸上映着一个晃动的人影，手里的油灯上下起伏，迟迟没有进来。",
+    "井台上结了薄薄一层霜，水桶的铁链在井沿轻轻碰出细响。",
+    "廊下的灯笼被风压得东倒西歪，光晕在地上画出一圈一圈的波纹。",
+    "灶膛里的火苗忽明忽暗，映得墙上挂着的蓑衣影子一伸一缩。",
+    "门外的狗忽然低低地呜咽了一声，又很快安静下去，只剩风声。",
+    "桌底的猫弓着背慢慢踱到门口，回头望了一眼，才轻轻跳了出去。",
+    "挂在梁上的风铃被穿堂风拨了一下，发出一声极轻的金属脆响。",
+    "地上的水渍被拖过一道，倒映着头顶的星子，慢慢洇开又收拢。",
+    "远处的山脊线上滚过一层薄云，遮住了最后一点残照的余温。",
+]
+
+
+def _filler_round(i):
+    """中性填充轮：取整句（i 在 0..14 范围内时轮与轮互不相同，无 50 字整段重叠）。"""
+    return _CLEAN_SENTENCES[i % len(_CLEAN_SENTENCES)]
+
+
+def test_repeat_catches_far_scene_motive_recurrence():
+    """窗口放宽核心场景：隔 14 轮复发的整段母题必须命中。
+
+    母题块在 history[0]（14 轮之前）原样复现——旧 3 轮窗口盖不到（漏检落盘），
+    新 30 轮窗口必须抓到。这正是会话 a20d1c03 的失败模式。
+    """
+    history = [_REPEATED_BLOCK] + [_filler_round(i) for i in range(1, 15)]
+    current = _filler_round(99) + _REPEATED_BLOCK
+    is_repeat, _, kind = director.detect_narrative_repeat(current, history)
+    assert is_repeat is True
+    assert kind == "history"
+
+
+def test_repeat_clean_round_not_flagged_by_wider_window():
+    """min_span 上调防误伤：无整段搬、仅短词复用的干净轮不得判复读。
+
+    干净轮与历史只有角色名/短句级重叠（< _MIN_REPEAT_SPAN=50），即便在 30 轮
+    大窗口下也不应误判（对应实测 a20d1c03 的 R11/R12 宫斗轮）。
+    history 取 14 句、current 取第 15 句——彼此内容全不同、无 50 字整段重叠。
+    """
+    history = [_CLEAN_SENTENCES[i] for i in range(14)]
+    current = _CLEAN_SENTENCES[14]
+    is_repeat, _, _ = director.detect_narrative_repeat(current, history)
+    assert is_repeat is False
+
+
+def test_repeat_intra_round_self_repeat_still_detected():
+    """轮内自重复不受窗口/门槛改动影响：前半段几乎原样在后半段重现仍须命中。
+
+    self 分支走独立阈值（>=0.5），与 compare_rounds / min_span 解耦，固化其
+    在 v0.28.7 改动后依旧生效，避免「只调了 history 路径、self 路径悄悄失效」。
+    """
+    half = _REPEATED_BLOCK + "（上）"
+    current = half + "（下）" + _REPEATED_BLOCK
+    is_repeat, _, kind = director.detect_narrative_repeat(current, [])
+    assert is_repeat is True
+    assert kind == "self"
