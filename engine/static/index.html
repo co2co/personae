@@ -1524,8 +1524,10 @@ async function refreshDramas(keep) {
   document.getElementById('drama-empty').classList.add('hide');
   listEl.innerHTML = worlds.map(w => {
     const nchars = (counts[w] || []).length;
+    // /api/sessions 已按 updated 降序（最近排最前），sess[0] 即该剧本最近一次会话；剧本卡只展示这一个。
     const sess = sessions.filter(s => (s.world || '') === w);
-    const sessChips = sess.map(s => `<span class="chip">进行中 R${s.round}</span>`).join('');
+    const latest = sess[0];
+    const sessChips = latest ? `<span class="chip">进行中 R${latest.round}</span>` : '';
     return `<div class="mgr-item drama-card" data-w="${escAttr(w)}">
       <div style="font-weight:600;">${escHtml(w)}</div>
       <div class="sub" style="margin-top:3px;">${nchars} 角色 ｜ ${sessChips || '无进行中会话'}</div>
