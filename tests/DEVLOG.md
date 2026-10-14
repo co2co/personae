@@ -6,6 +6,25 @@
 
 ---
 
+## 2026-10-15 高氏王朝定为随包官方 demo（semver PATCH→v0.31.4）
+
+**性质**：随包 demo 剧本落地 + 打包口径变更。**触发 PATCH**：数据/资产层变更（新增官方 demo 剧本），不涉及引擎代码逻辑，非破坏性。
+
+**口径变更**：推翻 2026-10-04「方向 B（分发包不含任何示例剧本）」，改为「随包一份官方 demo 剧本」。当前 demo=高氏王朝（6 角色宫廷群像）。
+
+**落地**：
+- 高氏王朝迁入 `engine/data/examples/`（world.json→worlds/、6 角色卡→characters/、opening.txt→script-example.txt），恢复官方 demo 老家结构（1989c45 曾移除旧 demo）。
+- 3 个退役剧本（丧尸末日/暑期寄住/百日亲政）从 `dramas/` 移到 `backup/dramas_retired_20261015/`，移出引擎本体、仅留备份。
+- `package.py`：代码层排除逻辑无需改（`data/examples/` 前缀天然不被 `data/characters`、`data/worlds` 排除规则误伤），仅改注释口径。
+- `.gitignore`：明确 `data/examples/` 入库随包。
+- `dramas/README.md`：补退役剧本归档约定（backup/dramas_retired_<日期>/）。
+
+**关键确认**：`store._seed_examples` 机制完好——仅在 characters//worlds/ 为空时从 examples 播种，新装用户解压后（两目录因打包排除而空）首次运行自动载入高氏王朝；当前工作树非空不重复播种。
+
+**验证**：打包干跑 32 条目（24 本体 + 8 demo 文件），examples 全进包、私人 data/characters、data/worlds 零泄漏；全量 287 passed, 1 skipped。
+
+---
+
 ## 2026-10-15 恢复背景人物防活动化提示词层（semver PATCH→v0.31.3）
 
 **性质**：恢复 v0.31.0 被连带误删的 offscreen **提示词层**（只恢复 prompt 软约束，不恢复正则检测层）。**触发 PATCH**：恢复类，纯补回既有能力、不改对外语义。

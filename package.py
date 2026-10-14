@@ -35,16 +35,17 @@ _ENGINE_DEFAULTS = _load_engine_defaults()
 
 # 排除项（相对 engine/ 的路径）
 EXCLUDE_DIRS = {".git", "venv", "__pycache__"}
-# 不随分发包携带：会话状态/运行时状态、玩家私人设定、任何剧本内容。
-# 方向 B（2026-10-04 simon 裁定）：分发包不含任何示例剧本，首次运行需自行导入；
-# 故 data/characters 与 data/worlds 整体排除（二者仅含用户私创/个人 DEMO，
-# 绝不可随分发泄漏）。引擎 save_card/save_world 已 mkdir(exist_ok=True)，
+# 不随分发包携带：会话状态/运行时状态、玩家私人设定。
+# 口径（2026-10-15 simon 更改，替代 2026-10-04 的「方向 B」）：分发包随一份官方 demo 剧本，
+# 该 demo 存放于 data/examples/（白名单，天然不被下方 data/characters、data/worlds 排除，
+# 因前缀是 data/examples/… 而非 data/…）。用户私创/个人剧本仍在 data/characters、data/worlds，
+# 二者整体排除，绝不可随分发泄漏。引擎 save_card/save_world 已 mkdir(exist_ok=True)，
 # 用户导入时自动建目录，排除不影响可用性。
 EXCLUDE_SUBPATHS = {
     "data/sessions",
     "data/state.json",
-    "data/characters",   # 角色卡：用户私创/个人 DEMO，不随分发
-    "data/worlds",       # 世界书：同上
+    "data/characters",   # 角色卡：用户私创/个人 DEMO，不随分发（官方 demo 在 data/examples/characters/）
+    "data/worlds",       # 世界书：同上（官方 demo 在 data/examples/worlds/）
     "player-cast",       # 用户剧本：玩家设定
     # 注：运行展示截图（screenshots/ 与 screenshots-excluded/）已于 2026-10-09 整体挪到
     # 项目根，不再位于 engine/ 下，本 os.walk(ENGINE) 天然不会触及，故无需在此排除。

@@ -26,7 +26,7 @@ screenshots/
 # 人眼核验不合格、含私人剧本角色名/题材词的截图：留磁盘不入库不进包
 screenshots-excluded/
 
-# 用户私人剧本数据（官方 demo 在 data/examples/，其余 characters/worlds 为私人数据，不入库）
+# 用户私人剧本数据（官方 demo 在 data/examples/，入库且随包分发；其余 characters/worlds 为私人数据，不入库）
 engine/data/characters/
 engine/data/worlds/
 
