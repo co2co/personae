@@ -584,3 +584,56 @@ def test_reflect_clears_scene_shift_when_unchanged(monkeypatch):
     assert "scene_shift" not in out
 
 
+# ---- 人物位置兜底（v0.31.1）----
+# 纪官偶发漏报 location_updates（relations/goals 膨胀把该字段顶出截断区）时，
+# 兜底用 scene.place 给仍无位置记录的在场角色填最小正确值，避免左栏整片「位置未记录」。
+
+def test_reflect_location_fallback_fills_missing(monkeypatch):
+    """纪官未报 location_updates 时，在场角色用 scene.place 兜底填充。"""
+    import json as _json
+    snap = {"scene": {"round": 3, "place": "大殿"}, "present": [A, B],
+            "relations": {}, "actions": {A: "站立", B: "站立"},
+            "silent_rounds": {}, "secrets": [], "facts": [], "states": {},
+            "goals": {}, "ledger": []}
+    payload = {"actions": {A: "站立", B: "站立"}}  # 无 location_updates
+    monkeypatch.setattr(director.llm, "complete",
+                        lambda *a, **k: _json.dumps(payload, ensure_ascii=False))
+    monkeypatch.setattr(director.memory, "load", lambda sid: snap)
+    monkeypatch.setattr(director.memory, "save", lambda sid, s: None)
+    out = director.reflect("sid", f"{A}和{B}立在原地。")
+    assert out["locations"][A]["place"] == "大殿"
+    assert out["locations"][B]["place"] == "大殿"
+    assert out["locations"][A]["round"] == 3
+
+
+def test_reflect_location_fallback_preserves_reported(monkeypatch):
+    """纪官已报的精确位置不被兜底覆盖；只补漏报者。"""
+    import json as _json
+    snap = {"scene": {"round": 4, "place": "大殿"}, "present": [A, B],
+            "relations": {}, "actions": {}, "silent_rounds": {},
+            "secrets": [], "facts": [], "states": {}, "goals": {}, "ledger": []}
+    payload = {"location_updates": [{"who": A, "place": "偏殿"}]}  # 只报 A
+    monkeypatch.setattr(director.llm, "complete",
+                        lambda *a, **k: _json.dumps(payload, ensure_ascii=False))
+    monkeypatch.setattr(director.memory, "load", lambda sid: snap)
+    monkeypatch.setattr(director.memory, "save", lambda sid, s: None)
+    out = director.reflect("sid", f"{A}进了偏殿，{B}仍立在原处。")
+    assert out["locations"][A]["place"] == "偏殿"  # 保留纪官精确值
+    assert out["locations"][B]["place"] == "大殿"  # 漏报者兜底
+
+
+def test_reflect_location_fallback_skips_without_scene_place(monkeypatch):
+    """scene.place 本身为空时无从兜底，不填也不报错。"""
+    import json as _json
+    snap = {"scene": {"round": 5}, "present": [A], "relations": {},
+            "actions": {}, "silent_rounds": {}, "secrets": [], "facts": [],
+            "states": {}, "goals": {}, "ledger": []}
+    payload = {"actions": {}}
+    monkeypatch.setattr(director.llm, "complete",
+                        lambda *a, **k: _json.dumps(payload, ensure_ascii=False))
+    monkeypatch.setattr(director.memory, "load", lambda sid: snap)
+    monkeypatch.setattr(director.memory, "save", lambda sid, s: None)
+    out = director.reflect("sid", f"{A}沉默。")
+    assert out.get("locations", {}) == {}
+
+

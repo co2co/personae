@@ -6,6 +6,23 @@
 
 ---
 
+## 2026-10-15 人物位置漏报治理（semver PATCH→v0.31.1）
+
+**性质**：修复左栏【人物位置】整片「位置未记录」。**触发 PATCH**：修复类，不改对外语义。备份 `backup/location_fix_20261015/director.py`。
+
+**根因（数据坐实，非模型问题）**：会话 probe_c（llama.cpp Qwen3.8-27B Q4_K_M 实测）R6 快照显示 relations 24 条共 2018 字（平均每条 84 字，远超「关系定性」预期）、goals 每条上百字，膨胀长文耗尽 `REFLECT_MAX_TOKENS=2800`，排在 schema 末尾的 `location_updates` 与 `scene_shift` 被截断丢弃（两字段同时缺席是铁证）。`_salvage_json` 抢救出头部合法字段（relations/actions/goals/secret 全保），尾部两字段静默消失。这印证了「换模型对照」路线证伪：Hy4-preview 与 Qwen3.8-27B 都漏报，与模型无关，是字段排序 + token 预算问题。
+
+**改动**：
+- **字段重排**：reflect 纪官 schema 把 `location_updates`/`scene_shift` 提到 secret 簿记之后、relations/actions/goals 之前（沿用 v0.28.4 治 secret 簿记丢失的同一思路——短小脆弱的物理事实字段优先于冗长字段，截断时先牺牲低危长字段）。
+- **长度硬约束**：relations/goals 每条 value 强制 ≤ 30 字，规则明写「超长即不合格」。
+- **引擎侧兜底**：reflect 回写后，对仍无位置记录的在场角色用 `scene.place` 填最小正确值（物理事实，不伪造精确站位）；`scene.place` 为空则跳过。
+
+**验证**：全量 `tests/` **282 passed, 1 skipped**；test_director.py 新增 3 个兜底用例（漏报填充 / 保留已报精确值 / 无 scene.place 跳过）。
+
+**设计决定**：兜底只填「在场角色、无记录者」，已报精确值不被覆盖；位置是物理事实，`scene.place` 即基准正确值，符合定义层正确性原则（不做压制性 workaround）。
+
+---
+
 ## 2026-10-15 第二批机制精简 + 秘密簿记修正（semver MINOR→v0.31.0）
 
 **性质**：延续 v0.30.0 的「去非核心机制」路线，删掉两块「引擎替 LLM 兜底」的低命中自检，并修正秘密簿记一处定义层漏洞。**触发 MINOR**：对外可见行为变更（纪官 JSON 少 offscreen 字段、叙事不再被背景自检点名、把柄转手语义修正）。

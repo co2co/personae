@@ -1110,6 +1110,12 @@ def reflect(sid, reply, directive=""):
     loc_lines = [f"{k}：{(snap['locations'][k].get('place') or '')}"
                  for k in sorted((snap.get("locations") or {}).keys())]
     loc_text = "；".join(loc_lines) or "（无）"
+    # 当前场景锚点回喂：给「原地未动的在场角色」一个基准地点。无此锚点时，模型判定
+    # 「谁都没移动＝没有位置变化＝不报 location_updates」，整轮漏报导致左栏【人物位置】
+    # 全员缺席（会话 c91d7fce：朝会开局 6 人皆「停在原处」，actions 正常、locations 全空）。
+    # 位置是物理事实而非猜测，喂了场景地点，原地未动者至少能报到场景基准处。
+    _sc = snap.get("scene") or {}
+    scene_text = "｜".join(x for x in (_sc.get("place"), _sc.get("time"), _sc.get("weather")) if x) or "（无）"
     # 导演指令回喂：关键事实（群演死亡等）可能只由玩家指令承载、正文未复述甚至弱化。
     # 仅当指令非空时占一行，自然推演轮零开销。指令是玩家本人的权威设定，优先级高于正文。
     dir_block = ("\n本轮导演指令（玩家设定，权威，正文与其冲突时以指令为准）：\n" + directive + "\n") if directive else ""
@@ -1124,27 +1130,32 @@ def reflect(sid, reply, directive=""):
             f"秘密与把柄现状：\n{secret_text}\n"
             f"既有状态键：{st_text}\n"
             f"既有位置：{loc_text}\n"
+            f"当前场景：{scene_text}\n"
             f"{dir_block}"
             f"本轮叙事：\n{reply}\n\n"
             # 字段顺序即截断优先级：秘密簿记（exposures/suspicions/handle_releases/touches）排最前，
-            # 冗长的 relations/actions/goals 排其后，事实保全与群演/场景信息殿后。
+            # 其次是低成本且脆弱的物理事实字段（location_updates/scene_shift）——它们条目短，
+            # 放在冗长字段之前可保证即便输出被截断也先牺牲 relations/actions/goals 而非位置。
+            # 冗长的 relations/actions/goals 排最后。
             # 这样即便输出被 max_tokens 截断，也优先牺牲低危的冗长字段，保住核心簿记
-            # （v0.28.4 治：REFLECT_MAX_TOKENS 不足时 JSON 截断→整轮秘密簿记丢失，4/6 暗牌全程潜伏）。
+            # （v0.28.4 治：REFLECT_MAX_TOKENS 不足时 JSON 截断→整轮秘密簿记丢失，4/6 暗牌全程潜伏；
+            #  v0.31.1 治：location_updates 被 relations/goals 膨胀长文顶出截断区→左栏【人物位置】整片空）。
             "请输出 JSON：\n"
             "{\n"
             '  "secret_exposures": [{"owner": "秘密归属者", "by": "本轮得知该秘密的角色名", "via": "信息获取方式，只能填「看见/听见/被告知/发现物证/自述/承认」六类之一", "evidence": "本轮叙事原文片段"}],\n'
             '  "secret_suspicions": [{"owner": "秘密归属者", "by": "本轮起了疑心的角色名", "evidence": "本轮叙事原文片段（引发怀疑的那句话/那个细节）"}],\n'
             '  "handle_releases": [{"owner": "秘密归属者", "from": "失去把柄的人", "to": "接过把柄的人（彻底失去则填空字符串）", "evidence": "本轮叙事原文片段"}],\n'
             '  "secret_touches": [{"owner": "秘密归属者", "touched": true}],\n'
+            '  "location_updates": [{"who": "角色名", "place": "该角色本轮结束时所在的具体地点"}],\n'
+            '  "scene_shift": {"changed": false, "place": "本轮叙事末尾所处的地点", "time": "本轮叙事末尾的时间", "weather": "本轮叙事末尾的天气"},\n'
             '  "relations": { "源 → 目标": "关系定性（只写稳定的人物关系定位，如\'妈妈，独占欲\'，不要包含本轮具体动作描写）" },\n'
             '  "actions": { "角色名": "本轮该角色做的一句具体行为（不含关系定性，只写这回合发生了什么）" },\n'
             '  "goals": { "角色名": "新的短期目标" },\n'
-            '  "state_updates": [{"subject": "对象（如某道门、某件物品、某人的伤）", "value": "当前状态一句话"}],\n'
-            '  "location_updates": [{"who": "角色名", "place": "该角色本轮结束时所在的具体地点"}],\n'
-            '  "scene_shift": {"changed": false, "place": "本轮叙事末尾所处的地点", "time": "本轮叙事末尾的时间", "weather": "本轮叙事末尾的天气"}\n'
+            '  "state_updates": [{"subject": "对象（如某道门、某件物品、某人的伤）", "value": "当前状态一句话"}]\n'
             "}\n"
             "规则：\n"
             "- relations 只写跨回合稳定的关系定性，严禁把本轮动作（如\'靠肩头\'\'护送\'\'命令其回房\'）写进关系描述；关系键保持\"源 → 目标\"格式；只更新确实变化的条目，不要删除未提及的关系。\n"
+            "- relations 与 goals 的每条 value **必须 ≤ 30 字**（一句话、一个短语），严禁写成长段小作文——写长会挤占 token 额度，导致排在后面的字段被截断丢弃（这是硬性要求，超长即不合格）。\n"
             "- 亲属身份是固定事实：父子/母子/夫妻/兄弟姐妹等血缘与姻亲身份由作者设定，只能演化其情感状态（如加「关系紧张」「疏离」），绝对不得改写为另一种亲属身份（例如不得把「父亲」写成「姐夫」、把「母亲」写成「嫂子」）。\n"
             "- actions 覆盖本轮所有在场角色的一句行为摘要，用于展示\'这回合谁做了什么\'；这是回合级信息，可每轮整体覆盖。\n"
             "- secret_exposures 只填本轮叙事里**确实发生**了「某人得知了某秘密」的条目；仅凭角色起了疑心、或只是提到相关物品，都不算。\n"
@@ -1170,15 +1181,19 @@ def reflect(sid, reply, directive=""):
             "  **严禁把人物位置写进 state_updates**：不得填「卧室门：角色A在屋内」「客厅：某人守在门口」这类把\n"
             "  「谁在哪里」塞进物件/环境键的写法——人物位置一律走 location_updates，否则分队移动后旧键过期、\n"
             "  会造成同一角色同时出现在两处（位置不是物件状态，不共用状态键）。\n"
-            "- location_updates 填**每个位置发生变化**的角色的当前位置：谁离开了哪里、到了哪里；**「既有位置」里\n"
-            "  还没有记录的在场角色，即使本轮没有移动，也必须报一次实际位置**（首轮全量、此后增量——只报 moved\n"
-            "  会让开局原地未动的角色永远缺席位置表，左栏「人物位置」就永远少人）。place 写本轮叙事末尾该角色\n"
-            "  **实际所处**的具体地点\n"
-            "  （如「电梯内」「地库」「卧室」「客厅」），不要写泛称「外面」「那边」。\n"
+            "- location_updates 填**每个位置发生变化**的角色的当前位置：谁离开了哪里、到了哪里。\n"
+            "  **硬性全量规则（不可跳过）**：凡「既有位置」里**还没有记录**的在场角色——无论本轮是否移动——"
+            "必须各报一条。这是物理事实而非猜测，**不存在「误报」风险，「宁可漏报」不适用**：原地未动者至少报\n"
+            "「当前场景」基准地点（如全员朝会未动，就各报「大殿」）。漏报会让左栏【人物位置】整片「（位置未记录）」。\n"
+            "  已记录且本轮未动的角色才不必重报（沿用既有位置）——这是「首轮全量、此后增量」的本意，**不是**「谁没动\n"
+            "  就谁不报」：开局全员无记录时，本轮就是「首轮」，必须全员全量。\n"
+            "  place 写本轮叙事末尾该角色**实际所处**的具体地点（如「电梯内」「地库」「卧室」「客厅」），"
+            "正文点明了具体站位/班次就报具体（如「北境来使班次」「御座西侧」），正文未点明、人又未移动就报当前场景基准处，\n"
+            "不要写泛称「外面」「那边」。\n"
             "  位置是物理事实、每角色唯一：同一角色本轮只报一条，后写覆盖前写，绝不可报两条互相矛盾的位置。\n"
             "  who 用角色的正式名字（沿用「在场角色」「既有位置」里的写法）；刚移动过的在场角色与群演都要覆盖到。\n"
-            "宁可漏报，不可误报；位置里只是「翻窗逃到隔壁单元」「转移到别处躲藏」这类**还会回来**的"
-            "暂时逃离一律不填（判断依据是「会不会再回来」，不是「有没有离开原位」）。\n"
+            "  唯一的「不填」例外：位置里只是「翻窗逃到隔壁单元」「转移到别处躲藏」这类**还会回来**的"
+            "暂时逃离（判断依据是「会不会再回来」，不是「有没有离开原位」）。\n"
             "- scene_shift：本轮叙事里**地点／时间／天气有没有实际发生变化**（如从客厅走到楼道、"
             "天黑了、下起雨）。changed 填 true 时同时给出变化后的 place/time/weather，"
             "引擎据此把场景状态追上叙事（避免场景停在「清晨」而正文早已入夜）。"
@@ -1353,6 +1368,18 @@ def reflect(sid, reply, directive=""):
     update_states(snap, _as_dict_list(data.get("state_updates")), rd)
     # 人物位置：独立唯一真相源，与状态键分离（见 update_locations 说明）。
     update_locations(snap, _as_dict_list(data.get("location_updates")), rd)
+    # 兜底（v0.31.1）：对仍无位置记录的在场角色，用 scene.place 填最小正确值。
+    # 位置是物理事实而非猜测——scene.place 就是「这些人在哪」的基准地点，不伪造精确站位。
+    # 纪官偶发漏报（relations/goals 膨胀把 location_updates 顶出截断区）时，兜底保证
+    # 左栏【人物位置】不整片「位置未记录」。scene.place 本身为空则无从兜底，跳过。
+    _scene_place = ((snap.get("scene") or {}).get("place") or "").strip()
+    if _scene_place:
+        _loc = snap.setdefault("locations", {})
+        for _who in present:
+            _n = _STATE_NOISE.sub("", _who)
+            if any(_STATE_NOISE.sub("", k) == _n for k in _loc):
+                continue
+            _loc[_who] = {"place": _scene_place, "round": rd}
 
     # 场景信号并联（零额外 LLM 成本）：纪官从叙事里读出「场景其实已经变了」，
     # 补上 scene._triggered 关键词表枚举不完的洞（关键词漏触发 = 场景与叙事脱节）。
