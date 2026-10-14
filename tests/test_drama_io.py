@@ -74,8 +74,8 @@ def test_export_shape_and_membership(data):
     assert [c["name"] for c in tpl["characters"]] == ["甲角", "甲角2"]
     # 扩展字段随卡原样保留
     assert next(c for c in tpl["characters"] if c["name"] == "甲角2")["extensions"] == {"avatar": "a.png"}
-    # save_world 新建会播种一条「亲密描写标准」，故 world 条目含标准条
-    assert "亲密描写标准" in [e.get("name") for e in tpl["world"]["entries"]]
+    # v0.29.0 起 save_world 不再播种任何尺度条目，故 world 条目不含「亲密描写标准」
+    assert "亲密描写标准" not in [e.get("name") for e in tpl["world"]["entries"]]
 
 
 def test_export_missing_drama_returns_none(data):

@@ -43,9 +43,8 @@ def test_load_card_caches_and_invalidates_on_save(_isolated_store):
 
 
 def test_load_world_caches_and_invalidates(_isolated_store):
-    # 注意：新建世界时 store.save_world 会在首位播种一条「亲密描写标准」标准条目
-    # （见 store._STANDARD_ENTRY_CONTENT）。这里验证的是「缓存随覆盖写失效」，
-    # 故断言用户那条内容在列表里被更新，而非固定在下标 0。
+    # v0.29.0 起 save_world 不再播种任何条目。这里验证的是「缓存随覆盖写失效」，
+    # 故断言用户那条内容在列表里被更新。
     def user_entry(text):
         return next(e for e in store.load_world("世界甲") if e["content"].startswith("c"))
 

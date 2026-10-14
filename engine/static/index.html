@@ -1979,7 +1979,7 @@ function renderSessions(list) {
           <div style="font-size:12.5px;color:var(--muted);">
             会话 ${escHtml(s.session)}
             ｜ <span class="sess-world" data-sid="${escAttr(s.session)}" ${worldKnown?'':'data-fallback="1"'}>${worldKnown ? '剧本 '+escHtml(s.world) : '剧本（存量会话，回退中…）'}</span>
-            ｜ 回合 R${s.round} ｜ 阶段 ${escHtml(s.intimacy_phase)} ｜ ${escHtml(t)}
+            ｜ 回合 R${s.round} ｜ ${escHtml(t)}
           </div>
           <div class="chips" style="margin-top:7px;">${chips}</div>
           <div class="scene-line">场景：${escHtml(s.scene || '（未设置）')}</div>
