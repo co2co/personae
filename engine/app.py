@@ -681,71 +681,26 @@ def act():
         model = llm.setting("model")
         logger.info("model", "远程模型开始生成（" + str(model) + "）…")
 
-        # 复读检测 + 自动重生成（v0.22.x，与后端采样参数解耦的泛用防复读）。
-        # 最多重试 1 次：首次命中复读即降温度重生成，再次命中则照常落盘（避免死循环）。
-        max_regen = 1
-        regen_count = 0
-
-        def _generate_once(cur_params, box):
-            """单次流式生成，逐块回传；全文累积进 box[0]。返回 True 成功 / False 流异常。"""
-            reply_text = []
-            first = True
-            try:
-                for chunk in llm.stream(messages, **cur_params):
-                    if first:
-                        first = False
-                        logger.success("model", "首 token 已到达，模型正在输出…")
-                        yield "data: " + json.dumps({"status": "生成中…"}, ensure_ascii=False) + "\n\n"
-                    reply_text.append(chunk)
-                    yield "data: " + json.dumps({"delta": chunk}, ensure_ascii=False) + "\n\n"
-            except Exception as exc:
-                logger.error("model", "模型流异常：" + repr(exc))
-                yield "data: " + json.dumps({"error": str(exc)}, ensure_ascii=False) + "\n\n"
-                box[0] = ""
-                return
-            box[0] = "".join(reply_text)
-
-        # 复读检测用的历史正文（不含本轮，因尚未落盘）
-        history_texts = [m.get("content", "") for m in history if m.get("role") == "assistant"]
-
         # 首 token 前先发「思考中」状态
         yield "data: " + json.dumps({"status": "模型思考中…"}, ensure_ascii=False) + "\n\n"
 
-        full = None
-        gen_params = dict(params)
-        while True:
-            box = [""]
-            for item in _generate_once(gen_params, box):
-                yield item
-            full = box[0]
-            if not full:
-                # 流异常已 yield error，直接终止
-                return
-
-            # 复读检测：轮内自重复 或 与最近历史轮重复
-            is_repeat, overlap, kind = director.detect_narrative_repeat(
-                full, history_texts)
-            if not is_repeat or regen_count >= max_regen:
-                if is_repeat:
-                    logger.warn("model", "复读检测命中（" + (kind or "?") +
-                                "，重叠率 " + str(round(overlap, 3)) +
-                                "），已达重试上限，照常落盘")
-                else:
-                    logger.info("model", "复读检测通过（最大重叠率 " +
-                                str(round(overlap, 3)) + "）")
-                break
-
-            # 命中复读：降温度 + 注入防复读约束后重生成
-            regen_count += 1
-            logger.warn("model", "复读检测命中（" + (kind or "?") +
-                        "，重叠率 " + str(round(overlap, 3)) +
-                        "），降温度重生成（第 " + str(regen_count) + " 次）")
-            yield "data: " + json.dumps(
-                {"status": "检测到重复，正在重新生成…", "regenerate": True},
-                ensure_ascii=False) + "\n\n"
-            gen_params = dict(gen_params)
-            # 温度减半并封底，抑制复读
-            gen_params["temperature"] = max(0.4, gen_params.get("temperature", 1.0) * 0.5)
+        reply_text = []
+        first = True
+        try:
+            for chunk in llm.stream(messages, **params):
+                if first:
+                    first = False
+                    logger.success("model", "首 token 已到达，模型正在输出…")
+                    yield "data: " + json.dumps({"status": "生成中…"}, ensure_ascii=False) + "\n\n"
+                reply_text.append(chunk)
+                yield "data: " + json.dumps({"delta": chunk}, ensure_ascii=False) + "\n\n"
+        except Exception as exc:
+            logger.error("model", "模型流异常：" + repr(exc))
+            yield "data: " + json.dumps({"error": str(exc)}, ensure_ascii=False) + "\n\n"
+            return
+        full = "".join(reply_text)
+        if not full:
+            return
 
         logger.info("model", "模型输出完成，共 " + str(len(full)) + " 字")
         result = hooks.emit("message_received", reply=full, snap=snap)
@@ -764,22 +719,6 @@ def act():
             logger.warn("model", "在场校验：剥离了非在场角色的台词块（已自动清洗）")
         else:
             logger.info("model", "在场校验通过：仅含在场角色台词")
-        # 背景人物活动化自检：无独立角色卡、仅关系事实的角色若被写成对白/独白/主角行动，
-        # 属引擎失责（simon 验收标准）。
-        # v0.17.2 起**只告警、绝不删正文**：此前命中即整句 replace 删除，而判据②
-        # 「分句主语 + 动作字表」把「来自远方的指令」这类合法提及也判成失责——实测
-        # 296 轮里 23 轮命中、真失责接近 0，却把有卡在演的角色（真实会话事故）
-        # 的 27 字长句删到只剩「。」。误删代价远大于漏删收益，改为下轮提示词点名批评。
-        # 语义判定移交纪官（reflect 的 offscreen_activity + 逐字举证），见 prompter。
-        offscreens = director.background_names_from_relations(snap, present, extra_known=known)
-        off_viol, off_hits = director.detect_offscreen_activity(full, offscreens)
-        if off_viol:
-            present_violation = True
-            logger.warn("model", "背景人物活动化自检命中（仅告警，不删正文）："
-                        + "；".join(off_hits[:3]) + ("…" if len(off_hits) > 3 else ""))
-        else:
-            logger.info("model", "背景人物自检通过："
-                        + ("、".join(offscreens) + " 保持背景" if offscreens else "无背景人物"))
         # 临时群演（aux）机制已废除（v0.30.0）：临时角色交还 LLM 与玩家自主管理，
         # 引擎不再登记、追踪或确保其生命周期；未入册的名字在 validate_present
         # 中当叙述行保留，不会被剥离。
@@ -824,7 +763,6 @@ def act():
             "done": True,
             "reply": full,
             "present_violation": present_violation,
-            "offscreen_violation": off_hits,
             "scene_change": _scene_change_payload(scene_changed, scene_prop, snap)
                             if scene_changed else None,
             "ending_candidate": candidate,

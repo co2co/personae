@@ -223,7 +223,6 @@ def run(base_url, rounds, timeout, cast=None, scene=None):
                 "ending": bool(done.get("ending_candidate")),
                 # v0.30.0 起临时群演（aux）机制废除，群演观测字段保留为空以便旧报告对齐
                 "aux": [],
-                "offscreen_violated": snap.get("offscreen_violated") or [],
                 "scene_shift": snap.get("scene_shift"),
             })
             # 能力保持：点名角色是否真的出场（出现在回复里）
@@ -235,7 +234,6 @@ def run(base_url, rounds, timeout, cast=None, scene=None):
                   f"present={len(rec['present'])} focus={rec['focus']} "
                   f"暴露={rec['exposed']} 起疑={susp_n} 账本={rec.get('ledger', 0)} "
                   f"违例={rec['present_violation']} ending={rec['ending']} "
-                  f"越界={len(rec['offscreen_violated'])} "
                   f"换场={'是' if (rec['scene_shift'] or {}).get('changed') else '-'}",
                   flush=True)
     finally:
@@ -355,8 +353,7 @@ def analyze(records, errors):
     first_fact_round = next((r["round"] for r in ok if r.get("facts")), "-")
     state_sizes = [len(r.get("states") or {}) for r in ok]
 
-    # v0.17.2 纪官语义提取落地观测（群演观测已随 v0.30.0 机制废除停用）
-    offscreen_rounds = sum(1 for r in ok if r.get("offscreen_violated"))
+    # v0.17.2 纪官语义提取落地观测（群演/越界观测已随 v0.30.x 机制废除停用）
     shift_rounds = sum(1 for r in ok if (r.get("scene_shift") or {}).get("changed"))
     # 删正文回归哨兵：极短回复或残句（以句号/逗号开头）
     short_rounds = sum(1 for r in ok if 0 < r.get("reply_len", 0) < 200)
@@ -400,7 +397,6 @@ def analyze(records, errors):
         "常量层首次入表轮次": first_fact_round,
         "状态层键数(末轮/峰值)": (f"{state_sizes[-1]}/{max(state_sizes)}"
                                   if state_sizes else "-"),
-        "背景人物越界告警轮数": offscreen_rounds,
         "场景切换信号轮数": shift_rounds,
         "极短回复轮数(<200字)": short_rounds,
         "残句回复轮数(以句号/逗号开头)": stump_rounds,
@@ -441,20 +437,17 @@ def build_report(meta, records, summary, errors):
                    f"| {'是' if r.get('present_violation') else '否'} "
                    f"| {named} |")
     out.append("")
-    out.append("## 纪官语义提取观测（越界告警 / 换场信号）")
+    out.append("## 纪官语义提取观测（换场信号）")
     out.append("")
-    out.append("| 轮 | 越界告警 | 换场信号 | 换场去向 |")
-    out.append("|---|---|---|---|---|")
+    out.append("| 轮 | 换场信号 | 换场去向 |")
+    out.append("|---|---|---|")
     for r in records:
         if r.get("error"):
             continue
-        viol = r.get("offscreen_violated") or []
         sh = r.get("scene_shift") or {}
-        if not cur and not viol and not sh:
+        if not sh:
             continue
-        out.append(f"| {r['round']} | {len(cur)} | {'、'.join(new) or '-'} "
-                   f"| {'、'.join(str(v) for v in viol) or '-'} "
-                   f"| {'是' if sh.get('changed') else '-'} "
+        out.append(f"| {r['round']} | {'是' if sh.get('changed') else '-'} "
                    f"| {sh.get('place') or '-'} |")
     out.append("")
     out.append("## 秘密链条演进")

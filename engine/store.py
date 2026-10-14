@@ -114,7 +114,7 @@ def unassigned_characters():
 def _cached_listing(folder):
     """带签名的目录列表缓存：以「文件名 + mtime」签名做键，文件集合变化才重扫。
 
-    list_characters / list_worlds 每轮被 director（背景人物判定、群演排除）调用，
+    list_characters / list_worlds 每轮被 director（开场加载、在场校验）调用，
     逐轮 glob 目录 + stat 属于无谓开销；签名缓存把重复扫目录压成一次。
     """
     folder.mkdir(parents=True, exist_ok=True)

@@ -109,51 +109,6 @@ def test_reflect_freezes_offscreen_relation(monkeypatch):
 
 
 # ---------------------------------------------------------------------------
-# 4. 背景人物活动化自检（simon 验收：引擎把背景人物写成活动角色即失责）
-# ---------------------------------------------------------------------------
-
-def test_background_names_excludes_present():
-    """relations 里出现但不在在场名单的角色 = 背景人物（如角色丙）。"""
-    snap = {"present": ["角色乙", "角色甲"],
-            "relations": {"角色乙 → 角色丙": "小姨子",
-                          "角色甲 → 角色丙": "妹妹",
-                          "角色乙 → 角色甲": "妻子"}}
-    offs = director.background_names_from_relations(snap, snap["present"])
-    assert offs == ["角色丙"]
-
-
-def test_offscreen_dialogue_flagged():
-    """背景人物获得独立台词块（对白/独白）-> 失责。"""
-    offs = ["角色丙"]
-    reply = "角色乙看着窗外。\n角色丙：其实我早就知道了，姐夫。\n角色甲叹了口气。"
-    viol, hits = director.detect_offscreen_activity(reply, offs)
-    assert viol is True
-    assert any("角色丙" in h for h in hits)
-
-
-def test_offscreen_action_subject_flagged():
-    """第三人称里背景人物作主语且有动作 -> 失责（如「角色丙从门后走出」）。"""
-    offs = ["角色丙"]
-    reply = "角色乙沉默不语。角色丙从门后走出，静静望着二人。角色甲握紧了手。"
-    viol, hits = director.detect_offscreen_activity(reply, offs)
-    assert viol is True
-    assert any(h.startswith("角色丙") for h in hits)
-
-
-def test_offscreen_mentioned_by_present_ok():
-    """在场角色以谈论方式带过背景人物 -> 不失责（允许的背景提及）。"""
-    offs = ["角色丙"]
-    reply = "角色甲低声说：我妹妹梦琪最近总一个人待着，怪让人担心的。角色乙点点头。"
-    viol, hits = director.detect_offscreen_activity(reply, offs)
-    assert viol is False, hits
-
-
-def test_offscreen_no_background_clean():
-    """无背景人物时自检直接通过。"""
-    viol, hits = director.detect_offscreen_activity("角色乙走了出去。", [])
-    assert viol is False and hits == []
-
-
 def test_preserve_kinship_blocks_identity_flip():
     """亲属身份冻结：父亲被模型改写成姐夫时，应回退为父亲、保留情感修饰。"""
     corrected = director._preserve_kinship("父亲", "姐夫，挑衅者/主动方")
@@ -359,19 +314,6 @@ def test_preserve_kinship_declared_overrides_model_wrong_identity():
     assert corrected == "母亲，复杂情感萌芽", corrected
 
 
-def test_offscreen_flashback_action_detected():
-    """背景人物在闪回里成为主动主语（角色丙笑/角色丙塞糖）应被判失责。
-
-    复现跨剧本对照验证中的真实失责样本。
-    """
-    offs = ["角色丙"]
-    reply = ("角色甲望着墙角的旧照片。角色丙笑的样子浮上心头。"
-             "角色丙每次出完任务回来，都从兜里摸出一颗水果糖，塞进她手心里。")
-    viol, hits = director.detect_offscreen_activity(reply, offs)
-    assert viol is True, hits
-    assert any(h.startswith("角色丙") for h in hits)
-
-
 # ---------------------------------------------------------------------------
 # 5. 关系缺口自动推断（漏网 bug 修复）
 # ---------------------------------------------------------------------------
@@ -430,30 +372,6 @@ def test_fill_relation_gaps_skips_when_complete(monkeypatch):
 # ---------------------------------------------------------------------------
 # 背景人物名单推导（v0.17.2 修复：有独立角色卡 / 已登记群演不是背景人物）
 # ---------------------------------------------------------------------------
-
-def test_background_excludes_carded_characters(monkeypatch):
-    """有独立角色卡的角色即便本轮不在场名单，也不算背景人物。
-
-    真实事故：某位有独立角色卡、全程在演的角色，却被 relations↔present 的
-    集合差划成背景，导致其正常戏份被 detect_offscreen_activity 整句删除
-    （27 字长句被删到只剩「。」）。背景人物的定义是「store 不收录者」。
-    """
-    monkeypatch.setattr(director.store, "list_characters",
-                        lambda: ["角色甲", "角色丙"])
-    snap = {"relations": {"角色甲 → 角色丙": "妹妹", "角色甲 → 角色戊": "邻居"},
-            "present": ["角色甲"]}
-    offs = director.background_names_from_relations(snap, ["角色甲"])
-    assert offs == ["角色戊"], offs
-
-
-def test_background_accepts_extra_known(monkeypatch):
-    """extra_known 用于复用调用方已算好的名单，避免重复扫盘。"""
-    monkeypatch.setattr(director.store, "list_characters", lambda: [])
-    snap = {"relations": {"角色甲 → 角色戊": "邻居"}, "present": ["角色甲"]}
-    assert director.background_names_from_relations(snap, ["角色甲"]) == ["角色戊"]
-    assert director.background_names_from_relations(
-        snap, ["角色甲"], extra_known=["角色戊", "角色甲"]) == []
-
 
 def test_scene_trigger_uses_director_signal(monkeypatch):
     """纪官的 scene_shift 信号触发场景导演，补上关键词表枚举不完的洞。

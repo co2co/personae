@@ -192,13 +192,15 @@ def _clear_suspicion(s, by, present=None):
 
 
 def _release_handle(s, frm, to, round_no, present=None):
-    """把柄失效/转手（全版）：仅操作 holders（握把柄者），known_by（知情者）不变。
+    """把柄失效/转手（全版）：操作 holders（握把柄者）；转手给 to 时 to 也入 known_by。
 
     to 为空表示彻底失去（药物被丢弃、证据被销毁、当众说开后不再构成胁迫）。
-    holders 清空后由 _secret_state 重算状态：信息不可逆，known_by 非空者不再回落
-    「潜伏」——归入「暴露（已知情）」，若归属者已公开且众人皆知则为「已公开」
+    转手语义：to 接过把柄即必然知情（prompter 的 holders 分支会给其完整秘密真相，
+    否则无从据此要挟），故 to 同时写入 known_by——知情不可逆，之后即便 to 再失去
+    把柄也不「凭空失忆」。frm 的 known_by 不移除（它已知道，信息不可逆）。
+    holders 清空后由 _secret_state 重算状态：known_by 非空者不再回落「潜伏」——
+    归入「暴露（已知情）」，若归属者已公开且众人皆知则为「已公开」
     （v0.26.0 四态：旧版回落「潜伏」会让已天下皆知的秘密显示成没人知道，见探针 R6 事故）。
-    known_by 不移除（信息不可逆）。
     返回 True 表示确有变更。
     """
     s.setdefault("holders", list(s.get("known_by", [])))
@@ -206,12 +208,14 @@ def _release_handle(s, frm, to, round_no, present=None):
     if frm not in hb:
         return False
     hb = [k for k in hb if k != frm]
-    if to and to != s.get("owner") and to not in hb:
-        hb.append(to)
+    if to and to != s.get("owner"):
+        if to not in hb:
+            hb.append(to)
+        # 转手即知情：to 接过把柄必然知道秘密，写入 known_by 保持「知情不可逆」。
+        if to not in s.get("known_by", []):
+            s.setdefault("known_by", []).append(to)
     s["holders"] = hb
     s["state"] = _secret_state(s, present)
-    s.setdefault("releases", []).append(
-        {"from": frm, "to": to or None, "via": "把柄失效/转手", "round": round_no})
     return True
 
 
@@ -582,72 +586,6 @@ def validate_present(reply, present, known_names, allowed=None):
     return "\n".join(out), violated
 
 
-def background_names_from_relations(snap, present, extra_known=None):
-    """从快照关系表中析出「背景人物」：在 relations 键里出现、但不在场的**无卡**角色。
-
-    这些角色无独立角色卡（store 不收录），仅在他人 relations 字段/世界书里被定位，
-    属于「非在场」背景板。引擎应保证其不被活动化（见 detect_offscreen_activity）。
-
-    extra_known：调用方已知的角色名集合（省一次 list_characters 扫盘）；不传则自取。
-
-    判定为「有独立角色卡即不是背景人物」是这个函数的设计本意（背景 = store 不收录者）。
-    早前只做「relations 名字 − present」的集合差，把**有卡但本轮不在场名单**的角色也
-    划成背景，于是他在叙事里的正常戏份被 detect_offscreen_activity 判失责并整句删除
-    （真实事故：某有独立角色卡、全程在演的角色，27 字长句被删到只剩「。」）。
-    """
-    present_set = set(present or [])
-    known = set(extra_known) if extra_known is not None else set(store.list_characters())
-    rel_names = set()
-    for k in (snap or {}).get("relations", {}):
-        for e in k.split("→"):
-            rel_names.add(e.strip())
-    return sorted(n for n in rel_names
-                  if n and n not in present_set and n not in known)
-
-
-def detect_offscreen_activity(reply, background_names):
-    """自检「背景人物是否被活动化」——simon 验收标准：引擎把背景人物写成活动角色即失责。
-
-    仅检测、不删正文（背景被在场角色提及本身是允许的，误删风险高）。返回 (是否失责, 命中行列表)。
-    命中三类（**三判据互补，不依赖输出格式**——v0.17.0 已移除「角色名：」分段格式契约，
-    模型回归散文主体写法，故不能只靠行首匹配）：
-      ① 独立台词块（'背景名：' 起头）——被写了对白/独白；
-      ② 第三人称分句以背景名为主语且含动作/出场信号（如「X从门后走出」）——被写成主角行动；
-      ③ **引号紧跟背景名**（如「“老王，走吧。”」）——被写成对白。这是散文写法下
-         背景人物获得台词的唯一形态，缺了它该检测在散文体下完全失效。
-    """
-    if not reply or not background_names:
-        return False, []
-    names_sorted = sorted(set(background_names), key=len, reverse=True)
-    pat = re.compile(r"^(?:" + "|".join(re.escape(n) for n in names_sorted) + r")\s*[:：]")
-    action_re = re.compile(r"[走跑走进出开看说笑问拿放抱亲吻摸扯拉推挡站坐躺靠冲望回头转转身来到去迎送探伸]")
-    # ③ 引号紧跟背景名：中文引号“” 与英文引号 "" 都算；名字后允许带标点
-    quoted = re.compile(
-        r"[“\"](?:" + "|".join(re.escape(n) for n in names_sorted) + r")"
-        r"\s*[，。！？…、]?\s*[”\"]")
-    hits = []
-    for ln in reply.split("\n"):
-        s = ln.strip()
-        if not s:
-            continue
-        if pat.match(ln):                      # ① 独立台词块（对白/独白）
-            hits.append(s)
-            continue
-        if quoted.search(s):                  # ③ 引号紧跟背景名（散文体下的对白）
-            hits.append(s)
-            continue
-        # ② 第三人称分句：以背景名作主语且含动作/出场信号（兼顾整段混写无换行的情况）
-        for seg in re.split(r"[。！？；\n]", s):
-            seg = seg.strip()
-            if not seg:
-                continue
-            for n in names_sorted:
-                if seg.startswith(n) and len(seg) > len(n) and action_re.search(seg[len(n):]):
-                    hits.append(seg)
-                    break
-    return (len(hits) > 0), hits
-
-
 def seed_relations_from_cards(cards_present):
     """从角色卡自带的 relations 字段确定性地构建初始关系表（"源 → 目标": 描述）。
 
@@ -874,8 +812,6 @@ def fill_relation_gaps(snap):
     return gap_chars
 
 
-# 在场即须留痕：连续静默达到该轮数即由 prompter 注入硬性焦点。
-SILENT_THRESHOLD = 2
 # 秘密发酵压力上限：封顶以免长期无进展时无限加压，把剧情逼成机械碰撞。
 PRESSURE_MAX = 5
 # 高压档：达到该值即从「角色块内的一句提示」升级为全局软提醒（提级文案，玩家指令优先，不再强制进镜头）。
@@ -890,13 +826,12 @@ REFLECT_MAX_TOKENS = 2800
 
 
 def _update_silent_rounds(snap, present):
-    """按纪官的行为摘要累加各角色的连续静默轮数。
+    """按纪官的行为摘要累加各角色的连续静默轮数（仅作前端在场 chip 的轻量展示信号）。
 
-    判定依据是纪官抽取的 snap["actions"]（每角色本轮一句行为摘要），而非名字是否出现
-    在正文里——后者判不出「被提到名字却毫无行为」这种事实上的缺席。
-    镜头跟随时只统计镜头内角色：镜头外的人本轮本就不该被写，计沉默会误伤。
-    躲避、负气不语、被压制这类有意为之的沉默，纪官同样会写成行为摘要，故不会被误判
-    为遗忘——判定权在纪官，不在机械规则。
+    v0.30.1 起不再驱动任何强制焦点/提示——「在场即须留痕」硬性焦点已废除，
+    静默数字只是引擎「已注意到该角色」的透明提示，不干预叙事走向。判定依据是纪官
+    抽取的 snap["actions"]（每角色本轮一句行为摘要），而非名字是否出现在正文里；
+    躲避、负气不语、被压制这类有意的沉默，纪官同样会写成行为摘要，不会误判为遗忘。
     """
     acts = snap.get("actions") or {}
     focus_subjects = set((snap.get("focus") or {}).get("subjects") or [])
@@ -1175,10 +1110,6 @@ def reflect(sid, reply, directive=""):
     loc_lines = [f"{k}：{(snap['locations'][k].get('place') or '')}"
                  for k in sorted((snap.get("locations") or {}).keys())]
     loc_text = "；".join(loc_lines) or "（无）"
-    # 「分句主语 + 动作字表」把「来自远方的指令」这类合法提及也判成失责，实测 23 轮
-    # 命中里真失责接近 0，且旧链路会整句删除正文（会话 d024172c 事故）。
-    offscreens = background_names_from_relations(snap, present)
-    off_text = "、".join(offscreens) or "（无）"
     # 导演指令回喂：关键事实（群演死亡等）可能只由玩家指令承载、正文未复述甚至弱化。
     # 仅当指令非空时占一行，自然推演轮零开销。指令是玩家本人的权威设定，优先级高于正文。
     dir_block = ("\n本轮导演指令（玩家设定，权威，正文与其冲突时以指令为准）：\n" + directive + "\n") if directive else ""
@@ -1193,7 +1124,6 @@ def reflect(sid, reply, directive=""):
             f"秘密与把柄现状：\n{secret_text}\n"
             f"既有状态键：{st_text}\n"
             f"既有位置：{loc_text}\n"
-            f"背景人物（无独立角色卡、不在场）：{off_text}\n"
             f"{dir_block}"
             f"本轮叙事：\n{reply}\n\n"
             # 字段顺序即截断优先级：秘密簿记（exposures/suspicions/handle_releases/touches）排最前，
@@ -1211,7 +1141,6 @@ def reflect(sid, reply, directive=""):
             '  "goals": { "角色名": "新的短期目标" },\n'
             '  "state_updates": [{"subject": "对象（如某道门、某件物品、某人的伤）", "value": "当前状态一句话"}],\n'
             '  "location_updates": [{"who": "角色名", "place": "该角色本轮结束时所在的具体地点"}],\n'
-            '  "offscreen_activity": [{"name": "被写成活动角色的背景人物", "evidence": "本轮叙事原文片段"}],\n'
             '  "scene_shift": {"changed": false, "place": "本轮叙事末尾所处的地点", "time": "本轮叙事末尾的时间", "weather": "本轮叙事末尾的天气"}\n'
             "}\n"
             "规则：\n"
@@ -1250,13 +1179,6 @@ def reflect(sid, reply, directive=""):
             "  who 用角色的正式名字（沿用「在场角色」「既有位置」里的写法）；刚移动过的在场角色与群演都要覆盖到。\n"
             "宁可漏报，不可误报；位置里只是「翻窗逃到隔壁单元」「转移到别处躲藏」这类**还会回来**的"
             "暂时逃离一律不填（判断依据是「会不会再回来」，不是「有没有离开原位」）。\n"
-            "- offscreen_activity：检查「背景人物」名单里的人，本轮有没有被**写成活动角色**——"
-            "获得对白、独白、或作为动作主语亲自出场行动（如「X从门后走出」「X笑着说：“…”」）。\n"
-            "  不算的情况（**一律不填**，填了就是误报）：被在场角色在台词或心里谈论、回忆、"
-            "提及名字、收到其来信或指令、被想念或被担心——哪怕名字出现了也不算活动化；"
-            "以「X不在场」「X说过的话」「想起X」这类间接形式出现也不算。\n"
-            "  只有他本人**亲自登场说话或行动**才算。evidence 逐字照抄原文，引擎会核验。"
-            "没有就填空数组——宁可漏报，不可误报。\n"
             "- scene_shift：本轮叙事里**地点／时间／天气有没有实际发生变化**（如从客厅走到楼道、"
             "天黑了、下起雨）。changed 填 true 时同时给出变化后的 place/time/weather，"
             "引擎据此把场景状态追上叙事（避免场景停在「清晨」而正文早已入夜）。"
@@ -1311,8 +1233,8 @@ def reflect(sid, reply, directive=""):
         # 此时绝不能按「全员无行为」去累加静默轮数——那会把所有在场角色误记成
         # 被遗忘、误触发硬性焦点，一次格式漂移污染后续多轮。故本轮跳过静默判定。
         snap["actions"] = {}
-    # 在场即须留痕：用纪官的行为摘要判定谁本轮真的在戏里（替代 app.py 里按名字是否
-    # 出现在正文的字符串判断——那个判不出「被提到名字但没有任何行为」）。
+    # 静默计数（仅前端展示信号）：用纪官的行为摘要判定谁本轮真的在戏里（替代 app.py
+    # 里按名字是否出现在正文的字符串判断——那个判不出「被提到名字但没有任何行为」）。
     # 镜头跟随时只统计镜头内角色：镜头外的人本轮就不该被写，计沉默会误伤。
     if actions_ok:
         _update_silent_rounds(snap, present)
@@ -1432,31 +1354,6 @@ def reflect(sid, reply, directive=""):
     # 人物位置：独立唯一真相源，与状态键分离（见 update_locations 说明）。
     update_locations(snap, _as_dict_list(data.get("location_updates")), rd)
 
-    # 群演登记（语义提取）：由纪官按语义判断谁是新出场人物。
-    # 背景人物活动化：语义判定交给纪官，引擎只做逐字举证核验（记录员模式，
-    # 与 secret_exposures 同一套）。写得下轮提示词点名批评用的名单，engine 不再
-    # 靠正则删正文——旧链路误判率过高（实测真失责≈0）且后果是切碎用户看到的叙事。
-    offs = background_names_from_relations(snap, present)
-    if offs:
-        viol = []
-        for it in _as_dict_list(data.get("offscreen_activity")):
-            nm = (it.get("name") or "").strip()
-            if nm not in offs:
-                continue
-            if not _evidence_ok(it.get("evidence"), reply):
-                logger.warn("director", "背景人物活动化举证未通过，已丢弃：" + nm)
-                continue
-            viol.append({"name": nm, "evidence": it.get("evidence"),
-                         "round": snap["scene"]["round"]})
-        if viol:
-            snap["offscreen_violated"] = viol
-            logger.warn("director", "背景人物被写成活动角色：" +
-                        "、".join(v["name"] for v in viol))
-        else:
-            snap.pop("offscreen_violated", None)
-    else:
-        snap.pop("offscreen_violated", None)
-
     # 场景信号并联（零额外 LLM 成本）：纪官从叙事里读出「场景其实已经变了」，
     # 补上 scene._triggered 关键词表枚举不完的洞（关键词漏触发 = 场景与叙事脱节）。
     # v0.17.4：本轮就直接把 scene 追上叙事（不再留到下轮 scene.apply 消费）——
@@ -1488,122 +1385,3 @@ def reflect(sid, reply, directive=""):
 
     memory.save(sid, snap)
     return snap
-
-
-# ============================================================================
-# 叙事去重（v0.22.x，泛用性：与后端采样参数完全解耦）
-# ----------------------------------------------------------------------------
-# 背景：repeat_penalty 是 llama.cpp 私有扩展，ninfer 等后端会静默忽略（返回 200
-# 但采样层不生效），导致长上下文 + 高重复母题场景下出现整段复读（会话 87e4ac46
-# 的「还要多久？/是他吗？/穿好/我去看看窗户」及周围段落逐字重复）。采样层参数
-# 无法跨后端统一，故在引擎层做「生成后复读检测」，检测到即由上层重生成。
-# 完全不吃后端能力，任何 OpenAI 兼容后端分发出去都有效。
-# ============================================================================
-
-# 复读检测的 n-gram 长度：8 字窗口足够锚定「整段重复」，又不至于把正常的
-# 「角色名 + 动作」局部复用（2-4 字）误判为复读。
-_NGRAM = 8
-# 复读判定阈值：本轮输出与最近一轮历史的 8-gram 重叠率超过该值即判复读。
-# 0.2 为适中档（simon 2026-10-12 选定）：覆盖大多数复读，又不把正常反复修辞误判。
-_REPEAT_THRESHOLD = 0.2
-# 参与比对的最近历史轮数（v0.28.7 放宽 3→30）：旧 3 轮窗口只抓「紧邻上一轮」的复读，
-# 盖不住「隔多轮复发的场景母题」——实测会话 a20d1c03 最远一次复读隔了 14 轮
-# （R3 高昌按头块在 R17/R35 原样复现），全部落在 3 轮窗口外被漏检落盘。
-# 放宽到 30 覆盖此类母题复发。窗口是滑动截断 history_texts[-30:]，单轮成本恒定
-# （不随总回合数增长，实测 18 轮会话平均 ~4ms/轮，相对 LLM 秒级生成可忽略）。
-# 配合 _MIN_REPEAT_SPAN 上调（30→50）压住大窗口带来的远距离合理回扣误判。
-_COMPARE_ROUNDS = 30
-# 最长重复子串阈值（v0.28.7 上调 30→50）：窗口放宽到 30 后，比对历史变多，
-# 远距离「同一场景名 / 同一句台词合理复现」会被 30 字门槛误判成复读。上调到 50
-# 只抓「整段搬」（≥50 字逐字重复），放过短句呼应。实测 a20d1c03 的 6 例大幅复读
-# 均 ≥100 字，50 字门槛对真复读零漏检、对 R11/R12 等干净情节轮（最长 15/26 字）零误伤。
-_MIN_REPEAT_SPAN = 50
-
-
-def _ngrams(s, n=_NGRAM):
-    """提取文本的 n 字滑动窗口集合（去标点、折叠空白后）。"""
-    t = _strip_punct(_norm_text(s))
-    if len(t) < n:
-        return set()
-    return {t[i:i + n] for i in range(len(t) - n + 1)}
-
-
-def _has_common_span(a, b, minlen=_MIN_REPEAT_SPAN):
-    """a、b 去标点折叠空白后，是否存在 ≥minlen 字的逐字公共子串。
-
-    只需判断「存在性」而非找最长——用 b 的所有 minlen 字子串建哈希集合，
-    扫 a 的 minlen 字子串查表即可，O(n)。命中即返回 True。
-    """
-    sa = _strip_punct(_norm_text(a))
-    sb = _strip_punct(_norm_text(b))
-    if len(sa) < minlen or len(sb) < minlen:
-        return False
-    sb_set = {sb[i:i + minlen] for i in range(len(sb) - minlen + 1)}
-    for i in range(len(sa) - minlen + 1):
-        if sa[i:i + minlen] in sb_set:
-            return True
-    return False
-
-
-def detect_narrative_repeat(text, history_texts, threshold=_REPEAT_THRESHOLD,
-                            ngram=_NGRAM, compare_rounds=_COMPARE_ROUNDS,
-                            min_span=_MIN_REPEAT_SPAN):
-    """检测本轮叙事是否发生复读（三类：轮内自重复 + 整段历史重复 + 局部历史重复）。
-
-    text：本轮生成的正文。
-    history_texts：历史 assistant 正文列表（按时间序，末尾为最近一轮）。
-    返回 (是否复读, 最大重叠率, 复读类型)。
-
-    复读类型：
-      'self'：同一轮内部整段重复（会话 87e4ac46 轮 19 的「我去看看窗户」重复两次）
-      'history'：与最近历史轮整段/局部重复（轮 15 与轮 17 的「还要多久？」）
-      None：未复读
-
-    空文本或历史不足时返回 (False, 0.0, None)，不误判。
-    """
-    t = _strip_punct(_norm_text(text))
-    cur = _ngrams(text, ngram)
-    if not cur:
-        return False, 0.0, None
-
-    # 1) 轮内自重复：前半段 n-gram 在后半段是否大量重现
-    best = 0.0
-    kind = None
-    if len(t) >= ngram * 2:
-        half = len(t) // 2
-        first_half = _ngrams(t[:half], ngram)
-        second_half = _ngrams(t[half:], ngram)
-        if first_half and second_half:
-            self_overlap = len(first_half & second_half) / len(first_half)
-            # 自重复判定更严格：前半段几乎原样在后半段重现才算（阈值上浮，避免正常排比/呼应误判）
-            if self_overlap >= 0.5:
-                return True, self_overlap, "self"
-            if self_overlap > best:
-                best = self_overlap
-
-    # 2) 与历史轮重复：整段（8-gram 重叠率）+ 局部（最长公共子串）
-    recent = (history_texts or [])[-compare_rounds:]
-    for h in recent:
-        if not h:
-            continue
-        hgrams = _ngrams(h, ngram)
-        if hgrams:
-            overlap = len(cur & hgrams) / len(cur)
-            if overlap >= threshold:
-                return True, overlap, "history"
-            if overlap > best:
-                best = overlap
-        # 局部重复：存在 ≥min_span 字的逐字重复段即判复读
-        if _has_common_span(text, h, min_span):
-            return True, max(best, 0.0), "history"
-
-    return False, best, kind
-
-
-def _history_assistant_texts(sid):
-    """读取会话最近的 assistant 正文列表（供复读检测比对）。失败返回空列表。"""
-    try:
-        chat = memory.load_chat(sid)
-    except Exception:
-        return []
-    return [m.get("content", "") for m in chat if m.get("role") == "assistant"]

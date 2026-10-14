@@ -103,15 +103,18 @@ def test_validate_present_empty_present_returns_as_is():
 
 
 def test_release_handle_drops_and_transfers():
-    """全版把柄消除：仅改 holders、known_by 不变；holders 清空后因已知情而落「暴露」
-    （v0.26.0 四态：信息不可逆，不再回落「潜伏」；未众人皆知故不判「已公开」）。"""
+    """全版把柄消除：转手给 to 时 to 入 holders 且入 known_by（转手即知情）。
+
+    holders 清空后因已知情而落「暴露」（v0.26.0 四态：信息不可逆，不再回落「潜伏」；
+    未众人皆知故不判「已公开」）。frm 的 known_by 不移除（它已知情，信息不可逆）。
+    """
     s = {"owner": A, "state": "暴露",
          "known_by": [B, C], "holders": [B, C]}
-    # 转交第三方：B 失去、D 接手
+    # 转交第三方：B 失去、D 接手；D 接手即知情，须入 known_by
     assert director._release_handle(s, B, D, 7) is True
     assert B not in s["holders"] and D in s["holders"]
-    # 知情不可逆：known_by 仍含 B、C
-    assert s["known_by"] == [B, C]
+    # 知情不可逆：known_by 仍含 B、C，且新增 D（转手即知情）
+    assert s["known_by"] == [B, C, D]
     assert s["state"] == "暴露"          # C 仍在 holders
     # 彻底失效：C 也失去 -> 仅 D 在 holders
     assert director._release_handle(s, C, "", 8) is True
@@ -543,82 +546,6 @@ def test_reflect_survives_string_list_fields(monkeypatch):
     assert any("木门" in k for k in out["states"]), out["states"]
 
 
-def test_reflect_records_offscreen_activity(monkeypatch):
-    """纪官上报的背景人物活动化经逐字举证核验后记入快照，供下轮提示词点名批评。
-
-    引擎不再靠正则扫正文：判据②「分句主语 + 动作字表」把「来自远方的指令」这类
-    合法提及也判成失责，实测 23 轮命中真失责≈0，却整句删掉正常叙事。
-    """
-    import json as _json
-    snap = {"scene": {"round": 4}, "present": [A], "relations": {f"{A} → 角色丙": "妹妹"},
-            "actions": {}, "silent_rounds": {}, "secrets": [],
-            "facts": [], "states": {}, "goals": {}, "ledger": [], "aux": []}
-    payload = {"actions": {A: "沉默"},
-               "offscreen_activity": [{"name": "角色丙",
-                                       "evidence": "角色丙从门后走出"}]}
-    monkeypatch.setattr(director.llm, "complete",
-                        lambda *a, **k: _json.dumps(payload, ensure_ascii=False))
-    monkeypatch.setattr(director.memory, "load", lambda sid: snap)
-    monkeypatch.setattr(director.memory, "save", lambda sid, s: None)
-    monkeypatch.setattr(director.store, "list_characters", lambda: [])
-    out = director.reflect("sid", "门吱呀一响。角色丙从门后走出，静静望着他。")
-    viol = out.get("offscreen_violated") or []
-    assert len(viol) == 1 and viol[0]["name"] == "角色丙"
-    assert viol[0]["round"] == 4
-
-
-def test_reflect_offscreen_activity_requires_evidence(monkeypatch):
-    """举证不在正文里（幻觉/改写）的条目必须丢弃，绝不记入快照。"""
-    import json as _json
-    snap = {"scene": {"round": 4}, "present": [A], "relations": {f"{A} → 角色丙": "妹妹"},
-            "actions": {}, "silent_rounds": {}, "secrets": [],
-            "facts": [], "states": {}, "goals": {}, "ledger": [], "aux": []}
-    payload = {"actions": {A: "沉默"},
-               "offscreen_activity": [{"name": "角色丙",
-                                       "evidence": "角色丙推开窗跳了出去"}]}
-    monkeypatch.setattr(director.llm, "complete",
-                        lambda *a, **k: _json.dumps(payload, ensure_ascii=False))
-    monkeypatch.setattr(director.memory, "load", lambda sid: snap)
-    monkeypatch.setattr(director.memory, "save", lambda sid, s: None)
-    monkeypatch.setattr(director.store, "list_characters", lambda: [])
-    out = director.reflect("sid", "门吱呀一响。他静静望着门口。")
-    assert not out.get("offscreen_violated")
-
-
-def test_reflect_offscreen_activity_ignores_non_background(monkeypatch):
-    """上报的名字不在背景人物名单里（在场角色/有卡角色）时一律忽略。"""
-    import json as _json
-    snap = {"scene": {"round": 4}, "present": [A], "relations": {f"{A} → {B}": "同伴"},
-            "actions": {}, "silent_rounds": {}, "secrets": [],
-            "facts": [], "states": {}, "goals": {}, "ledger": [], "aux": []}
-    payload = {"actions": {A: "沉默"},
-               "offscreen_activity": [{"name": A, "evidence": "他静静望着门口"}]}
-    monkeypatch.setattr(director.llm, "complete",
-                        lambda *a, **k: _json.dumps(payload, ensure_ascii=False))
-    monkeypatch.setattr(director.memory, "load", lambda sid: snap)
-    monkeypatch.setattr(director.memory, "save", lambda sid, s: None)
-    monkeypatch.setattr(director.store, "list_characters", lambda: [])
-    out = director.reflect("sid", "他静静望着门口。")
-    assert not out.get("offscreen_violated")
-
-
-def test_reflect_clears_offscreen_flag_when_clean(monkeypatch):
-    """本轮无越界时必须清掉上一轮的标记，否则批评会永久挂着。"""
-    import json as _json
-    snap = {"scene": {"round": 5}, "present": [A], "relations": {f"{A} → 角色丙": "妹妹"},
-            "actions": {}, "silent_rounds": {}, "secrets": [],
-            "facts": [], "states": {}, "goals": {}, "ledger": [], "aux": [],
-            "offscreen_violated": [{"name": "角色丙", "evidence": "旧证据", "round": 4}]}
-    payload = {"actions": {A: "沉默"}, "offscreen_activity": []}
-    monkeypatch.setattr(director.llm, "complete",
-                        lambda *a, **k: _json.dumps(payload, ensure_ascii=False))
-    monkeypatch.setattr(director.memory, "load", lambda sid: snap)
-    monkeypatch.setattr(director.memory, "save", lambda sid, s: None)
-    monkeypatch.setattr(director.store, "list_characters", lambda: [])
-    out = director.reflect("sid", "他沉默了很久。")
-    assert "offscreen_violated" not in out
-
-
 # ---- 场景信号并联纪官（v0.17.2）----
 
 def test_reflect_records_scene_shift(monkeypatch):
@@ -657,86 +584,3 @@ def test_reflect_clears_scene_shift_when_unchanged(monkeypatch):
     assert "scene_shift" not in out
 
 
-# ============================================================================
-# 叙事复读检测（detect_narrative_repeat）回归守护
-# ----------------------------------------------------------------------------
-# v0.28.7 把比对窗口 _COMPARE_ROUNDS 3→30、_MIN_REPEAT_SPAN 30→50：旧 3 轮窗口
-# 盖不住「隔多轮复发的场景母题」（实测会话 a20d1c03 最远一次复读隔了 14 轮被漏检），
-# 上调 min_span 压住大窗口的远距离合理回扣误判。以下用例用中性占位 + 合成文本
-# 固化该行为，防窗口/门槛被改回旧值时悄悄失去召回能力（普适性红线：不绑剧本名）。
-# ============================================================================
-
-# 一个 150 字的唯一「场景母题」块（≥ _MIN_REPEAT_SPAN=50，整段搬的判据）。
-# 用「第 N 行」序号保证块内每段互不重复，整块与任何 filler 轮零重叠。
-_REPEATED_BLOCK = (
-    "长案上摆着青瓷茶盏，窗外落着细碎的雨。"
-    "风把檐角的铜铃吹得轻响，案边的烛火却纹丝不动。"
-    "甲端起茶盏慢慢啜了一口，乙望着窗外出神。"
-    "桌上的书信散开一角，墨迹尚未全干。"
-    "甲把最后一句话压得很低，乙没有接话。"
-)
-
-
-# 15 个彼此内容互不相同的中性短句（每句 ≥ _MIN_REPEAT_SPAN=50 字之外无 50 字
-# 整段与别句/母题块重叠），用作「干净历史轮」池，保证干净轮之间零整段复用。
-_CLEAN_SENTENCES = [
-    "檐下的雨顺着瓦缝滴落，石阶上的青苔被冲出一道浅浅的水痕。",
-    "案头摊开的舆图被一阵穿堂风掀起边角，墨线在纸上微微发颤。",
-    "炉上的铜壶咕嘟作响，白汽顶开壶盖又缩回去，反复了好几次。",
-    "墙角的更漏滴得更慢了些，烛芯结出一粒小小的灯花。",
-    "门缝里透进来的风把桌上的薄页吹得哗哗作响，像有谁在翻页。",
-    "院中的老槐抖落几片残叶，落在石桌上，又被风卷了半圈。",
-    "窗纸上映着一个晃动的人影，手里的油灯上下起伏，迟迟没有进来。",
-    "井台上结了薄薄一层霜，水桶的铁链在井沿轻轻碰出细响。",
-    "廊下的灯笼被风压得东倒西歪，光晕在地上画出一圈一圈的波纹。",
-    "灶膛里的火苗忽明忽暗，映得墙上挂着的蓑衣影子一伸一缩。",
-    "门外的狗忽然低低地呜咽了一声，又很快安静下去，只剩风声。",
-    "桌底的猫弓着背慢慢踱到门口，回头望了一眼，才轻轻跳了出去。",
-    "挂在梁上的风铃被穿堂风拨了一下，发出一声极轻的金属脆响。",
-    "地上的水渍被拖过一道，倒映着头顶的星子，慢慢洇开又收拢。",
-    "远处的山脊线上滚过一层薄云，遮住了最后一点残照的余温。",
-]
-
-
-def _filler_round(i):
-    """中性填充轮：取整句（i 在 0..14 范围内时轮与轮互不相同，无 50 字整段重叠）。"""
-    return _CLEAN_SENTENCES[i % len(_CLEAN_SENTENCES)]
-
-
-def test_repeat_catches_far_scene_motive_recurrence():
-    """窗口放宽核心场景：隔 14 轮复发的整段母题必须命中。
-
-    母题块在 history[0]（14 轮之前）原样复现——旧 3 轮窗口盖不到（漏检落盘），
-    新 30 轮窗口必须抓到。这正是会话 a20d1c03 的失败模式。
-    """
-    history = [_REPEATED_BLOCK] + [_filler_round(i) for i in range(1, 15)]
-    current = _filler_round(99) + _REPEATED_BLOCK
-    is_repeat, _, kind = director.detect_narrative_repeat(current, history)
-    assert is_repeat is True
-    assert kind == "history"
-
-
-def test_repeat_clean_round_not_flagged_by_wider_window():
-    """min_span 上调防误伤：无整段搬、仅短词复用的干净轮不得判复读。
-
-    干净轮与历史只有角色名/短句级重叠（< _MIN_REPEAT_SPAN=50），即便在 30 轮
-    大窗口下也不应误判（对应实测 a20d1c03 的 R11/R12 宫斗轮）。
-    history 取 14 句、current 取第 15 句——彼此内容全不同、无 50 字整段重叠。
-    """
-    history = [_CLEAN_SENTENCES[i] for i in range(14)]
-    current = _CLEAN_SENTENCES[14]
-    is_repeat, _, _ = director.detect_narrative_repeat(current, history)
-    assert is_repeat is False
-
-
-def test_repeat_intra_round_self_repeat_still_detected():
-    """轮内自重复不受窗口/门槛改动影响：前半段几乎原样在后半段重现仍须命中。
-
-    self 分支走独立阈值（>=0.5），与 compare_rounds / min_span 解耦，固化其
-    在 v0.28.7 改动后依旧生效，避免「只调了 history 路径、self 路径悄悄失效」。
-    """
-    half = _REPEATED_BLOCK + "（上）"
-    current = half + "（下）" + _REPEATED_BLOCK
-    is_repeat, _, kind = director.detect_narrative_repeat(current, [])
-    assert is_repeat is True
-    assert kind == "self"

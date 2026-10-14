@@ -6,6 +6,24 @@
 
 ---
 
+## 2026-10-15 第二批机制精简 + 秘密簿记修正（semver MINOR→v0.31.0）
+
+**性质**：延续 v0.30.0 的「去非核心机制」路线，删掉两块「引擎替 LLM 兜底」的低命中自检，并修正秘密簿记一处定义层漏洞。**触发 MINOR**：对外可见行为变更（纪官 JSON 少 offscreen 字段、叙事不再被背景自检点名、把柄转手语义修正）。
+
+**改动**：
+- **废除 offscreen 背景人物活动化自检**：`director.py` 删 `detect_offscreen_activity` / `background_names_from_relations` 两函数 + reflect 的「背景人物」回喂、`offscreen_activity` 字段、规则、回写；`app.py` 删背景自检调用；`prompter.py` 删「背景人物·非在场」硬约束 + 上轮越界点名。背景人物交还 LLM 自行把握（命中率趋近零且曾误删正文）。
+- **废除 silent 强制焦点**：`prompter.py` 删「在场即须留痕」硬焦点块 + `SILENT_THRESHOLD` import；`director.py` 删 `SILENT_THRESHOLD` 常量。`silent_rounds` 字段保留（前端 chip 静默数字，零 LLM 成本）。
+- **废除叙事复读检测**：`director.py` 删 `_NGRAM`/`_REPEAT_THRESHOLD`/`_COMPARE_ROUNDS`/`_MIN_REPEAT_SPAN` 四常量 + `_ngrams`/`_has_common_span`/`detect_narrative_repeat` 三函数 + 死代码 `_history_assistant_texts`；`app.py` 复读检测调用 + 降温度重生成 while 循环还原为单次流式生成。根因是 NSFW 高重复母题特异化，NSFW 已回归正常叙事水平。保留 `repeat_penalty`/`frequency_penalty`（采样层）+ 输出纪律⑨（零成本提示词）双兜底。
+- **秘密簿记修正（方案 A）**：`_release_handle` 转手时 `to` 同时写入 `known_by`（转手即知情）——修复「to 接把柄被注入完整秘密却不算知情、二次失去把柄后凭空失忆」违背 known_by 不可逆铁律的定义层漏洞。删 `releases` 死字段；删 reflect 群演登记过时注释。`exposures` 字段保留（内部审计字段，有测试守护）。
+
+**验证**：全量 `tests/` **279 passed, 1 skipped, 1 deselected**；全部改动文件 py_compile 通过；进程内实测转手行为确认 known_by 不可逆成立。
+
+**设计决定**：
+- 三连精简与 aux 同一逻辑：offscreen 自检、silent 强制焦点、复读检测都是「引擎替 LLM 兜一个 LLM 本来就会的事」，命中率趋零还误伤过正文/打断玩家镜头。交还 LLM 自主，引擎只保留天然行为与零成本提示词兜底。
+- 秘密簿记核心五块（四态状态机 / 记录员模式 / via 白名单+自述承认分离 / 压力发酵 / prompt 信息边界）审计后判定「刚好」，未动。
+
+---
+
 ## 2026-10-14 废除临时群演（aux）机制（semver MINOR→v0.30.0）
 
 **性质**：机制整体移除（simon 拍板）。临时角色生命周期不再由引擎兜底——不登记、不追踪、不管退场，交还 LLM 与玩家自主管理：模型或玩家记得、需要利用临时人物，就自行发挥（注入扰动时明确指定即可）。**触发 MINOR**：对外可见行为变更（在场面板不再出现蓝色群演 chip、纪官 JSON 少两个字段、快照少一个顶层键），属破坏性语义变更。
