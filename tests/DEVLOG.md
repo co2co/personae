@@ -6,6 +6,25 @@
 
 ---
 
+## 2026-10-15 恢复叙事复读检测（semver PATCH→v0.31.2）
+
+**性质**：恢复 v0.31.0 被误删的「生成后复读检测 + 自动重生成」机制。**触发 PATCH**：恢复类，不改对外语义、纯补回既有能力。
+
+**背景（数据坐实）**：会话 44259301 出现普通叙事整段复读（R4 指令「长公主求见皇帝」，模型逐字复读了 R1「高昌讥讽高洋」整段，1091/1156 字，重叠率 0.94）。诊断探针（scripts/_probe_repeat_*.py，38 次真实后端采样）证明：复读是 Q4_K_M 量化噪声 + 采样随机性导致的低概率随机坏样本（约 2.6%），非参数单调关系、非低温系统性诱因，采样层 frequency_penalty 压不住「整段 n-gram 回卷」。
+
+**误删定位**：v0.31.0 提交 `5b2f6a6`「第二批机制精简」将 `detect_narrative_repeat` 整套函数连同 app.py 调用一并删除，删除理由写成「NSFW 特异化」——但源码注释明确其与 NSFW 无关，是「采样层 repeat_penalty 跨后端不生效，故在引擎层做泛用防复读」。
+
+**恢复内容（照 v0.28.8 原样）**：
+- director.py：`_NGRAM=8` / `_REPEAT_THRESHOLD=0.2` / `_COMPARE_ROUNDS=30` / `_MIN_REPEAT_SPAN=50` 常量 + `_ngrams` / `_has_common_span` / `detect_narrative_repeat` / `_history_assistant_texts`。
+- app.py：events() 生成循环改回「复读检测 + 降温度重生成」闭环（最多重试 1 次，命中即温度减半封底 0.4 重生成）。
+- tests/test_director.py：恢复 3 个回归守护用例（隔 14 轮母题复发命中 / 大窗口不误伤 / 轮内自重复）。
+
+**关键决策（simon 追问「30 轮可否改 12 轮」）**：**保持 30 轮，不改 12。** 理由：① 检测比对的 history_texts 来自 `memory.load_chat` 读完整落盘 chat.jsonl，非压缩后的 12 轮窗口；② `_COMPARE_ROUNDS=30` 是滑动截断 `history_texts[-30:]`，单轮成本恒定 ~4ms（源码注释实测），取 12 或 30 成本几乎无差；③ 30 轮能兜住「隔 14 轮复发母题」（会话 a20d1c03 实测），12 轮盖不住。「12 轮压缩历史」是喂给模型的上下文窗口，与「30 轮检测窗口」是两码事。
+
+**验证**：全量 `tests/` **285 passed, 1 skipped, 1 deselected**；端到端用会话 44259301 真实 R4 复读内容跑 detect_narrative_repeat → 命中 history / 重叠率 0.94。
+
+---
+
 ## 2026-10-15 人物位置漏报治理（semver PATCH→v0.31.1）
 
 **性质**：修复左栏【人物位置】整片「位置未记录」。**触发 PATCH**：修复类，不改对外语义。备份 `backup/location_fix_20261015/director.py`。

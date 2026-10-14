@@ -1412,3 +1412,126 @@ def reflect(sid, reply, directive=""):
 
     memory.save(sid, snap)
     return snap
+
+
+# ----------------------------------------------------------------------------
+# 叙事去重（v0.22.x，泛用性：与后端采样参数完全解耦）
+# ----------------------------------------------------------------------------
+# 背景：repeat_penalty 是 llama.cpp 私有扩展，ninfer 等后端会静默忽略（返回 200
+# 但采样层不生效），导致长上下文 + 高重复母题场景下出现整段复读（会话 87e4ac46
+# 的「还要多久？/是他吗？/穿好/我去看看窗户」及周围段落逐字重复）。采样层参数
+# 无法跨后端统一，故在引擎层做「生成后复读检测」，检测到即由上层重生成。
+# 完全不吃后端能力，任何 OpenAI 兼容后端分发出去都有效。
+#
+# v0.31.2 恢复：本机制曾在 v0.31.0「第二批机制精简」中被误判为「NSFW 特异化」而删除
+# （提交 5b2f6a6），但它是与 NSFW 无关的泛用防复读。会话 44259301 普通叙事整段复读
+# 证明删除后失去引擎层兜底、只剩采样层 frequency_penalty（压不住整段 n-gram 回卷）。
+# ============================================================================
+
+# 复读检测的 n-gram 长度：8 字窗口足够锚定「整段重复」，又不至于把正常的
+# 「角色名 + 动作」局部复用（2-4 字）误判为复读。
+_NGRAM = 8
+# 复读判定阈值：本轮输出与最近一轮历史的 8-gram 重叠率超过该值即判复读。
+# 0.2 为适中档（simon 2026-10-12 选定）：覆盖大多数复读，又不把正常反复修辞误判。
+_REPEAT_THRESHOLD = 0.2
+# 参与比对的最近历史轮数（v0.28.7 放宽 3→30）：旧 3 轮窗口只抓「紧邻上一轮」的复读，
+# 盖不住「隔多轮复发的场景母题」——实测会话 a20d1c03 最远一次复读隔了 14 轮
+# （R3 高昌按头块在 R17/R35 原样复现），全部落在 3 轮窗口外被漏检落盘。
+# 放宽到 30 覆盖此类母题复发。窗口是滑动截断 history_texts[-30:]，单轮成本恒定
+# （不随总回合数增长，实测 18 轮会话平均 ~4ms/轮，相对 LLM 秒级生成可忽略）。
+# 配合 _MIN_REPEAT_SPAN 上调（30→50）压住大窗口带来的远距离合理回扣误判。
+_COMPARE_ROUNDS = 30
+# 最长重复子串阈值（v0.28.7 上调 30→50）：窗口放宽到 30 后，比对历史变多，
+# 远距离「同一场景名 / 同一句台词合理复现」会被 30 字门槛误判成复读。上调到 50
+# 只抓「整段搬」（≥50 字逐字重复），放过短句呼应。实测 a20d1c03 的 6 例大幅复读
+# 均 ≥100 字，50 字门槛对真复读零漏检、对 R11/R12 等干净情节轮（最长 15/26 字）零误伤。
+_MIN_REPEAT_SPAN = 50
+
+
+def _ngrams(s, n=_NGRAM):
+    """提取文本的 n 字滑动窗口集合（去标点、折叠空白后）。"""
+    t = _strip_punct(_norm_text(s))
+    if len(t) < n:
+        return set()
+    return {t[i:i + n] for i in range(len(t) - n + 1)}
+
+
+def _has_common_span(a, b, minlen=_MIN_REPEAT_SPAN):
+    """a、b 去标点折叠空白后，是否存在 ≥minlen 字的逐字公共子串。
+
+    只需判断「存在性」而非找最长——用 b 的所有 minlen 字子串建哈希集合，
+    扫 a 的 minlen 字子串查表即可，O(n)。命中即返回 True。
+    """
+    sa = _strip_punct(_norm_text(a))
+    sb = _strip_punct(_norm_text(b))
+    if len(sa) < minlen or len(sb) < minlen:
+        return False
+    sb_set = {sb[i:i + minlen] for i in range(len(sb) - minlen + 1)}
+    for i in range(len(sa) - minlen + 1):
+        if sa[i:i + minlen] in sb_set:
+            return True
+    return False
+
+
+def detect_narrative_repeat(text, history_texts, threshold=_REPEAT_THRESHOLD,
+                            ngram=_NGRAM, compare_rounds=_COMPARE_ROUNDS,
+                            min_span=_MIN_REPEAT_SPAN):
+    """检测本轮叙事是否发生复读（三类：轮内自重复 + 整段历史重复 + 局部历史重复）。
+
+    text：本轮生成的正文。
+    history_texts：历史 assistant 正文列表（按时间序，末尾为最近一轮）。
+    返回 (是否复读, 最大重叠率, 复读类型)。
+
+    复读类型：
+      'self'：同一轮内部整段重复（会话 87e4ac46 轮 19 的「我去看看窗户」重复两次）
+      'history'：与最近历史轮整段/局部重复（轮 15 与轮 17 的「还要多久？」）
+      None：未复读
+
+    空文本或历史不足时返回 (False, 0.0, None)，不误判。
+    """
+    t = _strip_punct(_norm_text(text))
+    cur = _ngrams(text, ngram)
+    if not cur:
+        return False, 0.0, None
+
+    # 1) 轮内自重复：前半段 n-gram 在后半段是否大量重现
+    best = 0.0
+    kind = None
+    if len(t) >= ngram * 2:
+        half = len(t) // 2
+        first_half = _ngrams(t[:half], ngram)
+        second_half = _ngrams(t[half:], ngram)
+        if first_half and second_half:
+            self_overlap = len(first_half & second_half) / len(first_half)
+            # 自重复判定更严格：前半段几乎原样在后半段重现才算（阈值上浮，避免正常排比/呼应误判）
+            if self_overlap >= 0.5:
+                return True, self_overlap, "self"
+            if self_overlap > best:
+                best = self_overlap
+
+    # 2) 与历史轮重复：整段（8-gram 重叠率）+ 局部（最长公共子串）
+    recent = (history_texts or [])[-compare_rounds:]
+    for h in recent:
+        if not h:
+            continue
+        hgrams = _ngrams(h, ngram)
+        if hgrams:
+            overlap = len(cur & hgrams) / len(cur)
+            if overlap >= threshold:
+                return True, overlap, "history"
+            if overlap > best:
+                best = overlap
+        # 局部重复：存在 ≥min_span 字的逐字重复段即判复读
+        if _has_common_span(text, h, min_span):
+            return True, max(best, 0.0), "history"
+
+    return False, best, kind
+
+
+def _history_assistant_texts(sid):
+    """读取会话最近的 assistant 正文列表（供复读检测比对）。失败返回空列表。"""
+    try:
+        chat = memory.load_chat(sid)
+    except Exception:
+        return []
+    return [m.get("content", "") for m in chat if m.get("role") == "assistant"]
