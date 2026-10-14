@@ -187,6 +187,16 @@ def player_view(snap, debug=False):
         {k: s[k] for k in _SECRET_PUBLIC_FIELDS if k in s}
         for s in (snap.get("secrets") or [])
     ]
+    # aux：给每条注入 is_generic 标记，供前端把「身份/职业泛称」chip 从在场面板过滤掉
+    # （见 index.html 的 auxList filter）。判据与登记拒收同源（director._is_aux_reject_register），
+    # 不在前端复刻词表——否则词表演进要双改。此处是展示层信号，不删数据：
+    # 泛称群演仍随 /api/snapshot 全量外发（debug 排障、导出、复盘都要用完整 aux），
+    # 只是前端不把它渲染成在场 chip。拷贝条目避免把 UI 字段写回内部快照落盘。
+    if "aux" in out:
+        out["aux"] = [
+            dict(a, is_generic=bool(director._is_aux_reject_register(a.get("name") or "")))
+            for a in (out["aux"] or []) if a
+        ]
     return out
 
 

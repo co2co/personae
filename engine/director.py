@@ -767,6 +767,33 @@ def _is_aux_generic_name(nm):
             or nm in _AUX_PROFESSION_WORDS)
 
 
+def _is_aux_reject_register(nm):
+    """登记拒收判据（比 _is_aux_generic_name 更保守）：只挡「确定不是人名」的身份/职业泛称。
+
+    用于 reflect 语义登记链路的新增与改名两处（app 侧显式【引入角色】不走本判据，
+    那是导演权威指令，不得被拦）。与 _is_aux_generic_name 的差异是刻意的：
+      后者用「修饰词包含」匹配（老/小/大/男/女），会把「小翠/老张/大雄」这类真名也判成
+      泛称——它只用在同轮消解 / 合并兜底里，误判顶多「少合并一条别名」，不影响登记，
+      故沿用宽判据无碍；
+      而本判据一旦误判，真名会被**永久挡在在场表外**（倒退），所以刻意收窄：
+        ① 精确匹配身份/职业泛称词表（秀女/宫女/侍女/医生/路人…）——整词命中，不做子串；
+        ② 仅「2 字且以性别字 女/男 结尾」的结构判据（宫女/秀女/侍女/婢女/丫头/汉子…）——
+           以裸 女/男 结尾的 2 字词几乎全是身份称谓；刻意限 2 字是因为 3 字结尾的更可能是
+           真名（王秀女/李秀女 = 姓 + 性别字），不能一刀切。性别字居首/居中的真名
+           （小翠/李秀/秀兰）本就不命中。
+      不命中者一律放行：宁可漏拦一条身份词（它下轮若自报姓名仍可走合并转正），
+      也不误杀一个真名。即便误拦，导演仍可用显式【引入角色】把它强行登记回来。
+    """
+    nm = (nm or "").strip()
+    if not nm or len(nm) > 8:
+        return False
+    if nm in _AUX_GENERIC_WORDS or nm in _AUX_PROFESSION_WORDS:
+        return True
+    if len(nm) == 2 and nm.endswith(("女", "男")):
+        return True
+    return False
+
+
 def _resolve_aux_aliases(reply, names):
     """用「我叫X」这类自称句把泛称与本名消解为同一个角色。
 
@@ -1941,6 +1968,13 @@ def reflect(sid, reply, directive=""):
             if _is_aux_garbage_name(nm):
                 logger.warn("aux", "纪官上报的群演名未通过结构校验，已丢弃：" + nm)
                 continue
+            if _is_aux_reject_register(nm):
+                # 身份/职业泛称（秀女/宫女/医生…）不是个体人名，不独立登记。
+                # 不登记不等于丢内容：validate_present 只剥「在册但非保留」的说话人，
+                # 一个从未入册的名字不会被剥行，其台词当叙述行保留（见 validate_present）。
+                # 若该个体本就该在场，下轮自报姓名走合并转正，或导演显式【引入角色】兜底。
+                logger.info("aux", "纪官上报的群演名为身份泛称，不独立登记：" + nm)
+                continue
             new_names.append(nm)
             if note:
                 new_notes[nm] = note
@@ -1972,6 +2006,11 @@ def reflect(sid, reply, directive=""):
                     continue
                 if _is_aux_garbage_name(nm):
                     logger.warn("aux", "合并新名未通过结构校验，保留旧称呼：" + old)
+                    continue
+                if _is_aux_reject_register(nm):
+                    # 合并目标若是身份泛称（把「阿箬」改成「秀女」），属倒退：
+                    # 具名个体的连续性会被身份标签覆盖。保留旧称呼，不执行改名。
+                    logger.warn("aux", "合并新名为身份泛称，保留旧称呼：" + old)
                     continue
                 entry["name"] = nm
                 if note:

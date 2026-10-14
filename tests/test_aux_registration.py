@@ -245,3 +245,52 @@ def test_discover_strips_single_char_speech_verbs():
     # 真名 + 单字动词：剥离后还原真名，正常登记
     assert director.discover_aux_speakers(
         "角色丙叹道：“进来吧。”", {"角色甲"}) == ["角色丙"]
+
+
+# ---- v0.28.6：登记拒收判据（身份/职业泛称不进在场表）----
+# 会话 242e40b5 实测：「阿箬」（具名，合理）与「秀女」（身份泛称，同指一人，不合理）
+# 都被登记进 aux 并渲染成在场 chip。根因是登记链路只过 _is_aux_garbage_name（结构碎片），
+# 没过身份/职业泛称这一关。_is_aux_reject_register 比 _is_aux_generic_name 更保守：
+# 只挡「确定不是人名」的身份/职业词，绝不因含 老/小/大/男/女 这类修饰字而误杀真名。
+
+def test_reject_register_blocks_identity_generic_names():
+    """身份/职业泛称（尤其以性别字结尾的称谓）不独立登记。"""
+    assert director._is_aux_reject_register("秀女") is True
+    assert director._is_aux_reject_register("宫女") is True
+    assert director._is_aux_reject_register("侍女") is True
+    assert director._is_aux_reject_register("医生") is True
+    assert director._is_aux_reject_register("路人") is True
+    assert director._is_aux_reject_register("婢女") is True
+
+
+def test_reject_register_uses_exact_match_not_substring():
+    """精确匹配整词，不做子串——「李医生/王秀女」这类把身份词嵌进真名的不误杀。"""
+    assert director._is_aux_reject_register("李医生") is False, "李医生 含真名，不得拒收"
+    assert director._is_aux_reject_register("王秀女") is False, "王秀女 含真名，不得拒收"
+    assert director._is_aux_reject_register("张侍卫") is False
+
+
+def test_reject_register_keeps_real_names_with_modifier_chars():
+    """含 老/小/大/男/女 等修饰字但作为整体是真名的，必须放行。
+
+    这是与 _is_aux_generic_name 的关键差异：后者按修饰词包含匹配会把这些判成泛称，
+    本判据一旦误判真名会被永久挡在在场表外（倒退），故刻意收窄。
+    （注：真名末字几乎不会是裸 女/男——「王男」这类 2 字 男 结尾词按结构判为泛称，
+      这是有意取舍，不在此列。）
+    """
+    for real in ("小翠", "老张", "大雄", "小军", "李秀", "秀兰", "张丽", "王强"):
+        assert director._is_aux_reject_register(real) is False, \
+            "真名被误判为身份泛称：%s" % real
+
+
+def test_reject_register_gendersuffix_structural():
+    """2 字且以 女/男 结尾的结构判据：独立于词表生效（宫女/婢女不在精确词表里）。
+
+    bug 案例「秀女」正是这类——它不在任何词表中，全靠「2 字 + 女结尾」结构命中。
+    性别字居中/居中的真名（秀兰/李秀）不命中。
+    """
+    assert director._is_aux_reject_register("宫女") is True
+    assert director._is_aux_reject_register("婢女") is True
+    assert director._is_aux_reject_register("秀兰") is False, "性别字居中不视为身份泛称"
+    # 超长（>8）不是合法群演名，直接放行给结构校验层处理
+    assert director._is_aux_reject_register("一" * 9) is False

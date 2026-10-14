@@ -1100,7 +1100,9 @@ function renderSnapshot(snap) {
   const castHtml = (snap.present || []).map(n => chipOf(n)).join('');
   // 已退场群演（死亡/彻底离开队伍）从在场列表注销，与正式角色离场对称；
   // 仍保留在 aux 数据里（防重新出场被当新人重复登记），只在此处不展示。
-  const auxList = (snap.aux || []).filter(a => a && a.name && a.status !== '已退场');
+  // is_generic（身份/职业泛称，如「秀女/宫女」）不渲染成在场 chip：它不是个体，
+  // 是身份标签。判据由后端 player_view 注入（与登记拒收同源），前端只读标记不复刻词表。
+  const auxList = (snap.aux || []).filter(a => a && a.name && a.status !== '已退场' && !a.is_generic);
   const auxHtml = auxList.map(a => {
     const tip = [a.role, a.intro_round ? `R${a.intro_round} 加入` : '', a.status]
       .filter(Boolean).join(' ｜ ');

@@ -161,6 +161,25 @@ def test_player_view_exposes_aux():
     assert "note" not in v["aux"][0]
 
 
+def test_player_view_aux_is_generic_flag():
+    """aux 投影须注入 is_generic 标记（前端据此把身份/职业泛称 chip 从在场面板过滤）。
+
+    判据与登记拒收同源（director._is_aux_reject_register），不在前端复刻词表。
+    「路人」是身份泛称 → True；具名「角色丙」→ False。
+    """
+    snap = _snap()
+    snap["aux"] = [
+        {"name": "路人", "role": "摊主", "intro_round": 2, "status": "活跃"},
+        {"name": "角色丙", "role": "会话群演", "intro_round": 3, "status": "活跃"},
+    ]
+    v = app_module.player_view(snap)
+    by_name = {a["name"]: a for a in v["aux"]}
+    assert by_name["路人"]["is_generic"] is True, "身份泛称应被标记"
+    assert by_name["角色丙"]["is_generic"] is False, "具名群演不得被标记"
+    # 注入是展示层信号，不写回内部快照落盘
+    assert "is_generic" not in snap["aux"][0], "is_generic 是投影字段，不得污染内部快照"
+
+
 def test_player_view_no_relation_lock_marker():
     """关系锁标记已随「关系」面板下架而移除。
 
