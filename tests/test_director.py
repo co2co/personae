@@ -723,3 +723,41 @@ def test_repeat_intra_round_self_repeat_still_detected():
     is_repeat, _, kind = director.detect_narrative_repeat(current, [])
     assert is_repeat is True
     assert kind == "self"
+
+
+# 秘密真相回喂（reflect 提示词）回归守护
+# ----------------------------------------------------------------------------
+# 会话 f3fab11e：reflect 喂给纪官的「秘密与把柄现状」只回喂 owner 名 + 状态，
+# 不喂每条秘密的 content（正文真相）与 keys（事实锚点词）。纪官蒙眼归档，
+# 会把「出现归属者名字的无关情报」误挂到其秘密上（把「陛下剥苏妃衣服」塞进
+# 「高昌怯战」起疑记录），真正该记的「怯战铁证」又因正文用「那张牌」等代称、
+# 不命中 keys 被降级漏记。此处固化「content + keys 必须喂给纪官」，防回退。
+# ============================================================================
+
+
+def test_reflect_feeds_secret_content_and_keys_to_clerk(monkeypatch):
+    """reflect 的纪官提示词必须包含每条秘密的正文真相与事实锚点词。
+
+    捕获 llm.complete 实际收到的 prompt，断言「秘密真相」原文与「事实锚点词」
+    都出现在其中——纪官归档时才有真相锚点可对，避免蒙眼错配。
+    """
+    import json as _json
+    snap = _snap_with_secret(A, "角色甲的秘密真相", ["旧队", "覆灭"])
+    captured = {}
+
+    def _capture(*a, **k):
+        # reflect 走 llm.complete(prompt, ...)，prompt 是位置参数（消息列表）
+        msgs = a[0] if a else []
+        for m in msgs:
+            if m.get("role") == "user":
+                captured["user"] = m.get("content", "")
+        return _json.dumps({}, ensure_ascii=False)
+
+    monkeypatch.setattr(director.llm, "complete", _capture)
+    monkeypatch.setattr(director.memory, "load", lambda sid: snap)
+    monkeypatch.setattr(director.memory, "save", lambda sid, s: None)
+    director.reflect("sid", f"{A}翻看旧队覆灭的卷宗。")
+
+    prompt = captured.get("user", "")
+    assert "秘密真相：角色甲的秘密真相" in prompt
+    assert "事实锚点词：旧队、覆灭" in prompt
