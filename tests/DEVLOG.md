@@ -6,6 +6,28 @@
 
 ---
 
+## 2026-10-16 复读重生成择优落地（semver PATCH→v0.31.7）
+
+**性质**：复读检测「降温度重生成」闭环加择优机制，修复「用更差的输出替换更好的输出」的帮倒忙缺陷。**触发 PATCH**：引擎行为修复，无 API / 存储格式 / 数据流破坏，非破坏性。
+
+**背景（会话 035503b8 R13）**：
+- 现象：R13 第一版正常生成了侍寝 NSFW 内容（玩家亲见其流式显示），随后「屏幕一闪」变成 R11 的复读版本（8-gram 重叠率 0.815）。
+- 根因：复读检测闭环缺「择优」——第一版被 `detect_narrative_repeat` 判定命中复读（很可能对 R11 质询戏的轻微重叠触发 0.2 阈值）→ 降温度重生成 → 第二版反而回卷 R11 → `regen_count` 到 `max_regen=1` 上限 → 第二版无条件覆盖落盘。前端 `data.done.reply` 整体覆盖第一版，即用户看到的「屏幕一闪」。
+- 实测验证：chat.jsonl R13 落盘的第二版 `detect_narrative_repeat` 返回 `is_repeat=True, overlap=0.815`——即最终落盘版本身就是复读版。第一版已丢失（被覆盖），但「屏幕一闪」现象证明它曾正常流式显示。
+
+**修复（方案 1：择优保留）**：
+- `director.py` 新增纯函数 `pick_less_repetitive(candidate, candidate_overlap, incumbent, incumbent_overlap)`：返回复读率更低的一版，相等时保留 incumbent（过程最优版），incumbent 为 None 时返回 candidate。纯函数、可单测、不依赖磁盘/网络。
+- `app.py` events 生成循环：引入 `best_full` / `best_overlap` 跟踪全程重叠率最低的一版（每轮生成后经 `pick_less_repetitive` 更新）；循环结束后用 `pick_less_repetitive(full, cur_overlap, best_full, best_overlap)` 择优落地——若重生成的最终版比过程最优版更复读，回退到更不重复的那一版。
+- 效果：重生成第二版若比第一版更复读，最终保留第一版（正常内容），不再「帮倒忙」；若第二版确实更好，则正常采用第二版。
+
+**守护**：`tests/test_director.py` 新增 4 用例锁死 `pick_less_repetitive` 契约（候选更优选候选 / 候选更差保留 incumbent / 相等保留 incumbent / incumbent 为 None 返回候选）。
+
+**验证**：全量 308 passed, 1 skipped, 1 deselected（原 304 + 4）。真实场景回放（会话 035503b8 R13：第一版正常 NSFW 重叠率 0.0 vs 第二版回卷历史 0.696）确认择优保留第一版。
+
+**设计决定**：选「择优保留」而非「提高 max_regen」或「收窄阈值」——最小改动、最对症（精准修掉「用更差替换更好」根因）、不引入死循环风险。此修复无关模型，是引擎自身「择优缺失」的逻辑缺陷，任何后端都会踩。
+
+---
+
 ## 2026-10-16 信息边界归档修复 + 叙事纪律归位 + demo 剧本优化（semver PATCH→v0.31.6）
 
 **性质**：秘密归档「信息边界」漏洞修复 + 泛用叙事约束从世界书「升格」进引擎 + 官方 demo（高氏王朝）世界书/角色卡优化。**触发 PATCH**：全部为提示词/数据层增强与行为修复，无 API / 存储格式 / 数据流破坏，非破坏性。

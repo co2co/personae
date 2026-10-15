@@ -725,6 +725,43 @@ def test_repeat_intra_round_self_repeat_still_detected():
     assert kind == "self"
 
 
+# ----------------------------------------------------------------------------
+# 复读重生成择优（pick_less_repetitive）回归守护
+# ----------------------------------------------------------------------------
+# v0.31.7（会话 035503b8 R13）：复读检测的「降温度重生成」闭环存在帮倒忙缺陷——
+# 第一版正常输出被误判复读触发重生成，重生成的第二版反而回卷历史（0.815），却因
+# max_regen 上限无条件覆盖落盘，用户看到更差的一版。修复=重生成后择优，只保留
+# 复读率更低的一版。pick_less_repetitive 是该择优的纯函数内核，以下用例锁死其契约。
+# ============================================================================
+
+
+def test_pick_less_repetitive_returns_lower_overlap_candidate():
+    """候选版复读率更低时选候选版（重生成真的更好）。"""
+    chosen, ov = director.pick_less_repetitive("好版", 0.05, "差版", 0.8)
+    assert chosen == "好版"
+    assert ov == 0.05
+
+
+def test_pick_less_repetitive_keeps_incumbent_when_candidate_worse():
+    """候选版复读率更高时保留过程最优版（修「帮倒忙」的核心场景）。"""
+    chosen, ov = director.pick_less_repetitive("重生成的差版", 0.815, "第一版好版", 0.03)
+    assert chosen == "第一版好版"
+    assert ov == 0.03
+
+
+def test_pick_less_repetitive_tie_keeps_incumbent():
+    """重叠率相等时保留过程最优版，避免无谓替换。"""
+    chosen, _ = director.pick_less_repetitive("第二版", 0.3, "第一版", 0.3)
+    assert chosen == "第一版"
+
+
+def test_pick_less_repetitive_none_incumbent_returns_candidate():
+    """尚无过程最优版（首版）时直接返回候选版。"""
+    chosen, ov = director.pick_less_repetitive("首版", 0.2, None, 1.0)
+    assert chosen == "首版"
+    assert ov == 0.2
+
+
 # 秘密真相回喂（reflect 提示词）回归守护
 # ----------------------------------------------------------------------------
 # 会话 f3fab11e：reflect 喂给纪官的「秘密与把柄现状」只回喂 owner 名 + 状态，
