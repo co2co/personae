@@ -1092,16 +1092,27 @@ def reflect(sid, reply, directive=""):
 
     rel_text = "\n".join(f"{k}: {v}" for k, v in snap["relations"].items()) or "（无）"
     goal_text = "\n".join(f"{k}: {v}" for k, v in snap.get("goals", {}).items()) or "（无）"
-    # 秘密全景（含已被谁知情）：把柄可失去/转手，纪官必须知道当前持有情况
+    # 秘密全景（含已被谁知情 + 秘密正文真相）：把柄可失去/转手，纪官必须知道当前持有情况；
+    # 同时喂 content 与 keys 作为语义锚点——此前只回喂 owner 名 + 状态，纪官蒙眼归档，
+    # 会把「出现归属者名字的无关情报」误挂到其秘密上（会话 f3fab11e：把「陛下剥苏妃衣服」
+    # 塞进「高昌怯战」起疑记录），而真正该记的「怯战铁证」因正文用「那张牌」等代称、
+    # 不命中 keys 被降级漏记。喂全文后纪官有真相锚点可对，错配与代称漏记双治。
     sec_lines = []
     for s in snap.get("secrets", []):
         kb = [k for k in (s.get("holders") or s.get("known_by", [])) if k != ENV_PUSHER]
         sp = [x.get("by") for x in (s.get("suspicions") or []) if x.get("by") != ENV_PUSHER]
+        content = (s.get("content") or "").strip()
+        keys = "、".join(k for k in (s.get("keys") or []) if k)
         line = (f"{s.get('owner')}（{s.get('state')}｜握有把柄者："
                 f"{'、'.join(kb) if kb else '无'}")
         if sp:
             line += f"｜已起疑者：{'、'.join(sp)}"
-        sec_lines.append(line + "）")
+        line += "）"
+        if content:
+            line += "\n    · 秘密真相：" + content
+        if keys:
+            line += "\n    · 事实锚点词：" + keys
+        sec_lines.append(line)
     secret_text = "\n".join(sec_lines) or "（无秘密）"
     # 既有状态键回喂：不把键名摆出来，纪官就会为同一对象造同义新键（压测实证 20 轮造出
     # 3 个「角色B手臂*」），覆盖式存储退化成追加式。列出既有键，要求沿用、勿造同义键。
