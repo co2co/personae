@@ -1,11 +1,12 @@
-"""亲密与性内容铁律（铁律⑧）特化测试。
+"""亲密与性内容铁律（铁律⑧）特化测试（NSFW 支持版）。
 
-v0.29.0 起铁律⑧ 改为「完全中性」措辞：引擎不预设任何尺度档位、不要求露骨、
-也不强制克制——尺度完全由剧情与角色关系自然决定。
+对齐 v0.28.8 出厂措辞：当叙事推进到亲密场景时，要求身临其境、正面写实、
+禁止隐喻/文学化一带而过；尺度与颗粒度由场景与人物关系自然决定，不预设上限、
+也不强制克制。
 保留的约束：
   - 时机层：叙事尚未推进到亲密时刻前不得提前/硬写。
   - 法律红线：未成年角色的性化描写一律禁止。
-本文件断言与该中性措辞绑定，改铁律文案须同步本文件。
+本文件断言与该措辞绑定，改铁律文案须同步本文件。
 
 普适性红线：全文件只用中性占位，不绑定任何具体剧本角色名或题材词。
 """
@@ -34,31 +35,31 @@ def _system_prompt(snap=None, cards=None):
 
 
 def test_law_present():
-    """铁律⑧「亲密与性内容」必须存在于 system prompt。"""
+    """铁律⑧「亲密与性描写」必须存在于 system prompt。"""
     sys_p = _system_prompt()
-    assert "亲密与性内容" in sys_p
+    assert "亲密与性描写" in sys_p
 
 
-def test_law_is_fully_scale_neutral():
-    """完全中性：引擎不预设尺度、不要求露骨、不强制克制（v0.29.0 核心）。"""
+def test_law_requires_immersive_when_intimate():
+    """推进到亲密场景时要求身临其境、正面写实、禁止隐喻/文学化一带而过。"""
     sys_p = _system_prompt()
-    assert "不预设任何尺度档位" in sys_p
-    assert "不要求露骨" in sys_p
+    assert "身临其境" in sys_p
+    assert "正面写实" in sys_p
+    assert "禁止用隐喻" in sys_p
+
+
+def test_law_no_scale_presets():
+    """尺度与颗粒度自然决定，不预设上限、不强制克制。"""
+    sys_p = _system_prompt()
+    assert "不预设上限" in sys_p
     assert "不强制克制" in sys_p
-
-
-def test_law_no_realistic_demand():
-    """v0.29.0 已移除旧放大倾向：不得再含「正面写实」「身临其境」等强制露骨措辞。"""
-    sys_p = _system_prompt()
-    assert "正面写实" not in sys_p
-    assert "身临其境" not in sys_p
-    assert "禁止用隐喻" not in sys_p
+    assert "自然决定" in sys_p
 
 
 def test_law_is_driven_by_narrative():
-    """尺度由剧情与角色关系自然决定。"""
+    """亲密及性内容由剧情与角色关系自然驱动。"""
     sys_p = _system_prompt()
-    assert "剧情与角色关系自然决定" in sys_p
+    assert "剧情与角色关系自然驱动" in sys_p
 
 
 def test_law_has_timing_constraint():
@@ -84,7 +85,7 @@ def test_law_is_global_default():
         "goals": {}, "present": [A, B],
     }
     sys_p = _system_prompt(snap=empty_snap, cards=empty_cards)
-    assert "亲密与性内容" in sys_p
+    assert "亲密与性描写" in sys_p
 
 
 def test_law_neutral_wording():

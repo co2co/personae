@@ -6,6 +6,22 @@
 
 ---
 
+## 2026-10-16 亲密尺度出厂默认 + 常量条防截断（semver PATCH→v0.31.5）
+
+**性质**：NSFW「出厂全浓度」设定落地 + `world.scan` 常量条防截断修复。**触发 PATCH**：引擎行为修复 + 出厂默认播种内容变更，无 API 破坏，非破坏性。
+
+**改动**：
+- `engine/prompter.py`：律⑧ 从中性「不预设尺度」改为「正面写实、身临其境、不预设上限」，保留未成年硬红线。
+- `engine/store.py`：新建世界时出厂播种默认条目「亲密描写标准」（priority=100, position=after, enabled=True），并置于列表首位，保证 `world.scan` 按 priority 降序截断时该常量条必然保留。
+- `engine/static/worldbook-guide.html`：九·五节从「引擎不内置尺度」改为「出厂自带，可停用/改写」。
+- `engine/world.py`：`world.scan` 修复——常量（constant）条目永不被 `max_entries` 截断，避免高优先级常驻设定在多条目场景下被丢弃（与 store.py 首位播种协同）。
+- `tests/test_standard_entry.py` / `test_intimacy_scale.py` / `test_drama_io.py`：断言随出厂播种与 NSFW 设定翻转同步更新。
+- `engine/data/examples/`（高氏王朝 demo）：剧情设定同步（苏雅芝人设「香→密信」及世界书相关镜头纪律等）。
+
+**验证**：全量 288 passed, 1 skipped, 1 deselected。
+
+---
+
 ## 2026-10-15 高氏王朝定为随包官方 demo（semver PATCH→v0.31.4）
 
 **性质**：随包 demo 剧本落地 + 打包口径变更。**触发 PATCH**：数据/资产层变更（新增官方 demo 剧本），不涉及引擎代码逻辑，非破坏性。

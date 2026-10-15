@@ -101,7 +101,11 @@ def scan(entries, history, directive="", default_depth=4, character=None, max_en
     # 递归扫描：命中条目 content 里的 #name# 引用会拉入被引条目（BFS 防环）
     # 被引的非秘密条目排到命中条目之后，秘密被引条目单独返回（不占注入配额）。
     matched, ref_secret = _resolve_recursive(entries, matched, character)
-    out = matched[:max_entries]
+    # 常量条目「无条件纳入」，不受 max_entries 上限约束；上限只作用于关键词命中的非常量条目。
+    # （此前把常量与关键词命中混在一个 matched 里再截断，常量条目偏多时会把低优先级常量挤掉。）
+    const_out = [e for e in matched if e.get("constant")]
+    kw_out = [e for e in matched if not e.get("constant")][:max_entries]
+    out = const_out + kw_out
     if include_secret:
         # 预览模式：秘密一并返回（命中到的在前，被引用到的在后），但仍不挤掉设定。
         out = out + secret_matched + ref_secret
