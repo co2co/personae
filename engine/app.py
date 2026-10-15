@@ -712,6 +712,8 @@ def act():
         yield "data: " + json.dumps({"status": "模型思考中…"}, ensure_ascii=False) + "\n\n"
 
         full = None
+        best_full = None          # 择优保留：记录当前复读率最低的一版
+        best_overlap = 1.0        # 该版的重叠率（越小越不重复，初始 1.0 表示「无限差」）
         gen_params = dict(params)
         while True:
             box = [""]
@@ -725,6 +727,11 @@ def act():
             # 复读检测：轮内自重复 或 与最近历史轮重复
             is_repeat, overlap, kind = director.detect_narrative_repeat(
                 full, history_texts)
+            # 择优记录：无论是否判为复读，都跟踪「重叠率最低」的那一版。
+            # 这样即使重生成出的第二版反而更复读，也能回退到第一版，避免「用更差的输出替换更好的输出」。
+            best_full, best_overlap = director.pick_less_repetitive(
+                full, overlap, best_full, best_overlap)
+
             if not is_repeat or regen_count >= max_regen:
                 if is_repeat:
                     logger.warn("model", "复读检测命中（" + (kind or "?") +
@@ -746,6 +753,12 @@ def act():
             gen_params = dict(gen_params)
             # 温度减半并封底，抑制复读
             gen_params["temperature"] = max(0.4, gen_params.get("temperature", 1.0) * 0.5)
+
+        # 择优落地：best_full 已在循环中记录了全程重叠率最低的一版。
+        # 若最终落盘的这一版（full）比它更复读，则回退到更不重复的那一版，
+        # 修「复读检测帮倒忙」——第一版正常、重生成第二版反而复读时，无条件覆盖会让用户看到更差的一版。
+        full, _ = director.pick_less_repetitive(full, director.detect_narrative_repeat(
+            full, history_texts)[1], best_full, best_overlap)
 
         logger.info("model", "模型输出完成，共 " + str(len(full)) + " 字")
         result = hooks.emit("message_received", reply=full, snap=snap)

@@ -1539,6 +1539,27 @@ def detect_narrative_repeat(text, history_texts, threshold=_REPEAT_THRESHOLD,
     return False, best, kind
 
 
+def pick_less_repetitive(candidate, candidate_overlap, incumbent, incumbent_overlap):
+    """在「当前版」与「过程最优版」之间择优：返回复读率更低的那一版及其重叠率。
+
+    用于复读检测「降温度重生成」闭环的择优落地——修复「重生成出的第二版反而更复读，
+    却无条件覆盖掉第一版正常输出」的帮倒忙缺陷（会话 035503b8 R13：第一版正常侍寝
+    NSFW 被误判复读，重生成第二版回卷历史 0.815，因 max_regen 上限直接落盘）。
+
+    规则：
+      - 重叠率更低（越不重复）者胜出。
+      - 相等时保留 incumbent（过程最优版），避免无谓替换。
+      - incumbent 为 None（尚无历史最优）时，直接返回 candidate。
+
+    返回 (胜出版本, 胜出重叠率)。纯函数，便于单测，不依赖磁盘/网络。
+    """
+    if incumbent is None:
+        return candidate, candidate_overlap
+    if candidate_overlap < incumbent_overlap:
+        return candidate, candidate_overlap
+    return incumbent, incumbent_overlap
+
+
 def _history_assistant_texts(sid):
     """读取会话最近的 assistant 正文列表（供复读检测比对）。失败返回空列表。"""
     try:
