@@ -5,8 +5,8 @@
 归档根目录为 `engine/`，与 engine/README.md 的运行说明一致（解压后 `cd engine && python app.py`）。
 
 用法：
-    python package.py                 # 生成 personae-<VERSION>.zip
-    python package.py --out foo.zip   # 指定输出名
+    python package.py                 # 生成 dist/personae-<VERSION>.zip
+    python package.py --out foo.zip   # 指定输出名（覆盖默认路径）
 """
 
 import argparse
@@ -92,8 +92,9 @@ def _excluded(rel_engine):
 
 def build(out_name=None):
     ver = _version()
-    out_name = out_name or f"personae-{ver}.zip"
+    out_name = out_name or f"dist/personae-{ver}.zip"
     out = ROOT / out_name
+    out.parent.mkdir(parents=True, exist_ok=True)
     n = 0
     bad = []
     with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as z:
