@@ -168,26 +168,26 @@ if __name__ == "__main__":
                     help="跳过「随包 demo 与运行态一致性」检查")
     args = ap.parse_args()
 
-    # 守卫：分发 zip 携带的是 engine/data/examples/ 里的 demo。若它与运行态
-    # engine/data/（worlds/ + characters/）不一致，说明你在运行态改过但没回灌，
-    # 此时打出来的 zip 行为会与你实测过的版本不一致。先回灌再打包。
+    # 守卫：真相源是作者源 dramas/。分发 zip 携带的 demo 与运行态必须都等于作者源。
+    # 若不一致，说明改过作者源没 install，或实测改过运行态没 adopt——都会导致打出的
+    # zip 行为与你设计稿不一致。先 install（或 adopt+install）再打包。
     if not args.skip_demo_check:
         sys.path.insert(0, str(ROOT / "scripts"))
         try:
             import sync_drama
             drama, divs = sync_drama.collect_divergences()
             if divs:
-                print(f"✗ 打包中止：随包 demo 与运行态不一致（剧本「{drama}」），共 {len(divs)} 处：")
+                print(f"✗ 打包中止：作者源/运行态/demo 三方不一致（剧本「{drama}」），共 {len(divs)} 处：")
                 for d in divs:
                     print("   -", d)
-                print("  → 先运行  python scripts/sync_drama.py  回灌后再打包；"
+                print("  → 先运行  python scripts/sync_drama.py install  铺开后再打包；"
                       "或 --skip-demo-check 强制跳过（不建议）。")
                 sys.exit(1)
-            print(f"✓ 随包 demo 与运行态一致（剧本「{drama}」）。")
+            print(f"✓ 作者源/运行态/随包 demo 三方一致（剧本「{drama}」）。")
         except SystemExit:
-            print("⚠ 无法自动判定当前剧本（运行态 worlds 为空或多个），跳过 demo 一致性检查。")
+            print("⚠ 无法自动判定当前剧本（dramas/ 为空或多个），跳过一致性检查。")
         except Exception as e:
-            print(f"⚠ demo 一致性检查异常：{e}，继续打包（不建议）。")
+            print(f"⚠ 一致性检查异常：{e}，继续打包（不建议）。")
 
     out, n, bad = build(args.out)
     print(f"已生成 {out}（{n} 条目，{os.path.getsize(out)/1024:.1f} KB）")
