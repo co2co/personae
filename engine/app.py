@@ -686,12 +686,15 @@ def act():
         max_regen = 1
         regen_count = 0
 
-        def _generate_once(cur_params, box):
-            """单次流式生成，逐块回传；全文累积进 box[0]。"""
+        def _generate_once(cur_params, box, msgs=None):
+            """单次流式生成，逐块回传；全文累积进 box[0]。
+
+            msgs：可选，覆盖默认的 messages（重生成时用于注入反照抄约束）。
+            """
             reply_text = []
             first = True
             try:
-                for chunk in llm.stream(messages, **cur_params):
+                for chunk in llm.stream(messages if msgs is None else msgs, **cur_params):
                     if first:
                         first = False
                         logger.success("model", "首 token 已到达，模型正在输出…")
@@ -715,9 +718,10 @@ def act():
         best_full = None          # 择优保留：记录当前复读率最低的一版
         best_overlap = 1.0        # 该版的重叠率（越小越不重复，初始 1.0 表示「无限差」）
         gen_params = dict(params)
+        regen_msgs = None         # 重生成时追加了反照抄约束的 messages（首次为 None，走原 messages）
         while True:
             box = [""]
-            for item in _generate_once(gen_params, box):
+            for item in _generate_once(gen_params, box, msgs=regen_msgs):
                 yield item
             full = box[0]
             if not full:
@@ -742,17 +746,35 @@ def act():
                                 str(round(overlap, 3)) + "）")
                 break
 
-            # 命中复读：降温度 + 注入防复读约束后重生成
+            # 命中复读：降温度 + 注入显式反照抄约束后重生成。
+            # 关键：降温度只能抑制「采样随机性」导致的重复，治不了「历史正文就躺在上下文里、
+            # 模型照着抄」的内容级复读。故追加一条硬约束，明确禁止复述/改写历史已有情节与动作。
             regen_count += 1
             logger.warn("model", "复读检测命中（" + (kind or "?") +
                         "，重叠率 " + str(round(overlap, 3)) +
-                        "），降温度重生成（第 " + str(regen_count) + " 次）")
+                        "），降温度并注入反照抄约束重生成（第 " + str(regen_count) + " 次）")
             yield "data: " + json.dumps(
                 {"status": "检测到重复，正在重新生成…", "regenerate": True},
                 ensure_ascii=False) + "\n\n"
             gen_params = dict(gen_params)
             # 温度减半并封底，抑制复读
             gen_params["temperature"] = max(0.4, gen_params.get("temperature", 1.0) * 0.5)
+            # 反照抄约束：按复读类型给对症措辞，追加到 messages 末尾（近因最强）。
+            if kind == "self":
+                anti_clause = (
+                    "刚才那版叙事出现了同一段文字/动作在文内反复重复的问题。"
+                )
+            else:
+                anti_clause = (
+                    "刚才那版叙事与历史里已经写过的情节、动作、台词高度重复，近乎照抄。"
+                )
+            anti_hint = (
+                anti_clause
+                + "请重写这一轮：不得复述、重复或改写历史正文中已经出现过的任何具体情节、"
+                "身体动作、台词或收束段；必须把剧情推进到一个新的节点，写出新的具体信息"
+                "（新的动作、新的对话推进、新的处境变化或关系进展），而不是把上一轮的内容换几个字再演一遍。"
+            )
+            regen_msgs = list(messages) + [{"role": "user", "content": anti_hint}]
 
         # 择优落地：best_full 已在循环中记录了全程重叠率最低的一版。
         # 若最终落盘的这一版（full）比它更复读，则回退到更不重复的那一版，
