@@ -63,7 +63,7 @@ def _resolve_recursive(entries, matched, character):
 
 
 def scan(entries, history, directive="", default_depth=4, character=None, max_entries=8,
-         include_secret=True):
+         include_secret=True, round=0):
     """返回命中条目，按 priority 从高到低，最多 max_entries 条。
 
     history: 聊天记录文本列表（调用方通常传最近若干条）。
@@ -76,14 +76,31 @@ def scan(entries, history, directive="", default_depth=4, character=None, max_en
     调用方（app.py）会在 scan 之后把秘密剔除，所以它们默认**不占配额**——否则秘密挤掉
     真正要注入的设定（实测 8 条里秘密占 3，把「逼近的尸潮」静默挤掉）。
     命中预览（编辑器）需要看到秘密，故传 True。
+
+    round: 当前回合数（R1 起）。供 first_round 示范条目判断是否仅首轮注入。
+
+    写法示范条目（demo，对标酒馆 first message / example messages）：
+    - demo + first_round：仅首轮（round <= 1）注入，之后不再出现——酒馆 first message。
+    - demo（无 first_round）：持续注入，作为常驻 few-shot 示范——酒馆 example messages。
+    示范条目是「怎么写」的范例，不是「世界是什么」的设定，故用 demo 标志与普通世界
+    设定区分；调用方（app.py）据此把它们从 world_hits 拆出、单独走示范注入通道，
+    放在靠近输出格式段的近因位置，而非混在[世界设定]里稀释。
     """
     history = list(history or [])
     matched = []
     secret_matched = []
+    demo_out = []  # 写法示范条目（demo）：独立于世界设定，供示范注入通道
     for e in entries:
         if not e.get("enabled", True):
             continue
         if character is not None and e.get("character") and e["character"] != character:
+            continue
+        if e.get("demo"):
+            # 写法示范：first_round 仅首轮注入；否则持续注入（酒馆 example messages）。
+            # 示范不进[世界设定]，由调用方单独提取，故这里不 append 到 matched。
+            if e.get("first_round") and round > 1:
+                continue
+            demo_out.append(e)
             continue
         if e.get("constant"):
             # 常量条目：无条件纳入，不受关键词与 depth 限制
@@ -109,6 +126,10 @@ def scan(entries, history, directive="", default_depth=4, character=None, max_en
     if include_secret:
         # 预览模式：秘密一并返回（命中到的在前，被引用到的在后），但仍不挤掉设定。
         out = out + secret_matched + ref_secret
+    # 写法示范条目（demo）恒附加在末尾：它们不占 max_entries 配额、不混入[世界设定]，
+    # 由调用方按 demo 字段拆出走示范注入通道。first_round 的轮次过滤已在上面循环处理。
+    if demo_out:
+        out = out + demo_out
     return out
 
 

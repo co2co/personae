@@ -639,8 +639,10 @@ def act():
         # 预览可见），但 scan 已让它们不占 max_entries 配额，不会挤掉真正注入的设定。
         hits_all = world_mod.scan(entries, history, directive=directive,
                                  default_depth=RECENT_FOR_SCAN, character=None,
-                                 include_secret=True)
-        world_hits = [e for e in hits_all if not e.get("secret")]
+                                 include_secret=True, round=brief["round"])
+        # 写法示范条目（demo）单独拆出：它们是「怎么写」的 few-shot 范例，不混入世界设定
+        demo_hits = [e for e in hits_all if e.get("demo")]
+        world_hits = [e for e in hits_all if not e.get("secret") and not e.get("demo")]
         before_hits = [e for e in world_hits if e.get("position", "before") == "before"]
         after_hits = [e for e in world_hits if e.get("position", "before") == "after"]
         secret_hits = [e for e in hits_all if e.get("secret")]
@@ -662,6 +664,7 @@ def act():
             focus=focus,
             active_consequences=brief.get("active_consequences") or [],
             player_name=player_name,
+            demo_hits=demo_hits,
         )
         messages = hooks.emit("prompt_ready", messages=messages, snap=snap)["messages"]
         tok = sum(prompter.count_tokens(m.get("content", "")) for m in messages)
@@ -805,17 +808,18 @@ def act():
         # 后果清单 / 下回合预告），与 prompter 的「输出纪律」双保险。
         # 必须在 present 校验 / 背景自检 / reflect / 落盘之前，使下游都吃到干净正文。
         full = narrative_clean.clean_narrative(full)
-        # present 名单校验/后处理：剥离非在场角色（含已离场者）的台词块；
-        # 若本轮有镜头焦点，则按焦点子集裁剪，使镜头真正跟随被引向的角色，其余在场者不展开。
+        # present 名单校验/后处理（兜底网）：酒馆三段式范式下正文无「角色名：」前缀，
+        # 剥离退化为「仅当模型偶发仍写前缀时触发」的兜底；非在场角色出戏主要由
+        # prompter 在场约束软抑制。若本轮有镜头焦点，则按焦点子集裁剪。
         # known 含玩家卡（已在 store），玩家台词块得以放行。
         known = store.list_characters()
         keep_set = set(focus["subjects"]) if focus else set(present)
         full, present_violation = director.validate_present(
             full, present, known, allowed=list(keep_set))
         if present_violation:
-            logger.warn("model", "在场校验：剥离了非在场角色的台词块（已自动清洗）")
+            logger.warn("model", "在场校验（兜底）：剥离了带「角色名：」前缀的非在场角色台词块")
         else:
-            logger.info("model", "在场校验通过：仅含在场角色台词")
+            logger.info("model", "在场校验（兜底）：无带前缀的非在场角色台词，透传")
         # 临时群演（aux）机制已废除（v0.30.0）：临时角色交还 LLM 与玩家自主管理，
         # 引擎不再登记、追踪或确保其生命周期；未入册的名字在 validate_present
         # 中当叙述行保留，不会被剥离。
