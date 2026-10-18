@@ -53,9 +53,16 @@ def client(monkeypatch):
     # v1.0.0：session_new 会 ensure_player_card 并把玩家并入 cast。mock 掉，
     # 既避免触碰真实磁盘（真函数写真实 data/characters），又让本组「世界一致性」
     # 测试保持聚焦（不为玩家卡的世界归属而引入额外断言）。
-    monkeypatch.setattr(engine_app.store, "ensure_player_card", lambda w: "玩家")
+    ensured = []
+
+    def fake_ensure(w):
+        ensured.append(w)
+        return "玩家"
+
+    monkeypatch.setattr(engine_app.store, "ensure_player_card", fake_ensure)
     # memory.new / director 的 LLM 路径全部短路
     made = {}
+    made["ensured"] = ensured
 
     def fake_new(cast, scene_place="", world_name="", scene_time="", player=None):
         made["cast"], made["world"], made["player"] = list(cast), world_name, player
@@ -116,6 +123,20 @@ def test_by_world_endpoint_unknown_world_returns_empty(client):
     c, _ = client
     d = c.get("/api/characters/by-world?world=%E4%B8%8D%E5%AD%98%E5%9C%A8").get_json()
     assert d["names"] == []
+
+
+def test_by_world_endpoint_ensures_player_for_real_world(client):
+    """v1.0.0：浏览真实世界的角色列表前应确保该世界有一张玩家卡（已存在剧本兜底）。"""
+    c, made = client
+    c.get("/api/characters/by-world?world=%E4%B8%96%E7%95%8C%E4%B8%80")
+    assert made["ensured"] == ["世界一"]
+
+
+def test_by_world_endpoint_does_not_ensure_unknown_world(client):
+    """v1.0.0：world 指向不存在的世界书时不得 ensure（避免把玩家卡 world 重指到幽灵世界）。"""
+    c, made = client
+    c.get("/api/characters/by-world?world=%E4%B8%8D%E5%AD%98%E5%9C%A8")
+    assert made["ensured"] == []
 
 
 # ---------------------------------------------------------------------------

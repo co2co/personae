@@ -206,6 +206,12 @@ def characters_by_world():
     供前端显示提示，不必再发一次请求。
     """
     world = request.args.get("world", "")
+    # v1.0.0：查看某剧本的角色前，确保该剧本有一张【玩家】角色卡（空白，留给玩家填）。
+    # 玩家卡是全局单例、运行时只装一个剧本，此处兜底覆盖「已存在剧本（sync_drama 铺入）
+    # 且用户只是浏览、还没点开始建局」的场景——否则玩家卡只在点开始时才出现。
+    # 仅当 world 指向真实存在的世界书才 ensure：避免把玩家卡 world 重指到已删/不存在世界。
+    if world and world in store.list_worlds():
+        store.ensure_player_card(world)
     return jsonify({
         "names": store.list_characters_by_world(world),
         "unassigned": store.unassigned_characters(),
