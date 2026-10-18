@@ -104,6 +104,57 @@ def parse_initial_scene(text):
     return place, matched
 
 
+def select_present(roster, place, time_str=""):
+    """开场冷启动的在场选角（v1.2.1）：按开场地点从全员名册中判断谁合理在场。
+
+    背景：开场已改为全员进 present（无勾选列表），但 prompter 会把 present 全量注入
+    「在场角色」块——不筛人时模型把所有人都写到开场地点（实测：填「街道」却全员
+    6 人冒出来，包括不该出现在街上的人）。本函数在建局时做一次 LLM 判断，选出的
+    名单才是首轮 present。
+
+    设计约束：
+    - 玩家确认制的替代形态：这里由引擎自动选（玩家已通过「开场地点」表达意图），
+      选角结果进日志可见，开局后角色仍可经 arrive/leave 进出（scene.apply 关键词 +
+      reflect present_change 语义双轨），不是一次性锁死。
+    - 宁多勿缺的兜底方向：LLM 失败/解析失败/选了 0 人 → 返回全员原册（不阻断建局，
+      退化回旧行为全员登场）；越名名单丢弃；调用方保证玩家卡不进 roster（玩家恒在场）。
+    - roster 条目形如 {"name": ..., "brief": ...}，brief 为角色一句话设定。
+    返回选出的角色名列表（保序）。
+    """
+    place = (place or "").strip()
+    if not place or not roster:
+        return [r["name"] for r in roster]
+    listing = "\n".join(f"- {r['name']}：{r['brief']}" for r in roster)
+    prompt = (
+        "你是叙事沙盘的选角助手。根据开场地点与角色设定，判断哪些角色出现在该地点"
+        "是合理的。只输出一个 JSON 对象，不要任何解释或 Markdown。\n\n"
+        f"开场地点：{place}" + (f"（{time_str.strip()}）" if (time_str or "").strip() else "") + "\n"
+        f"可选角色：\n{listing}\n\n"
+        '请输出 JSON：{ "present": ["角色名", ...] }——只列出现在该地点的角色，'
+        "宁缺勿滥：没有明确理由出现在此的角色不要列。必须从可选角色名单里选。"
+    )
+    try:
+        raw = llm.complete(
+            [{"role": "system", "content": prompt}],
+            max_tokens=300, temperature=0.3, timeout=60,
+        )
+    except Exception:
+        return [r["name"] for r in roster]
+    try:
+        s = raw[raw.find("{"):raw.rfind("}") + 1]
+        data = json.loads(s)
+    except Exception:
+        return [r["name"] for r in roster]
+    valid = {r["name"] for r in roster}
+    picked, seen = [], set()
+    for p in (data.get("present") or []):
+        p = str(p).strip()
+        if p in valid and p not in seen:
+            seen.add(p)
+            picked.append(p)
+    return picked or [r["name"] for r in roster]
+
+
 def _triggered(directive, snap):
     """判定本轮是否调用场景导演，并区分触发来源。
 

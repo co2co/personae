@@ -519,12 +519,31 @@ def session_new():
     # 旧实现整体塞进 place、time 恒空，时间锚丢失后正文只能靠世界书反向脑补时间
     # （会话 256d924c 事故）。拆分后前端「场景：{place}（{time}）」展示保持不变。
     scene_place, scene_time = scene.parse_initial_scene(scene_raw)
+    # 开场冷启动选角（v1.2.1）：全员进 present 后，按开场地点由 LLM 判断谁合理在场，
+    # 选出的名单才是首轮 present——否则 prompter 把全员注入「在场角色」块，模型会把
+    # 所有人都写到开场地点（实测填「街道」却全员 6 人冒出来）。玩家卡不参与选角
+    # （玩家恒在场）；LLM 失败/选 0 人时回退全员（不阻断建局，退化回旧行为）。
+    player_name = store.ensure_player_card(world_name)
+    if scene_place and world_name:
+        roster = [{"name": c, "brief": (store.load_card(c).get("description") or "")[:120]}
+                  for c in cast
+                  if not (store.load_card(c).get("is_player"))]
+        picked = scene.select_present(roster, scene_place, scene_time)
+        if picked and set(picked) != {r["name"] for r in roster}:
+            dropped = [c for c in cast if c not in picked
+                       and not (store.load_card(c).get("is_player"))]
+            cast = picked + ([player_name] if player_name else [])
+            logger.info("session", "开场选角（地点「" + scene_place + "」）：在场 "
+                        + "、".join(cast)
+                        + ("" if not dropped else " ｜ 暂不在场（仍可随剧情到场）：" + "、".join(dropped)))
+        else:
+            logger.info("session", "开场选角：LLM 未收窄名单，全员登场（"
+                        + "、".join(cast) + "）")
     # 开局写法示范（酒馆 first message）：引导页文本框带入，空则由引擎中性默认兜底。
     # 玩家可留空（后端注入中性默认）也可改成贴合本剧风格的示范，随首轮注入一次。
     opening_demo = (body.get("opening_demo") or "").strip() or store._FIRST_ROUND_DEMO
     # v1.0.0：玩家是场上的一个人物。确保该世界的【玩家】角色卡存在（首次创建世界时
     # 已由 save_world 播种，此处为旧世界/导入剧本的兜底），并把玩家并入在场名单。
-    player_name = store.ensure_player_card(world_name)
     if player_name and player_name not in cast:
         cast.append(player_name)
     try:

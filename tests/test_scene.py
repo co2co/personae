@@ -234,3 +234,73 @@ def test_is_future_time_not_future():
     """确定的当前时间词不是将来时。"""
     assert not scene._is_future_time("入夜后气温更低")
     assert not scene._is_future_time("第二天，某角色第一个醒来")
+
+
+# ---- 开场冷启动选角（select_present，v1.2.1）----
+# 全员进 present 后按开场地点选角；LLM 失败/选 0 人回退全员，越名丢弃。
+
+ROSTER = [{"name": "角色甲", "brief": "占位"}, {"name": "角色乙", "brief": "占位"},
+          {"name": "角色丙", "brief": "占位"}]
+
+
+def test_select_present_filters_and_dedupes(monkeypatch):
+    monkeypatch.setattr(scene.llm, "complete",
+                        lambda msgs, **k: json.dumps({"present": ["角色乙", "角色甲", "幻觉丁", "角色乙"]}))
+    assert scene.select_present(ROSTER, "集市") == ["角色乙", "角色甲"]
+
+
+def test_select_present_fallback_on_llm_error(monkeypatch):
+    def boom(msgs, **k):
+        raise RuntimeError("模型未启动")
+    monkeypatch.setattr(scene.llm, "complete", boom)
+    assert scene.select_present(ROSTER, "集市") == [r["name"] for r in ROSTER]
+
+
+def test_select_present_fallback_on_bad_json_or_empty(monkeypatch):
+    monkeypatch.setattr(scene.llm, "complete", lambda msgs, **k: "不是JSON")
+    assert scene.select_present(ROSTER, "集市") == [r["name"] for r in ROSTER]
+    monkeypatch.setattr(scene.llm, "complete", lambda msgs, **k: json.dumps({"present": []}))
+    assert scene.select_present(ROSTER, "集市") == [r["name"] for r in ROSTER]
+
+
+def test_select_present_no_place_returns_full(monkeypatch):
+    """未填地点无判断依据：不调 LLM 直接返回全员。"""
+    calls = []
+    monkeypatch.setattr(scene.llm, "complete", lambda msgs, **k: calls.append(1) or "{}")
+    assert scene.select_present(ROSTER, "") == [r["name"] for r in ROSTER]
+    assert calls == []
+
+
+# ---- 开场冷启动选角（select_present，v1.2.1）----
+# 全员进 present 后按开场地点选角；LLM 失败/选 0 人回退全员，越名丢弃。
+
+ROSTER = [{"name": "角色甲", "brief": "占位"}, {"name": "角色乙", "brief": "占位"},
+          {"name": "角色丙", "brief": "占位"}]
+
+
+def test_select_present_filters_and_dedupes(monkeypatch):
+    monkeypatch.setattr(scene.llm, "complete",
+                        lambda msgs, **k: json.dumps({"present": ["角色乙", "角色甲", "幻觉丁", "角色乙"]}))
+    assert scene.select_present(ROSTER, "集市") == ["角色乙", "角色甲"]
+
+
+def test_select_present_fallback_on_llm_error(monkeypatch):
+    def boom(msgs, **k):
+        raise RuntimeError("模型未启动")
+    monkeypatch.setattr(scene.llm, "complete", boom)
+    assert scene.select_present(ROSTER, "集市") == [r["name"] for r in ROSTER]
+
+
+def test_select_present_fallback_on_bad_json_or_empty(monkeypatch):
+    monkeypatch.setattr(scene.llm, "complete", lambda msgs, **k: "不是JSON")
+    assert scene.select_present(ROSTER, "集市") == [r["name"] for r in ROSTER]
+    monkeypatch.setattr(scene.llm, "complete", lambda msgs, **k: json.dumps({"present": []}))
+    assert scene.select_present(ROSTER, "集市") == [r["name"] for r in ROSTER]
+
+
+def test_select_present_no_place_returns_full(monkeypatch):
+    """未填地点无判断依据：不调 LLM 直接返回全员。"""
+    calls = []
+    monkeypatch.setattr(scene.llm, "complete", lambda msgs, **k: calls.append(1) or "{}")
+    assert scene.select_present(ROSTER, "") == [r["name"] for r in ROSTER]
+    assert calls == []
