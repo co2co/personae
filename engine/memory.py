@@ -21,11 +21,16 @@ def _new_id():
     return uuid.uuid4().hex[:8]
 
 
-def new(cast, scene_place="", world_name="", scene_time=""):
-    """开启一个沙盘世界。cast 为在场角色卡列表（全部为 NPC，环境推手不作为角色入场）。
+def new(cast, scene_place="", world_name="", scene_time="", player=None):
+    """开启一个沙盘世界。cast 为在场的 NPC 角色卡列表，player 为在场玩家角色卡名。
 
-    环境推手在原生机制里是外部导演/观察者：不登场、不说话，只注入环境扰动（切换场景、
-    改变天气、指令某角色行动等），观察迷你世界如何运转。
+    v1.0.0：玩家不再是「环境推手/外部导演」（不登场、不说话、只注入扰动），而是局势中的
+    一名**在场角色**——有自己的角色卡（身份/性格/核心渴望/恐惧）、自己的短期目标、
+    甚至自己的暗牌（秘密，如「穿越者」）。建局时玩家卡随其它 NPC 一并入 present、播种进
+    关系图，并在首轮初始推演中与 NPC 一起交给 LLM。玩家由人类实时操控：LLM 只写「其它
+    角色如何感知与回应玩家的言行」，绝不代写玩家本人的言行与内心（见 prompter）。
+
+    player 为 None 或空串时退化为旧行为（纯 NPC 沙盘，无玩家角色），供测试与存量调用兼容。
 
     scene_place / scene_time：开场地点的纯地点名与时间锚，已由 session_new 经
     scene.parse_initial_scene 拆分（玩家混写「傍晚，客厅」时，时间词进 time、地点进 place）。
@@ -35,6 +40,11 @@ def new(cast, scene_place="", world_name="", scene_time=""):
     folder = SESS_DIR / sid
     folder.mkdir(parents=True, exist_ok=True)
     present = list(cast)
+    # 玩家角色并入在场名单（去重、置于末尾）。玩家卡也在 present 内，故下方关系/
+    # 亲属/目标播种循环会自然把玩家卡的内容一并固化，无需特判。
+    player = (player or "").strip()
+    if player and player not in present:
+        present.append(player)
     cards = {c: store.load_card(c) for c in present}
 
     relations = {}
@@ -70,6 +80,30 @@ def new(cast, scene_place="", world_name="", scene_time=""):
                 # 发酵压力：连续多少轮这条秘密在叙事里完全没被触及（提及/暗示/回避/物证/追问
                 # 任一都算触及）。由代码累加、触及即归零；模型永远看不到这个数字，只看到
                 # prompter 按档位生成的文案。用于替代原技能「LLM 自写简报自我提醒」的推进压力。
+                "pressure": 0,
+            })
+
+    # 玩家暗牌（v1.0.0）：玩家角色卡的 secrets 字段是玩家自己的秘密（如「穿越者」），
+    # 建局时转成与 NPC 完全同格式的秘密条目进秘密跟踪系统（不放世界书）。owner 为
+    # 玩家名，潜伏态下 NPC 的角色块天然拿不到其内容——认知隔离由现有秘密机制自动保证：
+    # NPC 只看见玩家表面行为，只有起疑/暴露后才会触及，且暴露走的是同一套举证归档。
+    if player and cards.get(player):
+        for sec in (cards[player].get("secrets") or []):
+            if not isinstance(sec, dict):
+                continue
+            content = (sec.get("content") or "").strip()
+            if not content:
+                continue
+            secrets.append({
+                "owner": player,
+                "content": content,
+                "bottom_line": (sec.get("bottom_line") or "").strip(),
+                "keys": sec.get("keys", []) or [],
+                "state": "潜伏",
+                "public": False,
+                "known_by": [],
+                "exposures": [],
+                "suspicions": [],
                 "pressure": 0,
             })
 

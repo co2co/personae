@@ -14,6 +14,12 @@ from pathlib import Path
 DATA_DIR = Path(__file__).parent / "data"
 EXAMPLES_DIR = DATA_DIR / "examples"
 
+# 玩家角色卡（v1.0.0 核心：玩家不再是「环境推手/外部导演」，而是局势中的一名在场角色）。
+# 固定名：运行时 data/ 只装一个剧本，玩家卡全局唯一、无跨世界重名冲突；
+# 玩家可在角色编辑器里改它的名与内容。卡内 is_player=True 是引擎识别「这是玩家操控角色」
+# 的唯一标志——prompter 据此决定「LLM 不代写其言行、不向其块注入自身秘密」。
+PLAYER_NAME = "玩家"
+
 # 进程级只读缓存：角色卡与世界书在会话内基本不变，但每轮推演会被反复
 # load_card / load_world 读盘（app.py 每轮为在场角色逐张 load、director 反复
 # load_characters/load_world）。带 mtime 校验的缓存：命中时比对文件修改时间，
@@ -166,6 +172,70 @@ def delete_card(name):
     return True
 
 
+def empty_player_card(world_name):
+    """一张字段全空的玩家角色卡（v1.0.0）。
+
+    字段结构与其它角色卡完全一致（description / personality / core_desire / core_fear /
+    short_goal / relations / relations_kinship），外加两个玩家专属字段：
+      - is_player: True  引擎据此把它当「人类操控的在场角色」，LLM 不代写其言行。
+      - secrets:   []    玩家自己的暗牌（如「穿越者」），建局时由 memory.new 转成
+                         与其它 NPC 同格式的秘密条目进秘密跟踪系统（不放世界书）。
+    内容一律留空，由玩家在建局后自行填写——引擎不替玩家脑补身份。
+    """
+    return {
+        "name": PLAYER_NAME,
+        "world": world_name or "",
+        "description": "",
+        "personality": "",
+        "core_desire": "",
+        "core_fear": "",
+        "short_goal": "",
+        "relations": {},
+        "relations_kinship": {},
+        "is_player": True,
+        "secrets": [],
+    }
+
+
+def ensure_player_card(world_name):
+    """为该剧本确保存在一张玩家角色卡，返回其名字。
+
+    运行时 data/ 只装一个剧本，玩家卡名固定 PLAYER_NAME、全局唯一：
+      - 不存在 → 新建一张字段全空的卡（world=world_name），内容留给玩家填。
+      - 已存在 → 保留玩家已填的全部内容，但若其 world 与当前剧本不一致（切换/
+        导入剧本后），把 world 重指到当前剧本，使玩家卡恒归属「正在操作的那个剧本」。
+        这是必要的：否则切换剧本后玩家卡还挂在旧世界名下，session_new 的跨世界
+        一致性校验会把它当「外来角色」拦截，导致新剧本开不了局。
+    world_name 为空（无世界书）时不重指，避免把有归属的卡误抹成无世界。
+    """
+    world_name = (world_name or "").strip()
+    try:
+        card = load_card(PLAYER_NAME)
+        if world_name and (card.get("world", "") or "").strip() != world_name:
+            card = dict(card)
+            card["world"] = world_name
+            save_card(PLAYER_NAME, card)
+    except FileNotFoundError:
+        save_card(PLAYER_NAME, empty_player_card(world_name))
+    return PLAYER_NAME
+
+
+def player_card_name(world_name):
+    """返回归属该剧本的玩家角色卡名；无则返回 None。
+
+    判据：card.is_player 为真且 card.world == world_name。世界不存在或该剧本
+    尚无玩家卡时返回 None，由调用方决定是否补建。
+    """
+    world_name = (world_name or "").strip()
+    try:
+        card = load_card(PLAYER_NAME)
+    except FileNotFoundError:
+        return None
+    if card.get("is_player") and (card.get("world", "") or "").strip() == world_name:
+        return PLAYER_NAME
+    return None
+
+
 def list_worlds():
     _seed_examples()
     return _cached_listing(DATA_DIR / "worlds")
@@ -309,7 +379,8 @@ def save_world(name, entries):
     folder.mkdir(parents=True, exist_ok=True)
     p = folder / f"{name}.json"
     entries = list(entries or [])
-    if not p.exists() and not _has_standard_entry(entries):
+    first_create = not p.exists()
+    if first_create and not _has_standard_entry(entries):
         # 置于首位：前端 collectWorldEntries 按列表序重算 priority（index 0 → 100），
         # 而 world.scan 是按 priority 降序截断 max_entries——放首位才能保证
         # 「每世界多一条 constant」不会把该世界的其它设定挤出配额。
@@ -317,6 +388,11 @@ def save_world(name, entries):
     data = {"name": name, "entries": entries}
     p.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
     _invalidate(p)
+    # v1.0.0：新世界首次创建时默认生成一张字段全空的玩家角色卡，内容留给玩家自己填。
+    # 仅「首次创建」补建，已存在的剧本（含 import_drama 覆盖写）不重复触发、不覆盖旧卡。
+    if first_create:
+        ensure_player_card(name)
+    return name
 
 
 def delete_world(name):
@@ -481,6 +557,10 @@ def import_drama(name, template):
         if (card.get("world", "") or "").strip() == name and cname not in template_names:
             if delete_card(cname):
                 deleted.append(cname)
+
+    # v1.0.0：导入后确保该剧本有一张玩家角色卡。模板若自带玩家卡已在第 2 步写入
+    # （且因在 template_names 内不会被第 3 步误删）；未自带则补一张空卡，内容留给玩家填。
+    ensure_player_card(name)
 
     return {
         "ok": True,

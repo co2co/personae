@@ -830,7 +830,7 @@
     <div class="card">
       <div class="eyebrow">SANDBOX</div>
       <h2>开启一个世界</h2>
-      <p class="lead">你是外部导演，不登场、不说话。先选一个世界，它的世界书与全部角色会一并载入；再设定开场场景，然后注入环境扰动，看这个迷你世界如何运转。</p>
+      <p class="lead">你是这场局势里的一个人物。先选一个世界，它的世界书与全部角色会一并载入；系统会为该世界生成一张「玩家」角色卡，填好你的身份与暗牌、设定开场场景，再说出你的行动与台词，看这个迷你世界如何回应你、并自行运转。</p>
       <label class="form-label" for="world-pick">世界</label>
       <select id="world-pick" class="field"></select>
       <label class="form-label">同场角色（本世界的角色，默认全选）</label>
@@ -892,8 +892,8 @@
     </div>
     <div id="bar">
       <div id="bar-inner">
-        <textarea id="input" placeholder="作为导演注入环境扰动，如 *让她去厨房*、*天色暗下来开始下雨*"></textarea>
-        <button id="send" class="btn btn-primary">注入扰动</button>
+        <textarea id="input" placeholder="写下你（玩家）本回合的行动与台词，如 *我走到窗边，望向门外*、*天色暗下来，下起雨*"></textarea>
+        <button id="send" class="btn btn-primary">行动</button>
       </div>
     </div>
   </section>
@@ -2001,7 +2001,7 @@ async function resumeSession(sid) {
   // 渲染已有对话，恢复上下文
   log.innerHTML = '';
   (chat || []).forEach(m => {
-    if (m.role === 'user') bubble('user', (m.content || '').replace(/^【导演指令】/, ''));
+    if (m.role === 'user') bubble('user', (m.content || '').replace(/^【(导演指令|玩家行动)】/, ''));
     else if (m.role === 'assistant') bubble('assistant', m.content || '');
   });
   statusEl.textContent = '已继续会话：' + sid;

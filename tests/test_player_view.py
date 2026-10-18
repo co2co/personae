@@ -128,8 +128,12 @@ def test_session_new_returns_player_view(monkeypatch):
     cards = make_cards([A, B])
     monkeypatch.setattr(app_module.store, "list_characters", lambda: [A, B])
     monkeypatch.setattr(app_module.store, "load_card", lambda n: cards[n])
+    # v1.0.0：session_new 会 ensure_player_card 并入玩家。mock 掉，避免真函数
+    # 写真实 data/characters，也不给 load_card 引入「玩家」的 KeyError。
+    monkeypatch.setattr(app_module.store, "ensure_player_card", lambda w: "玩家")
     monkeypatch.setattr(app_module.memory, "new",
-                        lambda cast, scene_place="", world_name="", scene_time="": "sid-test")
+                        lambda cast, scene_place="", world_name="", scene_time="",
+                        player=None: "sid-test")
     snap = _snap()
     monkeypatch.setattr(app_module.memory, "load", lambda sid: snap)
     monkeypatch.setattr(app_module.memory, "save", lambda sid, s: None)

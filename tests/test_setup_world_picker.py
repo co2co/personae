@@ -50,11 +50,15 @@ def client(monkeypatch):
     monkeypatch.setattr(engine_app.store, "unassigned_characters",
                         lambda: [n for n, c in CARDS.items()
                                  if (c.get("world") or "") not in WORLDS])
+    # v1.0.0：session_new 会 ensure_player_card 并把玩家并入 cast。mock 掉，
+    # 既避免触碰真实磁盘（真函数写真实 data/characters），又让本组「世界一致性」
+    # 测试保持聚焦（不为玩家卡的世界归属而引入额外断言）。
+    monkeypatch.setattr(engine_app.store, "ensure_player_card", lambda w: "玩家")
     # memory.new / director 的 LLM 路径全部短路
     made = {}
 
-    def fake_new(cast, scene_place="", world_name="", scene_time=""):
-        made["cast"], made["world"] = list(cast), world_name
+    def fake_new(cast, scene_place="", world_name="", scene_time="", player=None):
+        made["cast"], made["world"], made["player"] = list(cast), world_name, player
         return "sid_test"
 
     monkeypatch.setattr(engine_app.memory, "new", fake_new)
@@ -86,7 +90,9 @@ def test_list_characters_by_world_filters(tmp_path, monkeypatch):
     for name, w in [("甲", "世界一"), ("乙", "世界一"), ("丙", "世界二"), ("丁", "")]:
         store.save_card(name, {"world": w} if w else {})
     assert set(store.list_characters_by_world("世界一")) == {"甲", "乙"}
-    assert store.list_characters_by_world("世界二") == ["丙"]
+    # v1.0.0：save_world 首次创建时播种玩家卡，ensure_player_card 把其 world 重指到
+    # 「最后保存的世界」——本例先世界一后世界二，故玩家卡归属世界二。
+    assert set(store.list_characters_by_world("世界二")) == {"丙", "玩家"}
     assert store.list_characters_by_world("不存在") == []
     # 未归属 = world 为空 + world 指向不存在的世界书
     assert set(store.unassigned_characters()) == {"丁"}
@@ -121,7 +127,9 @@ def test_session_new_uses_explicit_world(client):
     r = c.post("/api/session/new", json={"cast": ["甲", "乙"], "scene": "客厅", "world": "世界一"})
     assert r.status_code == 200, r.get_json()
     assert made["world"] == "世界一"
-    assert made["cast"] == ["甲", "乙"]
+    # v1.0.0：玩家并入在场名单（ensure_player_card 兜底 + cast 末尾追加）
+    assert made["cast"] == ["甲", "乙", "玩家"]
+    assert made["player"] == "玩家"
 
 
 def test_session_new_rejects_cross_world_cast(client):

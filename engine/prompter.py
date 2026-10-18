@@ -1,15 +1,16 @@
 """提示词组装：核心算法之一。
 
 用法：
-    build_session()  多角色沙盘模式（环境推手作为外部导演，不登场）
+    build_session()  多角色沙盘模式（玩家是在场角色，由人类实时操控）
 
 build_session 的分层：
     1 世界设定       非秘密的世界书命中（before 段=系统层；after 段置历史之后）
     2 在场角色       description + personality + 当前意图 + (知情角色据此行动的)秘密提示
-    3 导演指令       声明环境推手不登场、不代写其台词
+                    （玩家角色块：标注「人类操控」，LLM 不代写其言行、不注入其秘密底牌）
+    3 玩家行动       铁律 + 玩家本回合行动/台词 + 牵涉角色焦点
     4 关系与状态     关系图 / 旧账 / 回合 / 场景
     5 输出格式       多说话人叙事约定
-    历史 + 环境推手本轮扰动为 user 轮
+    历史 + 玩家本轮行动为 user 轮
 """
 
 import re
@@ -80,7 +81,7 @@ def compress_history(history, window_rounds=HISTORY_WINDOW_ROUNDS):
     """滑动窗口压缩：保留最近 window_rounds 轮原始叙事，更早回合压成单条摘要块。
 
     目的：抑制长上下文下 prompt 无限膨胀导致的叙事衰退。
-    零额外 LLM 调用——older 每轮取「导演指令前 SUMMARY_DIRECTIVE_CHARS 字 +
+    零额外 LLM 调用——older 每轮取「玩家行动前 SUMMARY_DIRECTIVE_CHARS 字 +
     叙事首 SUMMARY_NARRATIVE_CHARS 字」作为剧情骨架。
     未超窗口时原样返回，等价旧行为。
     """
@@ -183,12 +184,12 @@ def _global_pressure_block(snap, cards_present):
     return ("[可选提醒·秘密发酵]\n以下秘密已经沉寂多轮，若与导演指令不冲突、且叙事自然，"
             "可让它们在本轮行为层面露出一点痕迹：\n"
             + "\n".join(lines)
-            + "\n以上仅为可选提醒，优先级低于导演指令与镜头分配；"
+            + "\n以上仅为可选提醒，优先级低于玩家行动与镜头分配；"
               "若本轮叙事不需要、或时机不对，可完全略过。")
 
 
 _LAWS_PREFIX = (
-    "你是这个虚构世界的叙事者，正在撰写本轮剧情。下方[导演指令][关系与状态][输出格式]\n"
+    "你是这个虚构世界的叙事者，正在撰写本轮剧情。下方[玩家行动][关系与状态][输出格式]\n"
     "都是你创作时必须遵守的约束，不是你要复述、评论或扮演的对象。\n"
     "创作铁律（仅供你内部遵循，绝不在正文里出现）：① 每个角色每回合必须执行一个指向他人的动作"
     "（说话/触碰/移动/发消息/留痕迹），由其核心渴望驱动，禁止只为填充而行动。"
@@ -197,7 +198,8 @@ _LAWS_PREFIX = (
     "④ 后果留痕且振荡：重大行为（冲突/背叛/亲密/暴露秘密）必须留下持久后果（误会/伤疤/把柄/人情债），"
     "禁止次日无痕重置。⑤ 关系机会必须兑现：角色关系（好感/对立/和解）的推进须由剧情自然落到具体互动上，"
     "不得只铺垫不推进。"
-    "⑥ 环境推手（导演）不登场、不说话，只通过下方指令扰动世界；环境推手指令优先。"
+    "⑥ 玩家角色由玩家本人实时操控：他的行动与台词由下方指令给出，你只写在场其他角色如何察觉与回应他，"
+    "绝不替他决定动作、说台词或写内心；玩家指令优先。"
     "⑦ 人设底线不可违背：角色块的「核心渴望」与「核心恐惧」是该角色的根本动机与红线，"
     "任何叙事不得让角色做出与之直接相反的选择（例如护子心切的母亲不会主动配合伤害孩子、"
     "以救人为天职的护士不会见死不救）。确有更强动机时，必须先写出其内心挣扎与被迫让步的过程，"
@@ -249,15 +251,18 @@ def _build_laws():
 
 def build_session(cards_present, directive, world_hits, snap,
                   history=None, after_hits=None, focus=None,
-                  active_consequences=None):
-    """多角色沙盘模式（环境推手作为外部导演，不登场）：返回 messages 列表。
+                  active_consequences=None, player_name=None):
+    """多角色沙盘模式（玩家是在场角色，由人类实时操控）：返回 messages 列表。
 
-    cards_present: {名字: 角色卡}（全部为 NPC，环境推手不在其中）
-    directive:     环境推手（外部导演）本回合注入的扰动指令
+    cards_present: {名字: 角色卡}（含玩家角色——玩家卡也在其中，LLM 需知道玩家是谁
+                   才能写其它角色对他的感知与回应）
+    directive:     玩家本回合的行动 / 台词（由人类输入，LLM 据此写 NPC 的回应）
     world_hits:    已剔除潜伏秘密的世界书命中
     snap:          当前快照（来自 memory.load）
     active_consequences: 本轮被触发词激活的旧账文案列表（导演简报 A2 产出，可为空）。
-                    此前该值只进日志、不进提示词，导致后果账本无法真正回响。
+    player_name:   玩家角色卡名。传入后该角色按「人类操控」处理：LLM 不代写其言行与
+                   内心、不向其块注入秘密底牌；其秘密的 NPC 侧认知隔离仍由现有
+                   秘密机制自动保证（各 NPC 块只拿到自己知道的部分）。
     """
     blocks = []
 
@@ -276,75 +281,86 @@ def build_session(cards_present, directive, world_hits, snap,
         if focus_subs and name not in focus_subs:
             goal = ""  # 镜头外：本轮不展开，旧目标不驱动其行动
         hint = ""
-        # 秘密提示：逐条检查本角色相关的秘密状态，注入对应提示（须嵌套在 per-character 循环内）
-        for s in snap["secrets"]:
-            owner = s["owner"]
-            knowers = [k for k in s.get("known_by", []) if k != ENV_PUSHER and k != owner]
-            holders = [k for k in (s.get("holders") or s.get("known_by", []))
-                       if k != ENV_PUSHER and k != owner]
-            # 暴露底线（bottom_line）：秘密一旦被揭开的后果。此前该字段存进快照却从未
-            # 被引擎消费，导致曝光后没有代价压力、张力落空。仅归属者与握把柄者可见——
-            # 不知情者不剧透（信息边界不变）。
-            bottom = (s.get("bottom_line") or "").strip()
-            # 起疑者（线索逼近但尚未证实）：与知情者严格区分——他们只拿到疑点，
-            # 拿不到秘密真相，否则等于凭空剧透（信息边界须与潜伏期一致）。
-            susp = [x for x in (s.get("suspicions") or [])
-                    if x.get("by") and x.get("by") != ENV_PUSHER and x.get("by") != owner]
-            if name == owner:
-                # 已公开（v0.26.0 四态）：秘密已成公开事实，掩饰/否认不再可信，归属者只剩
-                # 「直面后果、应对众人反应」一条路——注入与「潜伏/暴露」不同的框架。
-                if s.get("state") == "已公开":
-                    hint += "\n  （你的秘密已成公开事实：「" + s["content"] + "」。"
-                    hint += "在场者皆已知晓，掩饰与否认都不再可信；"
-                    hint += "须直面它带来的处境，并应对众人的反应。）"
+        # 玩家角色（v1.0.0）：由人类实时操控，LLM 不代写其言行与内心，也不向其块注入
+        # 秘密底牌（玩家是秘密的 owner，自己当然知道，无需引擎剧透给他）。这里给的是
+        # 「操控者边界」标记，告诉 LLM：本回合他的行动/台词由下方玩家指令给出，你只写
+        # 其它角色如何感知与回应他。他的秘密对 NPC 的认知隔离仍走下面 NPC 块的既有逻辑。
+        if player_name and name == player_name:
+            hint += (
+                "\n  （本角色由玩家本人实时操控：他的行动、台词与内心都由玩家在下方指令里给出，"
+                "你**只**要写在场其他角色如何察觉、理解、回应他，**绝不**替他决定动作、说台词或"
+                "写他的内心活动。若玩家指令为空，则他静立于现场，由在场角色各自反应。）"
+            )
+        else:
+            # 秘密提示：逐条检查本角色相关的秘密状态，注入对应提示（须嵌套在 per-character 循环内）
+            for s in snap["secrets"]:
+                owner = s["owner"]
+                knowers = [k for k in s.get("known_by", []) if k != ENV_PUSHER and k != owner]
+                holders = [k for k in (s.get("holders") or s.get("known_by", []))
+                           if k != ENV_PUSHER and k != owner]
+                # 暴露底线（bottom_line）：秘密一旦被揭开的后果。此前该字段存进快照却从未
+                # 被引擎消费，导致曝光后没有代价压力、张力落空。仅归属者与握把柄者可见——
+                # 不知情者不剧透（信息边界不变）。
+                bottom = (s.get("bottom_line") or "").strip()
+                # 起疑者（线索逼近但尚未证实）：与知情者严格区分——他们只拿到疑点，
+                # 拿不到秘密真相，否则等于凭空剧透（信息边界须与潜伏期一致）。
+                susp = [x for x in (s.get("suspicions") or [])
+                        if x.get("by") and x.get("by") != ENV_PUSHER and x.get("by") != owner]
+                if name == owner:
+                    # 已公开（v0.26.0 四态）：秘密已成公开事实，掩饰/否认不再可信，归属者只剩
+                    # 「直面后果、应对众人反应」一条路——注入与「潜伏/暴露」不同的框架。
+                    if s.get("state") == "已公开":
+                        hint += "\n  （你的秘密已成公开事实：「" + s["content"] + "」。"
+                        hint += "在场者皆已知晓，掩饰与否认都不再可信；"
+                        hint += "须直面它带来的处境，并应对众人的反应。）"
+                        if bottom:
+                            hint += " ｜ 它被揭开的后果是：" + bottom + "。"
+                        if knowers:
+                            hint += " ｜ 知情者：" + "、".join(knowers) + "。"
+                    else:
+                        # 私有底牌：仅归属者本人可见，被触及/追问时由他决定是否吐露；
+                        # 一旦吐露须忠于世界书真相，不得歪曲事实或嫁祸他人（根治「甩锅」式自由创作）。
+                        # 这是 v0.9.0 修复：此前秘密潜伏时文本不进 prompt，导致「暴露」必然是
+                        # 模型自由填空、极易违背设定（如把灾祸因果甩给无辜角色）。
+                        hint += "\n  （只有你自己知道的底牌：「" + s["content"] + "」。"
+                        hint += "被触及或追问时由你决定是否吐露；若吐露须忠于以上真相，"
+                        hint += "不得歪曲事实、不得把过错推给他人。）"
+                        if bottom:
+                            hint += " ｜ 一旦被揭开，后果是：" + bottom + "——这是你死守它的理由。"
+                        if knowers:
+                            hint += " ｜ 该秘密现已被 " + "、".join(knowers) + " 知晓，须应对其反应。"
+                        if susp:
+                            # 逼近警告：有人已经在摸到边了，但还没证实。给归属者可演的应对空间
+                            # （掩饰、转移视线、反制、抢先开口），把曝光前的过程变成戏。
+                            names = "、".join(x["by"] for x in susp)
+                            clue = (susp[0].get("clue") or "").strip()[:60]
+                            hint += " ｜ 已经有人在逼近它：" + names
+                            if clue:
+                                hint += "（其疑点：\"" + clue + "\"）"
+                            hint += "。他们尚未证实，你可掩饰、转移视线或反制，但不得主动交出底牌。"
+                        # 发酵压力：沉寂过久则从「可掩饰」升级为「必须露出痕迹 / 必须碰撞」。
+                        ferm = _ferment_hint(s, forced=(s.get("owner") in forced_owners))
+                        if ferm:
+                            hint += " ｜ " + ferm
+                elif name in holders:
+                    # 握把柄者已知情，故拿到完整事实（此前截断到 80 字会造成信息缺口，
+                    # 与归属者拿全文不一致）；同时告知揭开的后果，使其能权衡是否使用这张牌。
+                    hint += "\n  （你握有 " + owner + " 的把柄：" + s["content"] + "，可据此行动"
                     if bottom:
-                        hint += " ｜ 它被揭开的后果是：" + bottom + "。"
-                    if knowers:
-                        hint += " ｜ 知情者：" + "、".join(knowers) + "。"
-                else:
-                    # 私有底牌：仅归属者本人可见，被触及/追问时由他决定是否吐露；
-                    # 一旦吐露须忠于世界书真相，不得歪曲事实或嫁祸他人（根治「甩锅」式自由创作）。
-                    # 这是 v0.9.0 修复：此前秘密潜伏时文本不进 prompt，导致「暴露」必然是
-                    # 模型自由填空、极易违背设定（如把灾祸因果甩给无辜角色）。
-                    hint += "\n  （只有你自己知道的底牌：「" + s["content"] + "」。"
-                    hint += "被触及或追问时由你决定是否吐露；若吐露须忠于以上真相，"
-                    hint += "不得歪曲事实、不得把过错推给他人。）"
-                    if bottom:
-                        hint += " ｜ 一旦被揭开，后果是：" + bottom + "——这是你死守它的理由。"
-                    if knowers:
-                        hint += " ｜ 该秘密现已被 " + "、".join(knowers) + " 知晓，须应对其反应。"
-                    if susp:
-                        # 逼近警告：有人已经在摸到边了，但还没证实。给归属者可演的应对空间
-                        # （掩饰、转移视线、反制、抢先开口），把曝光前的过程变成戏。
-                        names = "、".join(x["by"] for x in susp)
-                        clue = (susp[0].get("clue") or "").strip()[:60]
-                        hint += " ｜ 已经有人在逼近它：" + names
-                        if clue:
-                            hint += "（其疑点：\"" + clue + "\"）"
-                        hint += "。他们尚未证实，你可掩饰、转移视线或反制，但不得主动交出底牌。"
-                    # 发酵压力：沉寂过久则从「可掩饰」升级为「必须露出痕迹 / 必须碰撞」。
-                    ferm = _ferment_hint(s, forced=(s.get("owner") in forced_owners))
-                    if ferm:
-                        hint += " ｜ " + ferm
-            elif name in holders:
-                # 握把柄者已知情，故拿到完整事实（此前截断到 80 字会造成信息缺口，
-                # 与归属者拿全文不一致）；同时告知揭开的后果，使其能权衡是否使用这张牌。
-                hint += "\n  （你握有 " + owner + " 的把柄：" + s["content"] + "，可据此行动"
-                if bottom:
-                    hint += " ｜ 一旦揭开的后果：" + bottom
-                hint += "。）"
-            elif any(x["by"] == name for x in susp):
-                # 起疑者只拿到自己那一处疑点，不知道真相全貌：可以试探、观察、追问，
-                # 但不得当作既成事实断言（防「起疑即坐实」把张力提前耗尽）。
-                clue = next((x.get("clue") or "").strip()[:60]
-                            for x in susp if x["by"] == name)
-                hint += "\n  （你对 " + owner + " 起了疑：" + (clue or "有说不通的地方")
-                hint += "。这只是疑点、尚未证实，可试探、观察、追问，但不得当作事实断言。）"
-                # 起疑者与归属者双向加压：只压一边会变成「一直掩饰」或「无凭据乱猜」，
-                # 两边同时施压才会撞出戏。搪塞也算推进，但必须留下没被说服的痕迹。
-                if (s.get("pressure") or 0) >= 3:
-                    hint += (" 这份怀疑本轮必须推进一格：试探、找到新佐证，"
-                             "或被对方搪塞——搪塞也算推进，但要留下你并未被说服的痕迹。")
+                        hint += " ｜ 一旦揭开的后果：" + bottom
+                    hint += "。）"
+                elif any(x["by"] == name for x in susp):
+                    # 起疑者只拿到自己那一处疑点，不知道真相全貌：可以试探、观察、追问，
+                    # 但不得当作既成事实断言（防「起疑即坐实」把张力提前耗尽）。
+                    clue = next((x.get("clue") or "").strip()[:60]
+                                for x in susp if x["by"] == name)
+                    hint += "\n  （你对 " + owner + " 起了疑：" + (clue or "有说不通的地方")
+                    hint += "。这只是疑点、尚未证实，可试探、观察、追问，但不得当作事实断言。）"
+                    # 起疑者与归属者双向加压：只压一边会变成「一直掩饰」或「无凭据乱猜」，
+                    # 两边同时施压才会撞出戏。搪塞也算推进，但必须留下没被说服的痕迹。
+                    if (s.get("pressure") or 0) >= 3:
+                        hint += (" 这份怀疑本轮必须推进一格：试探、找到新佐证，"
+                                 "或被对方搪塞——搪塞也算推进，但要留下你并未被说服的痕迹。")
         # 人设块：描述 + 性格 + 核心渴望（驱动力）+ 核心恐惧（底线），分层明确
         block = "【" + name + "】\n" + card.get("description", "")
         if card.get("personality"):
@@ -369,23 +385,25 @@ def build_session(cards_present, directive, world_hits, snap,
                       + "\n正文里角色之间的当面称呼严格按此表使用；不得自创、混用，"
                         "也不得改用本表之外的叫法。")
 
-    # 导演指令 + 铁律（环境推手不登场，只作外部扰动）
+    # 玩家行动 + 铁律（玩家是在场角色，由人类操控；指令=玩家本回合的行动/台词）
     # 关键：把「你是导演引擎」改写为「你是叙事者，须遵循以下约束」——
     # 旧版第一人称『导演引擎』会让强思考模型把铁律当成要复述/表演的对象，
     # 在正文里输出策略调整/推演执行/后果留痕等元笔记（已用 narration_clean 兜底剥离，此处从根源压制）。
     laws = _build_laws()
-    # 提取指令点名的在场角色，作为本轮硬性叙事焦点
-    named = [n for n in cards_present if n in (directive or "")]
+    # 提取指令点名的在场角色（除玩家本人外），作为本轮硬性叙事焦点
+    named = [n for n in cards_present if n != player_name and n in (directive or "")]
     focus_note = ""
     if named:
         focus_note = (
-            "\n本回合导演指令点名的角色：" + "、".join(named)
+            "\n本回合玩家行动牵涉的角色：" + "、".join(named)
             + "。这些角色必须在本轮出场并推动对应剧情；不得将其写成已离场或移出叙事焦点，"
-              "除非指令明确命令其离开。若指令描述某角色前往某地/做某事，必须呈现该角色的相关段落。"
+              "除非行动明确令其离开。若玩家行动描述某角色前往某地/做某事，必须呈现该角色的相关段落。"
         )
+    directive_text = directive or "（玩家未输入行动，本轮由在场角色自然推演）"
     blocks.append(
-        "[导演指令]\n" + laws + "\n\n本回合环境推手注入的扰动：\n"
-        + (directive or "（无，延续当前情境自然推演）") + focus_note
+        "[玩家行动]\n" + laws
+        + ("\n\n本回合玩家（" + player_name + "）的行动/台词：\n" if player_name else "\n\n本回合玩家行动：\n")
+        + directive_text + focus_note
     )
 
     sc = snap["scene"]
@@ -425,7 +443,7 @@ def build_session(cards_present, directive, world_hits, snap,
     if scene_time:
         time_clause = "（" + scene_time + "）"
     else:
-        time_clause = "（时间未知——本轮不得自行推进或杜撰时间，保持时间悬置，待环境推手指令明确时间再写）"
+        time_clause = "（时间未知——本轮不得自行推进或杜撰时间，保持时间悬置，待玩家行动明确时间再写）"
     cons = "\n".join("- " + l["account"] for l in snap.get("ledger", [])) or "（暂无）"
     state_block = "[关系与状态（不可违背）]\n关系：\n" + rel + offscreen_note + "\n旧账：\n" + cons
     if active_consequences:
@@ -463,23 +481,25 @@ def build_session(cards_present, directive, world_hits, snap,
 
     present_names = "、".join(cards_present.keys())
 
-    # 镜头跟随：指令把故事引向某子集时，该子集为镜头主角，其余在场者视为镜头外、不展开
+    # 镜头跟随：玩家行动把故事引向某子集时，该子集为镜头主角，其余在场者视为镜头外、不展开。
+    # 玩家角色永远可写（由人类操控、言行经下方指令给出），不受镜头焦点限制。
     focus_block = ""
     if focus and focus.get("subjects"):
         subs = "、".join(focus["subjects"])
-        others = [n for n in cards_present if n not in focus["subjects"]]
+        others = [n for n in cards_present if n not in focus["subjects"] and n != player_name]
         others_s = "、".join(others) if others else "（无）"
         place = focus.get("place") or snap["scene"].get("place", "")
         present_clause = (
             "本回合镜头主角（必须重点描写并推动其剧情）：" + subs
             + ("（当前位于 " + place + "）" if place else "")
             + "。其余在场角色 " + others_s + " 此刻在别处/原场景待命，不在本回合镜头内；"
-            + "除非指令明确把他们带进来，否则不要写他们的「角色名：」段落、也不要展开描写，"
+            + "除非行动明确把他们带进来，否则不要写他们的「角色名：」段落、也不要展开描写，"
             + "最多用一句无说话人的旁白带过「在别处待命」。"
-            + "严禁写任何未在场的角色（含已离场者）与环境推手（导演）台词。"
+            + "严禁写任何未在场的角色（含已离场者）的台词。"
+            + ("玩家 " + player_name + " 由玩家本人操控，其言行以下方玩家行动为准，始终在场可写。" if player_name else "")
         )
         focus_block = (
-            "\n【镜头跟随】导演指令将镜头引向 " + subs
+            "\n【镜头跟随】玩家行动将镜头引向 " + subs
             + ("（" + place + "）" if place else "")
             + "，他们必须作为本轮叙事主视角出场并推进剧情；"
             + others_s + " 在镜头之外，本轮不展开。"
@@ -487,16 +507,17 @@ def build_session(cards_present, directive, world_hits, snap,
     else:
         present_clause = (
             "本轮在场角色：" + present_names + "。"
-            + "只能写这些在场角色（含其台词与动作），严禁写任何未在场的角色（包括已离场者），"
-            + "也绝对不要写环境推手（导演）台词或让任何角色对环境推手说话。"
+            + "只能写这些在场角色（含其台词与动作），严禁写任何未在场的角色（包括已离场者）。"
+            + ("玩家 " + player_name + " 由玩家本人实时操控：其行动与台词以下方玩家行动为准，"
+               "你只写其它在场角色如何察觉与回应他，绝不替他决定动作、说台词或写内心。" if player_name else "")
         )
 
     blocks.append(
         "[输出格式]\n用多说话人叙事写这一轮，" + present_clause + "\n"
         "角色必须行动（五选一），由核心渴望驱动；秘密不会主动传播，角色只在执行了信息获取动作后才知其秘密。"
-        "情节由导演指令驱动，推进关系碰撞、秘密发酵与后果留痕，让这个世界自己运转起来。"
-        "导演指令点名的角色必须作为本轮叙事焦点之一出场并推动剧情；严禁把指令点名角色无声略过或写成已离场"
-        "（除非指令明确令其离开）。若点名角色前往某地/做某事，必须呈现其对应段落，不得只写留下的其他人。"
+        "情节由玩家行动驱动，推进关系碰撞、秘密发酵与后果留痕，让这个世界自己运转起来。"
+        "玩家行动牵涉的角色必须作为本轮叙事焦点之一出场并推动剧情；严禁把牵涉角色无声略过或写成已离场"
+        "（除非行动明确令其离开）。若玩家行动描述某角色前往某地/做某事，必须呈现其对应段落，不得只写留下的其他人。"
     )
     # 输出纪律：硬性禁止任何元信息混入可见正文（与 narration_clean 兜底双保险）
     blocks.append(
@@ -538,11 +559,11 @@ def build_session(cards_present, directive, world_hits, snap,
             "- " + e["content"] for e in after_hits)
         if directive:
             messages.append({"role": "user",
-                             "content": "【导演指令】" + directive + "\n\n" + env_block})
+                             "content": "【玩家行动】" + directive + "\n\n" + env_block})
         else:
             messages.append({"role": "user", "content": env_block})
     elif directive:
-        messages.append({"role": "user", "content": "【导演指令】" + directive})
+        messages.append({"role": "user", "content": "【玩家行动】" + directive})
     return messages
 
 

@@ -497,13 +497,19 @@ def session_new():
     # 旧实现整体塞进 place、time 恒空，时间锚丢失后正文只能靠世界书反向脑补时间
     # （会话 256d924c 事故）。拆分后前端「场景：{place}（{time}）」展示保持不变。
     scene_place, scene_time = scene.parse_initial_scene(scene_raw)
+    # v1.0.0：玩家是场上的一个人物。确保该世界的【玩家】角色卡存在（首次创建世界时
+    # 已由 save_world 播种，此处为旧世界/导入剧本的兜底），并把玩家并入在场名单。
+    player_name = store.ensure_player_card(world_name)
+    if player_name and player_name not in cast:
+        cast.append(player_name)
     try:
         sid = memory.new(cast, scene_place=scene_place, world_name=world_name,
-                         scene_time=scene_time)
+                         scene_time=scene_time, player=player_name)
     except Exception as exc:
         logger.error("session", "创建会话失败：" + repr(exc))
         return jsonify({"error": str(exc)}), 500
-    logger.info("session", "开启新会话：" + sid + " ｜ 在场 " + "、".join(cast)
+    snap_present = memory.load(sid).get("present", [])
+    logger.info("session", "开启新会话：" + sid + " ｜ 在场 " + "、".join(snap_present)
                 + " ｜ 世界 " + world_name
                 + (" ｜ 地点 " + scene_place if scene_place else "")
                 + (" ｜ 时间 " + scene_time if scene_time else ""))
@@ -577,7 +583,7 @@ def session_chat_route(sid):
 def act():
     body = request.get_json(force=True)
     sid = body.get("session")
-    directive = (body.get("input") or "").strip()   # 环境推手注入的扰动指令
+    directive = (body.get("input") or "").strip()   # 玩家本回合的行动/台词
     try:
         snap = memory.load(sid)
     except Exception as exc:
@@ -587,7 +593,7 @@ def act():
         logger.warn("session", "指令发往不存在的会话：" + str(sid))
         return jsonify({"error": "会话不存在"}), 404
 
-    logger.info("session", "收到导演扰动：" + (directive or "（无，自然推演）"))
+    logger.info("session", "收到玩家行动：" + (directive or "（无，玩家静默，自然推演）"))
     try:
         # 场景自动切换：生成前先决定，使新场景/天气进入提示词；同时更新在场名单
         scene_changed, scene_prop = scene.apply(sid, directive, snap)
@@ -597,8 +603,10 @@ def act():
         memory.save(sid, snap)
         if focus and focus.get("forced"):
             logger.info("director", "镜头让位于高压秘密：强制并入 " + "、".join(focus["subjects"]))
-        present = snap["present"]                  # 全部为 NPC，环境推手不在场
+        present = snap["present"]                  # 含玩家（场上的一个人物）与其余 NPC
         cards_present = {c: store.load_card(c) for c in present}
+        # 玩家名：玩家是 present 里的一员。build_session 据此对其角色块注入「人类操控」标记。
+        player_name = store.PLAYER_NAME if store.PLAYER_NAME in present else None
 
         # 导演简报（含秘密状态更新、回合数）
         brief, snap = director.brief(sid, directive)
@@ -646,6 +654,7 @@ def act():
             after_hits=after_hits,
             focus=focus,
             active_consequences=brief.get("active_consequences") or [],
+            player_name=player_name,
         )
         messages = hooks.emit("prompt_ready", messages=messages, snap=snap)["messages"]
         tok = sum(prompter.count_tokens(m.get("content", "")) for m in messages)
@@ -789,8 +798,9 @@ def act():
         # 后果清单 / 下回合预告），与 prompter 的「输出纪律」双保险。
         # 必须在 present 校验 / 背景自检 / reflect / 落盘之前，使下游都吃到干净正文。
         full = narrative_clean.clean_narrative(full)
-        # present 名单校验/后处理：剥离非在场角色（含已离场者、环境推手）的台词块；
-        # 若本轮有镜头焦点，则按焦点子集裁剪，使镜头真正跟随被引向的角色，其余在场者不展开
+        # present 名单校验/后处理：剥离非在场角色（含已离场者）的台词块；
+        # 若本轮有镜头焦点，则按焦点子集裁剪，使镜头真正跟随被引向的角色，其余在场者不展开。
+        # known 含玩家卡（已在 store），玩家台词块得以放行。
         known = store.list_characters()
         keep_set = set(focus["subjects"]) if focus else set(present)
         full, present_violation = director.validate_present(
@@ -818,7 +828,7 @@ def act():
         # 关系/秘密/行动全没记账，且状态丢失不可逆）。新顺序让「状态先落、正文后落」：
         # 最坏是正文丢了（可重生成），不再丢不可逆的推演状态。reflect 只用内存 full
         # 做举证核验，不读 chat 文件，故顺序调整无副作用。
-        memory.append_chat(sid, {"role": "user", "content": "【导演指令】" + directive})
+        memory.append_chat(sid, {"role": "user", "content": "【玩家行动】" + directive})
         memory.append_chat(sid, {"role": "assistant", "content": full})
 
         snap_now = memory.load(sid)

@@ -410,7 +410,8 @@ def compute_focus(directive, snap):
 def brief(sid, directive):
     """返回 (directives, snap)。会就地更新快照里的秘密状态与回合数。
 
-    directive 是环境推手（导演）注入的扰动指令，用于驱动本轮推演。
+    directive 是玩家本回合的行动/台词（玩家是场上的一个人物，由玩家本人实时操控）。
+    用于 A2 后果账本激活与本轮驱动事实。
     """
     snap = memory.load(sid)
     text = directive or ""
@@ -1079,9 +1080,9 @@ def reflect(sid, reply, directive=""):
     这是“状态机自动演化”的核心——推演产生的后果必须落回快照，否则次日无痕。
     任何解析/调用失败都保持快照不变，绝不阻塞主流程。
 
-    directive：本轮导演指令（玩家本人这轮的权威设定）。关键事实（如某群演死亡）
-    可能只由指令承载、正文未清晰复述甚至被弱化，故退场判定须同时参照它。
-    自然推演轮指令为空，prompt 不增行，零 token 增量。
+    directive：本轮玩家行动（玩家本人的权威设定）。关键事实（如某群演死亡）
+    可能只由玩家行动承载、正文未清晰复述甚至被弱化，故退场判定须同时参照它。
+    玩家静默轮（指令为空）prompt 不增行，零 token 增量。
     """
     snap = memory.load(sid)
     if not snap:
@@ -1127,9 +1128,9 @@ def reflect(sid, reply, directive=""):
     # 位置是物理事实而非猜测，喂了场景地点，原地未动者至少能报到场景基准处。
     _sc = snap.get("scene") or {}
     scene_text = "｜".join(x for x in (_sc.get("place"), _sc.get("time"), _sc.get("weather")) if x) or "（无）"
-    # 导演指令回喂：关键事实（群演死亡等）可能只由玩家指令承载、正文未复述甚至弱化。
-    # 仅当指令非空时占一行，自然推演轮零开销。指令是玩家本人的权威设定，优先级高于正文。
-    dir_block = ("\n本轮导演指令（玩家设定，权威，正文与其冲突时以指令为准）：\n" + directive + "\n") if directive else ""
+    # 玩家行动回喂：关键事实（群演死亡等）可能只由玩家行动承载、正文未复述甚至弱化。
+    # 仅当玩家行动非空时占一行，玩家静默轮零开销。玩家行动是玩家本人的权威设定，优先级高于正文。
+    dir_block = ("\n本轮玩家行动（玩家本人设定，权威，正文与其冲突时以玩家行动为准）：\n" + directive + "\n") if directive else ""
 
     prompt = [
         {"role": "system",
