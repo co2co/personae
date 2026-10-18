@@ -102,6 +102,24 @@ def test_validate_present_empty_present_returns_as_is():
     assert v is False and out == r
 
 
+def test_validate_present_tavern_format_passthrough():
+    """酒馆三段式范式（动作*星号* + 对白"双引号" + 散文，无「角色名：」前缀）
+    应原样透传、不报违例——剥离已退化为仅对「角色名：」前缀兜底。"""
+    r = ("*她往后退了半步。*\"你知道了？\"*目光躲闪。* 窗外更鼓敲过三响。\n"
+         "*他上前一步。*\"别怕。\"*伸手按住她的肩。*")
+    out, v = director.validate_present(r, PRESENT, KNOWN)
+    assert v is False and out == r
+
+
+def test_validate_present_prefix_still_stripped_as_fallback():
+    """模型偶发仍写「角色名：」前缀时，兜底剥离仍生效（离场角色/环境推手被剥）。"""
+    r = (f"{D}：我来帮你。\n{B}：别信他。\n环境推手：我悄悄推了一把。\n{C}：不关我事。")
+    out, v = director.validate_present(r, PRESENT, KNOWN)
+    assert v is True
+    assert D not in out and "环境推手" not in out
+    assert B in out and C in out
+
+
 def test_release_handle_drops_and_transfers():
     """全版把柄消除：转手给 to 时 to 入 holders 且入 known_by（转手即知情）。
 

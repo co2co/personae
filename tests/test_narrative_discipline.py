@@ -1,9 +1,9 @@
-"""叙事纪律块（手段/镜头/说话）守护测试。
+"""叙事纪律块守护测试。
 
-对齐 2026-10-16 架构归位：把「管手段/管镜头/管说话」三条跨题材通用叙事约束
-从各剧本世界书「升格」为引擎内置的「叙事纪律」块（与创作铁律平级），
-避免作者每个剧本手动复制一套泛用常量。剧本特异部分（具体冲突手段清单、
-具体剧情线名、具体职业腔调）仍留在世界书。
+对齐 2026-10-18 铁律瘦身架构：把「管手段/管镜头/管说话」三条叙事纪律收敛为
+只保留「镜头轮换」这一条与题材无关的通用内核；【手段】（禁黑箱手段清单）与
+【说话】（职业腔调/套话禁用词）属题材特异设定，一律下沉到各剧本世界书——
+世界书里已有更详细、更贴合题材的版本，引擎不再重复堆料。
 
 本文件断言绑定该架构，改叙事纪律文案须同步本文件。
 
@@ -40,51 +40,35 @@ def test_discipline_block_present():
     assert "叙事纪律" in sys_p
 
 
-def test_discipline_covers_three_axes():
-    """叙事纪律须覆盖手段/镜头/说话三轴。"""
+def test_discipline_keeps_generic_lens_only():
+    """叙事纪律收敛为纯通用「镜头轮换」内核，不再含【手段】【说话】题材轴。"""
     disc = prompter._NARRATIVE_DISCIPLINE
-    assert "【手段】" in disc
-    assert "【镜头】" in disc
-    assert "【说话】" in disc
-
-
-def test_discipline_forbids_blackbox_means():
-    """手段轴：禁用黑箱手段，博弈落在明面规则与台面算计之间。"""
-    disc = prompter._NARRATIVE_DISCIPLINE
-    assert "禁用" in disc and "黑箱手段" in disc
+    assert "【手段】" not in disc
+    assert "【说话】" not in disc
 
 
 def test_discipline_anti_single_spotlight():
     """镜头轴：无主角，主镜头多线轮换、防单点吸死。"""
     disc = prompter._NARRATIVE_DISCIPLINE
-    assert "没有主角" in disc
+    assert "没有唯一主角" in disc
     assert "轮换" in disc
 
 
 def test_discipline_anti_full_cast_every_round():
     """镜头轴：多线并进≠每轮全员出场，只落最相关那条线。"""
     disc = prompter._NARRATIVE_DISCIPLINE
-    assert "不等于" in disc or "不要求" in disc
     assert "无关" in disc
-
-
-def test_discipline_anti_cliche():
-    """说话轴：禁用套话与空洞敬语。"""
-    disc = prompter._NARRATIVE_DISCIPLINE
-    assert "套话" in disc
 
 
 def test_discipline_is_generic_no_proper_nouns():
     """普适性红线：叙事纪律块不得含任何具体剧本/题材专有名词。
 
-    升格进引擎的必须是纯通用内核；具体冲突手段/剧情线名/职业腔调留在世界书。
-    黑名单只放「题材类别词」，不放具体角色名（角色名本身会触发通用性红线检测，
-    测试层一律不得出现，故用类别词守护「不混入题材」这一边界即可）。
+    收敛后引擎侧只保留「镜头轮换」纯通用内核；具体冲突手段/剧情线名/职业腔调、
+    套话禁用词全部留在世界书。黑名单只放「题材类别词」，不放具体角色名。
     """
     disc = prompter._NARRATIVE_DISCIPLINE
-    # 题材类别词（这些只该出现在世界书，绝不能出现在引擎内置叙事纪律里）
     banned = ["宫", "朝堂", "后宫", "边将", "文官", "宗室", "禁军",
-              "名分", "礼制", "账簿", "兵权", "虎符", "勤王"]
+              "名分", "礼制", "账簿", "兵权", "虎符", "勤王", "下毒", "巫蛊"]
     for w in banned:
         assert w not in disc, "叙事纪律块混入题材类别词：%s" % w
 
@@ -92,7 +76,24 @@ def test_discipline_is_generic_no_proper_nouns():
 def test_build_laws_appends_discipline_after_laws():
     """架构顺序：铁律在前，叙事纪律接在其后（平级但独立成段）。"""
     laws = prompter._build_laws()
-    idx_law8 = laws.find("⑨ 避免机械重复")
+    idx_laws = laws.find("写作基调")
     idx_disc = laws.find("叙事纪律")
-    assert idx_law8 != -1 and idx_disc != -1
-    assert idx_disc > idx_law8
+    assert idx_laws != -1 and idx_disc != -1
+    assert idx_disc > idx_laws
+
+
+def test_law8_intimacy_removed_from_engine():
+    """铁律⑧（亲密描写尺度）已下沉世界书，引擎系统层不再注入尺度词。"""
+    laws = prompter._build_laws()
+    # 尺度措辞（怎么写亲密戏）已整体下沉；「未成年」是引擎级法律红线，必须保留。
+    assert "性行为" not in laws and "尺度" not in laws and "身临其境" not in laws
+    assert "未成年" in laws and "法律底线" in laws
+
+
+def test_laws_positive_tone_not_negative():
+    """铁律改为正向基调：讲「该怎么做」，不再堆「禁止/必须/不得」负向硬约束。"""
+    laws = prompter._build_laws()
+    assert "写作基调" in laws
+    # 机制投影铁律用「甲/乙/丙/丁/戊」而非「①②③」，且保留信息边界这一灵魂
+    assert "信息有边界" in laws
+

@@ -204,3 +204,19 @@ def test_offscreen_note_absent_when_all_relations_are_cards(monkeypatch):
     sysmsg = "\n".join(m["content"] for m in prompter.build_session(
         CARDS, "继续", [], snap))
     assert "[背景人物·非在场]" not in sysmsg
+
+
+def test_demo_hits_render_example_block():
+    """demo_hits（写法示范条目）须渲染成[写法示范]块，示范正文进入 prompt。"""
+    demo = [{"name": "示范", "content": "*动作* \"对白\" 散文", "demo": True}]
+    sysmsg = "\n".join(m["content"] for m in prompter.build_session(
+        CARDS, "继续", [], MIN_SNAP, demo_hits=demo))
+    assert "[写法示范]" in sysmsg
+    assert "*动作* \"对白\" 散文" in sysmsg
+
+
+def test_no_demo_hits_no_example_block():
+    """未传 demo_hits 时，不渲染[写法示范]块（零开销，向后兼容）。"""
+    sysmsg = "\n".join(m["content"] for m in prompter.build_session(
+        CARDS, "继续", [], MIN_SNAP))
+    assert "[写法示范]" not in sysmsg

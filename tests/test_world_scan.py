@@ -203,3 +203,54 @@ def test_three_step_reference_chain_is_directional():
         names = [e.get("name") for e in hits]
         assert names == expect, "触发词 %r 期望 %s，实际 %s" % (trigger, expect, names)
         assert len(names) == len(set(names)), "链式展开出现重复条目：%s" % names
+
+
+# --- 写法示范条目（demo，对标酒馆 first message / example messages）---
+
+def test_demo_first_round_only_injected_on_round_one():
+    """first_round 示范：仅首轮（round<=1）注入，之后不再出现——酒馆 first message。"""
+    entry = {"name": "开局示范", "keys": [], "content": "*动作* \"对白\"",
+             "demo": True, "first_round": True, "enabled": True}
+    # round=0（调用方未传，默认 0）：视为首轮，注入
+    assert len(world_mod.scan([entry], [], round=0)) == 1
+    assert len(world_mod.scan([entry], [], round=1)) == 1
+    # round>1：不再注入
+    assert world_mod.scan([entry], [], round=2) == []
+    assert world_mod.scan([entry], [], round=5) == []
+
+
+def test_demo_persistent_injected_every_round():
+    """持续示范（无 first_round）：每轮注入——酒馆 example messages。"""
+    entry = {"name": "常驻示范", "keys": [], "content": "*动作* \"对白\"",
+             "demo": True, "enabled": True}
+    for r in [0, 1, 2, 10]:
+        hits = world_mod.scan([entry], [], round=r)
+        assert len(hits) == 1, "round=%d 常驻示范应注入" % r
+        assert hits[0].get("demo") is True
+
+
+def test_demo_marked_distinct_from_world_setting():
+    """demo 条目带 demo 标志，供 app.py 从 world_hits 拆出走示范注入通道。"""
+    entries = [
+        {"name": "示范", "keys": [], "content": "写法示范", "demo": True, "enabled": True},
+        {"name": "设定", "keys": ["x"], "content": "世界设定", "enabled": True},
+    ]
+    hits = world_mod.scan(entries, ["x"], directive="", default_depth=4, character=None)
+    demo = [e for e in hits if e.get("demo")]
+    setting = [e for e in hits if not e.get("demo")]
+    assert [e["name"] for e in demo] == ["示范"]
+    assert [e["name"] for e in setting] == ["设定"]
+
+
+def test_demo_does_not_consume_injection_quota():
+    """demo 条目不占 max_entries 配额、不混入普通命中截断。"""
+    entries = [{"keys": [f"关{i}"], "content": f"关键设定{i}", "priority": 10 - i,
+                "enabled": True} for i in range(3)]
+    entries.append({"name": "示范", "keys": [], "content": "写法示范",
+                    "demo": True, "enabled": True})
+    hits = world_mod.scan(entries, ["关0 关1 关2"], directive="", default_depth=4,
+                          character=None, max_entries=2)
+    setting = [e for e in hits if not e.get("demo")]
+    demo = [e for e in hits if e.get("demo")]
+    assert len(setting) == 2, "max_entries=2 只截断普通设定，实际 %s" % setting
+    assert len(demo) == 1, "demo 条目恒保留，不占配额"
