@@ -219,7 +219,9 @@ def apply(sid, directive, snap):
         leave = []
     # v1.0.0：玩家是场上的一个人物、恒在场。LLM 偶发把玩家本人填进 leave
     # （如玩家行动写“我离开这里”），一律剔除——玩家离场不改变在场名单。
-    leave = [c for c in leave if c != store.PLAYER_NAME]
+    # 按 is_player 标志认玩家（名字可被玩家自由修改，不硬编码固定文件名）。
+    leave = [c for c in leave
+             if not (store.load_card(c) or {}).get("is_player")]
     # 安全网增强：LLM 偶发把"全员随世界转移"误填进 leave（把"离开旧地点"理解成每人离场），
     # 一旦清空在场名单，下游 validate_present 会把整段回复剥空、用户拿到一片空白。
     # 规则：若 leave 覆盖全部在场者且无 arrive，判定为"随世界一起移动"，忽略 leave/arrive；

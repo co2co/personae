@@ -15,9 +15,10 @@ DATA_DIR = Path(__file__).parent / "data"
 EXAMPLES_DIR = DATA_DIR / "examples"
 
 # 玩家角色卡（v1.0.0 核心：玩家不再是「环境推手/外部导演」，而是局势中的一名在场角色）。
-# 固定名：运行时 data/ 只装一个剧本，玩家卡全局唯一、无跨世界重名冲突；
-# 玩家可在角色编辑器里改它的名与内容。卡内 is_player=True 是引擎识别「这是玩家操控角色」
-# 的唯一标志——prompter 据此决定「LLM 不代写其言行、不向其块注入自身秘密」。
+# 引擎识别玩家靠的是卡内 is_player=True 这个**标志**，与卡的名字无关——玩家在角色编辑器里
+# 可自由改玩家卡的名（如把人设命名成「苏定城」），引擎仍认得。PLAYER_NAME 只用作「新建一张
+# 空玩家卡」时的默认显示名，不是识别依据。运行时 data/ 只装一个剧本，玩家卡是全局单例
+# （save_card 保证同一世界至多一张 is_player 卡），无跨世界重名冲突。
 PLAYER_NAME = "玩家"
 
 # 进程级只读缓存：角色卡与世界书在会话内基本不变，但每轮推演会被反复
@@ -142,7 +143,13 @@ def load_card(name):
 
 
 def save_card(name, card):
-    """新建或覆盖角色卡。name 同时作为文件名与卡内 name 字段。"""
+    """新建或覆盖角色卡。name 同时作为文件名与卡内 name 字段。
+
+    单例约束（v1.0.0）：玩家卡（is_player 为真）在同一世界至多一张。玩家可在角色
+    编辑器里给玩家卡改名——保存一张新的 is_player 卡时，同世界其它 is_player 卡即
+    视为「改名前的旧卡 / 误建的第二张」，一并删去，确保引擎始终认得唯一玩家卡。
+    普通角色卡不受此约束。
+    """
     name = (name or "").strip()
     if not name:
         raise ValueError("角色名不能为空")
@@ -153,6 +160,18 @@ def save_card(name, card):
     p = folder / f"{name}.json"
     p.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
     _invalidate(p)
+    if data.get("is_player"):
+        world = (data.get("world", "") or "").strip()
+        if world:
+            for other in _all_player_cards():
+                if other == name:
+                    continue
+                try:
+                    oc = load_card(other)
+                except FileNotFoundError:
+                    continue
+                if (oc.get("world", "") or "").strip() == world:
+                    delete_card(other)
 
 
 def delete_card(name):
@@ -172,18 +191,20 @@ def delete_card(name):
     return True
 
 
-def empty_player_card(world_name):
+def empty_player_card(world_name, name=None):
     """一张字段全空的玩家角色卡（v1.0.0）。
 
     字段结构与其它角色卡完全一致（description / personality / core_desire / core_fear /
     short_goal / relations / relations_kinship），外加两个玩家专属字段：
       - is_player: True  引擎据此把它当「人类操控的在场角色」，LLM 不代写其言行。
+        这是引擎识别玩家的**唯一判据**，与卡名无关（玩家可自由给玩家卡改名）。
       - secrets:   []    玩家自己的暗牌（如「穿越者」），建局时由 memory.new 转成
                          与其它 NPC 同格式的秘密条目进秘密跟踪系统（不放世界书）。
     内容一律留空，由玩家在建局后自行填写——引擎不替玩家脑补身份。
+    name 缺省为 PLAYER_NAME（新建空卡时的默认显示名）。
     """
     return {
-        "name": PLAYER_NAME,
+        "name": (name or "").strip() or PLAYER_NAME,
         "world": world_name or "",
         "description": "",
         "personality": "",
@@ -197,42 +218,82 @@ def empty_player_card(world_name):
     }
 
 
-def ensure_player_card(world_name):
-    """为该剧本确保存在一张玩家角色卡，返回其名字。
+def _all_player_cards():
+    """返回所有 is_player 为真的角色卡名（升序）。
 
-    运行时 data/ 只装一个剧本，玩家卡名固定 PLAYER_NAME、全局唯一：
-      - 不存在 → 新建一张字段全空的卡（world=world_name），内容留给玩家填。
-      - 已存在 → 保留玩家已填的全部内容，但若其 world 与当前剧本不一致（切换/
-        导入剧本后），把 world 重指到当前剧本，使玩家卡恒归属「正在操作的那个剧本」。
-        这是必要的：否则切换剧本后玩家卡还挂在旧世界名下，session_new 的跨世界
-        一致性校验会把它当「外来角色」拦截，导致新剧本开不了局。
+    玩家卡的身份判据是卡内 is_player 标志而非名字——玩家可自由改名，引擎靠这个
+    标志认玩家。运行时 data/ 只装一个剧本，正常恒 ≤ 1 张；此函数返回全集，供
+    ensure（按 world 取）与 save_card（同世界去重）使用。
+    """
+    out = []
+    for name in list_characters():
+        try:
+            c = load_card(name)
+        except FileNotFoundError:
+            continue
+        if c.get("is_player"):
+            out.append(name)
+    return out
+
+
+def _player_card_content_score(card):
+    """玩家卡「已填内容」的丰富度评分，用于同世界多张 is_player 卡时的去重择优。
+
+    只统计玩家手填的字段（非引擎自动字段 is_player / secrets 之外的内容），空白卡得
+    0 分——从而在「空白默认卡 vs 玩家已填人设卡」并存时，保留人设卡、删掉空卡。
+    """
+    n = 0
+    for k in ("description", "personality", "core_desire", "core_fear", "short_goal"):
+        n += len((card.get(k) or "").strip())
+    n += len(card.get("relations") or {})
+    n += len(card.get("relations_kinship") or {})
+    n += len(card.get("secrets") or [])
+    return n
+
+
+def ensure_player_card(world_name):
+    """确保全局唯一一张玩家角色卡并归属当前剧本，返回其名字（认 is_player 标志，不认卡名）。
+
+    运行时 data/ 只装一个剧本，玩家卡是**全局单例**。玩家可自由给它改名，引擎靠卡内
+    is_player 标志认玩家、与名字无关。本函数做「幂等收敛」，把全部 is_player 卡稳定
+    归一到一张并归属「正在操作的剧本」：
+      - 无任何玩家卡 → 新建一张字段全空的卡（world=world_name、默认名 PLAYER_NAME），
+        内容留给玩家填。
+      - 已有玩家卡（无论名字被改成什么、world 挂在哪个旧世界名下）→ 保留内容最丰富者
+        （_player_card_content_score 最高，内容相同按名字升序取首，保证确定/幂等），其余
+        is_player 卡视为改名前的旧卡 / 误建的第二张，删除；再把保留者的 world 重指到
+        当前剧本。这是必要的：否则切换/导入剧本后玩家卡还挂在旧世界名下，session_new
+        的跨世界一致性校验会把它当「外来角色」拦截，导致新剧本开不了局。
     world_name 为空（无世界书）时不重指，避免把有归属的卡误抹成无世界。
     """
     world_name = (world_name or "").strip()
-    try:
-        card = load_card(PLAYER_NAME)
-        if world_name and (card.get("world", "") or "").strip() != world_name:
-            card = dict(card)
-            card["world"] = world_name
-            save_card(PLAYER_NAME, card)
-    except FileNotFoundError:
-        save_card(PLAYER_NAME, empty_player_card(world_name))
+    players = _all_player_cards()
+    if players:
+        keep_name = max(players, key=lambda n: (_player_card_content_score(load_card(n)), n))
+        for name in players:
+            if name != keep_name:
+                delete_card(name)
+        keep = load_card(keep_name)
+        if world_name and (keep.get("world", "") or "").strip() != world_name:
+            keep = dict(keep)
+            keep["world"] = world_name
+            save_card(keep_name, keep)
+        return keep_name
+    save_card(PLAYER_NAME, empty_player_card(world_name))
     return PLAYER_NAME
 
 
 def player_card_name(world_name):
     """返回归属该剧本的玩家角色卡名；无则返回 None。
 
-    判据：card.is_player 为真且 card.world == world_name。世界不存在或该剧本
-    尚无玩家卡时返回 None，由调用方决定是否补建。
+    判据：card.is_player 为真且 card.world == world_name——靠标志认玩家，与卡名无关
+    （玩家已改名的玩家卡同样能命中）。世界不存在或该剧本尚无玩家卡时返回 None，
+    由调用方决定是否补建。
     """
     world_name = (world_name or "").strip()
-    try:
-        card = load_card(PLAYER_NAME)
-    except FileNotFoundError:
-        return None
-    if card.get("is_player") and (card.get("world", "") or "").strip() == world_name:
-        return PLAYER_NAME
+    for name in _all_player_cards():
+        if (load_card(name).get("world", "") or "").strip() == world_name:
+            return name
     return None
 
 

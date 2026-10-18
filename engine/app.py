@@ -611,8 +611,9 @@ def act():
             logger.info("director", "镜头让位于高压秘密：强制并入 " + "、".join(focus["subjects"]))
         present = snap["present"]                  # 含玩家（场上的一个人物）与其余 NPC
         cards_present = {c: store.load_card(c) for c in present}
-        # 玩家名：玩家是 present 里的一员。build_session 据此对其角色块注入「人类操控」标记。
-        player_name = store.PLAYER_NAME if store.PLAYER_NAME in present else None
+        # 玩家名：按 is_player 标志从在场卡里认（玩家是 present 里的一员、名字可被玩家
+        # 自由修改，故不硬编码固定文件名）。build_session 据此对其角色块注入「人类操控」标记。
+        player_name = next((c for c in present if cards_present[c].get("is_player")), None)
 
         # 导演简报（含秘密状态更新、回合数）
         brief, snap = director.brief(sid, directive)
