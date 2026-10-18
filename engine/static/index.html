@@ -771,10 +771,11 @@
                 <input id="c-name" class="field">
                 <label>description（身份 / 外貌 / 处境） <span class="req">*</span></label>
                 <textarea id="c-desc" class="field"></textarea>
-                <label>core_desire（核心渴望，推演驱动力） <span class="req">*</span></label>
+                <label>core_desire（核心渴望，推演驱动力） <span class="req core-req">*</span></label>
                 <textarea id="c-desire" class="field"></textarea>
-                <label>core_fear（核心恐惧，越线底线） <span class="req">*</span></label>
+                <label>core_fear（核心恐惧，越线底线） <span class="req core-req">*</span></label>
                 <textarea id="c-fear" class="field"></textarea>
+                <div class="sub core-opt-hint" id="core-opt-hint" style="display:none;margin:-2px 0 10px;">玩家卡这两项可选：留空由引擎从 description 自行推演渴望与底线，不阻断建局。</div>
 
                 <details class="opt-group">
                   <summary>更多字段（可选；留空由系统自动生成）</summary>
@@ -833,13 +834,16 @@
       <p class="lead">你是这场局势里的一个人物。先选一个世界，它的世界书与全部角色会一并载入；系统会为该世界生成一张「玩家」角色卡，填好你的身份与暗牌、设定开场场景，再说出你的行动与台词，看这个迷你世界如何回应你、并自行运转。</p>
       <label class="form-label" for="world-pick">世界</label>
       <select id="world-pick" class="field"></select>
-      <label class="form-label">同场角色（本世界的角色，默认全选）</label>
-      <div class="npcs" id="npcs"></div>
-      <div class="npcs-note" id="npcs-note"></div>
+      <div class="sub" id="cast-hint" style="margin:0 0 10px;">本剧角色全员登场，首轮由引擎结合开场场景自行判断谁在场、谁只是背景。</div>
       <label class="form-label" for="scene">开场地点（可选）</label>
       <input id="scene" class="field" placeholder="例如：公寓的客厅">
       <label class="form-label" for="scene-time">开场时间（可选）</label>
       <input id="scene-time" class="field" placeholder="例如：傍晚 / 深夜">
+      <div style="display:flex;justify-content:space-between;align-items:baseline;">
+        <label class="form-label" for="opening-demo">开局写法示范（已填入系统默认，可直接修改）</label>
+        <button type="button" id="opening-demo-reset" class="btn btn-sm" style="display:none;">还原默认</button>
+      </div>
+      <textarea id="opening-demo" class="field" style="min-height:110px;" placeholder="加载中…"></textarea>
       <div class="actions">
         <button id="start" class="btn btn-primary">开始</button>
       </div>
@@ -978,30 +982,55 @@ async function loadCharacters() {
   await syncNpcs();
 }
 
-// 按当前所选世界拉角色并渲染。unassigned（未声明 world / world 指向已删世界）
-// 一并提示——这些角色在任何世界下都不会出现，不提示就会像凭空丢了。
-async function syncNpcs() {
-  const sel = document.getElementById('world-pick');
-  const world = sel.value;
-  const box = document.getElementById('npcs');
-  const note = document.getElementById('npcs-note');
-  if (!world) { box.innerHTML = ''; note.textContent = ''; return; }
-  const d = await fetch('/api/characters/by-world?world=' + encodeURIComponent(world)).then(r => r.json());
-  const names = d.names || [];
-  renderNpcs(names);
-  note.innerHTML = names.length
-    ? ''
-    : '该剧本下还没有角色。可到「剧本库」新建，或用「从剧本生成」自动生成。';
-  const un = d.unassigned || [];
-  if (un.length) {
-    note.innerHTML += '　另有 ' + un.length + ' 个角色未归属任何世界（'
-      + escHtml(un.join('、')) + '），不会出现在本局：请到「剧本库」为它们选择所属剧本。';
+// 开局写法示范：拉取引擎中性默认文本预填引导页文本框（玩家可直接改，也可一键还原默认）。
+// 默认文本非空时直接显示，用户不再面对空白框；留空会走引擎内置默认兜底。
+async function loadOpeningDemoDefault() {
+  const el = document.getElementById('opening-demo');
+  const reset = document.getElementById('opening-demo-reset');
+  try {
+    const d = await fetch('/api/defaults/opening-demo').then(r => r.json());
+    const content = (d && d.content) ? d.content : '';
+    window.__openingDemoDefault = content;
+    if (content) {
+      el.value = content;
+      el.placeholder = '（留空则使用系统默认示范）';
+    } else {
+      el.placeholder = '（无法加载默认示范，可留空，系统会用内置默认）';
+    }
+    if (reset) {
+      reset.addEventListener('click', () => {
+        el.value = window.__openingDemoDefault || '';
+        el.dispatchEvent(new Event('input'));
+      });
+      const syncReset = () => {
+        reset.style.display = (el.value === (window.__openingDemoDefault || '')) ? 'none' : '';
+      };
+      el.addEventListener('input', syncReset);
+      syncReset();
+    }
+  } catch (e) {
+    el.placeholder = '（无法加载默认示范，可留空，系统会用内置默认）';
   }
 }
 
-function renderNpcs(list) {
-  document.getElementById('npcs').innerHTML = (list || [])
-    .map(n => `<label><input type="checkbox" value="${escHtml(n)}" checked> ${escHtml(n)}</label>`).join('');
+// 按当前所选世界拉角色，更新提示文案。unassigned（未声明 world / world 指向已删世界）
+// 一并提示——这些角色在任何世界下都不会出现，不提示就会像凭空丢了。
+// 不再渲染勾选列表：本剧角色全员登场，首轮由引擎结合场景自行判断谁在场。
+async function syncNpcs() {
+  const sel = document.getElementById('world-pick');
+  const world = sel.value;
+  const hint = document.getElementById('cast-hint');
+  if (!world) { hint.textContent = '本剧角色全员登场，首轮由引擎结合开场场景自行判断谁在场、谁只是背景。'; return; }
+  const d = await fetch('/api/characters/by-world?world=' + encodeURIComponent(world)).then(r => r.json());
+  const names = d.names || [];
+  hint.innerHTML = names.length
+    ? '本剧共 ' + names.length + ' 名角色，全员登场；首轮由引擎结合开场场景自行判断谁在场、谁只是背景。'
+    : '该剧本下还没有角色。可到「剧本库」新建，或用「从剧本生成」自动生成。';
+  const un = d.unassigned || [];
+  if (un.length) {
+    hint.innerHTML += '<br>另有 ' + un.length + ' 个角色未归属任何世界（'
+      + escHtml(un.join('、')) + '），不会出现在本局：请到「剧本库」为它们选择所属剧本。';
+  }
 }
 
 async function startSession() {
@@ -1021,21 +1050,16 @@ async function startSession() {
   startBtn.disabled = true;
   setupStatus.className = 'setup-status init';
   setupStatus.innerHTML = '<span class="init-spinner"></span>系统正在初始化，请稍等…';
-  const cast = [...document.querySelectorAll('#npcs input:checked')].map(c => c.value);
-  if (!cast.length) {
-    startBtn.disabled = false;
-    setupStatus.className = 'setup-status';
-    setupStatus.textContent = '该剧本下没有可用的在场角色，请先到「剧本库」添加或勾选';
-    return;
-  }
   const place = document.getElementById('scene').value.trim();
   const time = document.getElementById('scene-time').value.trim();
+  const openingDemo = document.getElementById('opening-demo').value.trim();
   // 地点与时间分开填写，后端按 parse_initial_scene 拆成 place/time 两个字段，
   // 时间锚不再丢失（旧版混写进 place、time 恒空，正文只能自行脑补时间）。
   const scene = [place, time].filter(Boolean).join('，');
+  // 不再传 cast：后端默认全员登场（该世界全部角色进 present），首轮由引擎结合场景判断谁在场。
   const res = await fetch('/api/session/new', {
     method: 'POST', headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({cast, scene, world}),
+    body: JSON.stringify({scene, world, opening_demo: openingDemo}),
   });
   const data = await res.json();
   if (data.error) {
@@ -1544,12 +1568,22 @@ function setDramaTab(tab) {
 document.getElementById('d-tab-world').onclick = () => setDramaTab('world');
 document.getElementById('d-tab-chars').onclick = () => { setDramaTab('chars'); loadWorldOptions(); };
 
-// 新建剧本：即新建一本世界书（保存条目时落盘；新建后直接可编辑）。
+// 新建剧本：立即调后端落盘（空条目世界书，含播种标准条目+玩家卡），
+// 落盘成功后刷新剧本库，让新剧本立刻出现在列表并可直接编辑。
 document.getElementById('d-new').onclick = async () => {
   const name = (prompt('新剧本名（作世界书文件名，建议英文/拼音）：')||'').trim();
   if (!name) return;
-  worldMsg.style.color='var(--muted)';
-  worldMsg.textContent='新剧本「'+name+'」已创建（添加设定/角色后保存即落盘）。';
+  const r = await fetch('/api/world/'+encodeURIComponent(name), {
+    method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({entries:[]})
+  }).then(r=>r.json()).catch(()=>null);
+  if (r && r.ok) {
+    worldMsg.style.color='var(--pos)';
+    worldMsg.textContent='新剧本「'+name+'」已创建并落盘，可继续添加设定/角色。';
+  } else {
+    worldMsg.style.color='var(--danger)';
+    worldMsg.textContent='创建失败：'+(r ? (r.error || '未知错误') : '网络错误');
+    return;
+  }
   await refreshDramas(name);
 };
 
@@ -1595,6 +1629,16 @@ function fillChar(c, name) {
   document.getElementById('c-fear').value = c.core_fear||'';
   document.getElementById('c-goal').value = c.short_goal||'';
   document.getElementById('c-rel').value = JSON.stringify(c.relations||{}, null, 0);
+  _applyPlayerCardUi(!!c.is_player);
+}
+// 玩家卡降门槛：core_desire / core_fear 对玩家卡可选（留空由引擎从 description 推演），
+// 对 NPC 卡仍是必填（引擎护城河的关系/秘密簿记靠这两个锚点驱动 NPC 推演）。
+// 只在编辑器 UI 层面做切换，不动后端——后端对空 core 字段本就容错（prompter 条件注入、
+// memory short_goal→core_desire 兜底、director core_desire or ''）。
+function _applyPlayerCardUi(isPlayer) {
+  document.querySelectorAll('.core-req').forEach(s => { s.style.display = isPlayer ? 'none' : ''; });
+  const hint = document.getElementById('core-opt-hint');
+  if (hint) hint.style.display = isPlayer ? '' : 'none';
 }
 let _charOrig = {};   // 当前编辑角色卡的完整原始对象，保存时用于保留未识别字段
 async function loadChar(name) {
@@ -1604,6 +1648,7 @@ async function loadChar(name) {
 }
 document.getElementById('char-new').onclick = () => {
   _charOrig = {};
+  _applyPlayerCardUi(false);
   document.querySelectorAll('#char-list .mgr-item').forEach(el=>el.classList.remove('active'));
   ['c-name','c-desc','c-pers','c-desire','c-fear','c-goal','c-rel']
     .forEach(id=>document.getElementById(id).value='');
@@ -1686,8 +1731,11 @@ document.getElementById('char-save').onclick = async () => {
   if (!world) {
     charMsg.style.color='var(--danger)'; charMsg.textContent='请先选择「所属剧本」：角色必须归属于某个剧本'; return;
   }
-  // 必填人设校验：不填无法完整发挥推演引擎
-  const required = [['c-desc','description（身份/外貌/处境）'],['c-desire','核心渴望'],['c-fear','核心恐惧']];
+  // 必填人设校验：description 恒必填；core_desire / core_fear 仅 NPC 卡必填
+  // （玩家卡这两项可选，留空由引擎从 description 推演，见 _applyPlayerCardUi）。
+  const isPlayer = !!(_charOrig && _charOrig.is_player);
+  const required = [['c-desc','description（身份/外貌/处境）']];
+  if (!isPlayer) required.push(['c-desire','核心渴望'], ['c-fear','核心恐惧']);
   for (const [id, label] of required) {
     if (!document.getElementById(id).value.trim()) {
       charMsg.style.color='var(--danger)'; charMsg.textContent=label+' 为必填项，请填写'; return;
@@ -2238,6 +2286,7 @@ document.getElementById('end-delete').onclick = async () => {
 };
 
 loadCharacters();
+loadOpeningDemoDefault();
 refreshState();
 
 // 左栏各子面板可独立收起/展开。

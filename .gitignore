@@ -12,6 +12,7 @@ _wb_*
 backup/
 _backup_*/
 _sync_backup_*/
+_backup_*.*
 
 # 发版产物（交付物层，归档用，不进版本库）
 dist/

@@ -1164,6 +1164,7 @@ def reflect(sid, reply, directive=""):
             '  "secret_touches": [{"owner": "秘密归属者", "touched": true}],\n'
             '  "location_updates": [{"who": "角色名", "place": "该角色本轮结束时所在的具体地点"}],\n'
             '  "scene_shift": {"changed": false, "place": "本轮叙事末尾所处的地点", "time": "本轮叙事末尾的时间", "weather": "本轮叙事末尾的天气"},\n'
+            '  "present_change": {"leave": ["离开镜头的角色名"], "arrive": ["进入镜头的角色名"]},\n'
             '  "relations": { "源 → 目标": "关系定性（只写稳定的人物关系定位，如\'妈妈，独占欲\'，不要包含本轮具体动作描写）" },\n'
             '  "actions": { "角色名": "本轮该角色做的一句具体行为（不含关系定性，只写这回合发生了什么）" },\n'
             '  "goals": { "角色名": "新的短期目标" },\n'
@@ -1204,7 +1205,7 @@ def reflect(sid, reply, directive=""):
             "  已记录且本轮未动的角色才不必重报（沿用既有位置）——这是「首轮全量、此后增量」的本意，**不是**「谁没动\n"
             "  就谁不报」：开局全员无记录时，本轮就是「首轮」，必须全员全量。\n"
             "  place 写本轮叙事末尾该角色**实际所处**的具体地点（如「电梯内」「地库」「卧室」「客厅」），"
-            "正文点明了具体站位/班次就报具体（如「北境来使班次」「御座西侧」），正文未点明、人又未移动就报当前场景基准处，\n"
+            "正文点明了具体站位/班次就报具体（如「来使班次」「主位一侧」），正文未点明、人又未移动就报当前场景基准处，\n"
             "不要写泛称「外面」「那边」。\n"
             "  位置是物理事实、每角色唯一：同一角色本轮只报一条，后写覆盖前写，绝不可报两条互相矛盾的位置。\n"
             "  who 用角色的正式名字（沿用「在场角色」「既有位置」里的写法）；刚移动过的在场角色与群演都要覆盖到。\n"
@@ -1213,7 +1214,12 @@ def reflect(sid, reply, directive=""):
             "- scene_shift：本轮叙事里**地点／时间／天气有没有实际发生变化**（如从客厅走到楼道、"
             "天黑了、下起雨）。changed 填 true 时同时给出变化后的 place/time/weather，"
             "引擎据此把场景状态追上叙事（避免场景停在「清晨」而正文早已入夜）。"
-            "没有变化就填 {\"changed\": false}。"
+            "没有变化就填 {\"changed\": false}。\n"
+            "- present_change：本轮叙事里**有正式登场角色离开了当前镜头、或有角色进入了当前镜头**时填。"
+            "离开/进入的判断标准是「该角色不再与镜头内其余人处于同一现场/场景」——如某角色\"上朝去了\""
+            "而其余人留在原地、\"逃往别处\"离开了队伍、\"回房歇下\"不再与众人同场、或一个此前不在场的角色"
+            "\"赶到/现身/加入\"了当前场景。单纯的地点移动（众人一起转移到新地点）不算离场，leave 与 arrive"
+            "都留空。只在确实有人进出时才填，无人进出则 {\"leave\": [], \"arrive\": []}。\n"
         )},
     ]
     # 额度必须留足：纪官要吐关系/行动/目标/秘密三类/事实两层，900 会被截断在半句话上，
@@ -1425,6 +1431,39 @@ def reflect(sid, reply, directive=""):
         }
     else:
         snap.pop("scene_shift", None)
+
+    # 在场名单语义兜底（双轨共存）：scene.apply 靠关键词在生成前处理玩家明说的离场，
+    # 这里纪官从「已生成的叙事」里读谁实际离开了镜头、谁进入了镜头，补关键词枚举
+    # 不到的盲区（「上朝」「逃往别处」「赴任」等无离场词却确已离场的移动）。
+    # 时序自洽：present_change 从下一轮起生效——本轮 prompt 已按旧 present 生成，
+    # 但「离场」本就是「下一轮才生效」的状态变更，不影响本轮已写出的内容。
+    # 安全网沿用 scene.apply 同款：只认合法卡、离开者须在场、到达者须未在场、去重、
+    # 玩家恒在场（玩家离开镜头不改变其在场身份，仍由 is_player 标志识别）。
+    pc = data.get("present_change")
+    if isinstance(pc, dict):
+        all_chars = set(store.list_characters())
+        cur_present = list(snap.get("present", []))
+        orig = set(cur_present)
+        leave = [c for c in dict.fromkeys(pc.get("leave") or [])
+                 if c in all_chars and c in cur_present
+                 and not (store.load_card(c) or {}).get("is_player")]
+        arrive = [c for c in dict.fromkeys(pc.get("arrive") or [])
+                  if c in all_chars and c not in cur_present
+                  and not (store.load_card(c) or {}).get("is_player")]
+        # 安全网：leave 覆盖全员且无 arrive = 误判「随世界移动」，忽略；名单不得清空。
+        if leave and set(leave) >= orig and not arrive:
+            leave, arrive = [], []
+        for c in leave:
+            cur_present.remove(c)
+        for c in arrive:
+            cur_present.append(c)
+            snap.setdefault("goals", {})[c] = store.load_card(c).get("short_goal", "")
+        if cur_present:
+            snap["present"] = cur_present
+        if leave or arrive:
+            logger.info("director", "在场名单语义更新 ｜ " 
+                        + ("、".join(leave) + " 离开" if leave else "")
+                        + (" ｜ " + "、".join(arrive) + " 到场" if arrive else ""))
 
     memory.save(sid, snap)
     return snap

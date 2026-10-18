@@ -21,7 +21,7 @@ def _new_id():
     return uuid.uuid4().hex[:8]
 
 
-def new(cast, scene_place="", world_name="", scene_time="", player=None):
+def new(cast, scene_place="", world_name="", scene_time="", player=None, opening_demo=""):
     """开启一个沙盘世界。cast 为在场的 NPC 角色卡列表，player 为在场玩家角色卡名。
 
     v1.0.0：玩家不再是「环境推手/外部导演」（不登场、不说话、只注入扰动），而是局势中的
@@ -118,6 +118,9 @@ def new(cast, scene_place="", world_name="", scene_time="", player=None):
         # 据此把运行时会话挂回所属剧本。存量会话无此字段，前端回退从角色卡读 world。
         "world": world_name,
         "scene": {"place": scene_place, "time": scene_time, "weather": "", "round": 0, "same_scene": 0},
+        # 开局写法示范（酒馆 first message）：从「开始游戏」引导页的时间/地点下方
+        # 文本框带入，预填引擎中性默认、玩家可改。首轮 act 时注入一次，之后不再出现。
+        "opening_demo": (opening_demo or "").strip(),
         "relations": relations,
         # 权威关系基线：与 relations 一同固化自角色卡 relations 字段。
         # reflect 的「未在场冻结」与「亲属身份冻结」都以它为唯一可信源；

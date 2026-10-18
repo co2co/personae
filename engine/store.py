@@ -392,6 +392,35 @@ _STANDARD_ENTRY_CONTENT = (
 )
 
 
+# ---- 写法示范（few-shot，对标酒馆 first message / example messages）----
+#
+# 引擎内置两份中性示范，让「玩家不写示范也能直接开局」：
+#   1. FIRST_ROUND_DEMO（开局示范，酒馆 first message）：放在「开始游戏」引导页
+#      时间/地点下方的文本框，预填此中性默认、玩家可改；随 scene 一并传入
+#      session_new 存进快照，首轮 act 时注入，之后不再出现。
+#   2. STANDARD_EXAMPLE_ENTRY（常驻示范，酒馆 example messages）：作为世界书条目，
+#      创建剧本（save_world 首次创建）与导入剧本（import_drama）时自动播种，每轮注入。
+#
+# 两份示范措辞全中性、不含任何剧本专名与题材词（普适性红线），用「角色甲/角色乙」
+# 这类占位，任何剧本都可直接用；作者想换成贴合本剧风格的示范，可整条改写或删除。
+
+FIRST_ROUND_DEMO_NAME = "写法示范·开局"
+_FIRST_ROUND_DEMO = (
+    "本剧开局的写法（动作*星号*、对白\"双引号\"、散文穿插，不用\"角色名：\"前缀）：\n"
+    "*角色甲抬头，灯影在脸上晃了晃，才慢慢看向来人。*\"这么晚了，还赶路？\"\n"
+    "*角色乙把肩上的雪抖落，往炭火边挪了半步。*\"赶不赶，都得找个地方落脚。\"\n"
+    "堂里安静了一瞬，只有炭火哔剥地响。两人各怀各的心思，谁也没先挑破那半句没出口的话。"
+)
+
+STANDARD_EXAMPLE_NAME = "写法示范·常驻"
+_STANDARD_EXAMPLE_CONTENT = (
+    "写法常驻示范（多角色交织、动作归属对白、不用\"角色名：\"前缀）：\n"
+    "*角色甲把手里那卷纸往桌上一搁，没抬头。*\"这事，还有谁知道？\"\n"
+    "*角色乙端茶的手停了一下。*\"该知道的，都知道了。\"\n"
+    "屋里静了一瞬，谁也没接谁的话，只有茶盏落几那一声，脆得像是敲在鼓面上。"
+)
+
+
 def _standard_entry():
     return {
         "name": STANDARD_ENTRY_NAME,
@@ -406,18 +435,42 @@ def _standard_entry():
     }
 
 
+def _standard_example_entry():
+    """常驻写法示范条目（酒馆 example messages）：demo 标志 + 非 first_round，每轮注入。"""
+    return {
+        "name": STANDARD_EXAMPLE_NAME,
+        "keys": [],
+        "content": _STANDARD_EXAMPLE_CONTENT,
+        "priority": 60,
+        "enabled": True,
+        "constant": False,
+        "position": "before",
+        "depth": None,
+        "secret": False,
+        "demo": True,
+        "first_round": False,
+    }
+
+
 def _has_standard_entry(entries):
     return any((e or {}).get("name") == STANDARD_ENTRY_NAME for e in (entries or []))
+
+
+def _has_standard_example(entries):
+    return any((e or {}).get("name") == STANDARD_EXAMPLE_NAME for e in (entries or []))
 
 
 def save_world(name, entries):
     """整份保存世界书（覆盖式）。entries 为条目数组。
 
-    新建世界时（该世界此前不存在）自动播种 _STANDARD_ENTRY「亲密描写标准」——
-    它是**叙事技法标准**而非内容设定，措辞全中性、不含任何剧本专名与题材词，
-    对任意剧本都成立，故随每个新世界出厂即激活。用户可整条删除或改写，
-    删除后本函数不会再补（只对「首次创建」播种，不做每次保存的强制回填），
-    也可 enabled=false 停用。详见 _STANDARD_ENTRY 注释。
+    新建世界时（该世界此前不存在）自动播种两条默认条目：
+      - _STANDARD_ENTRY「亲密描写标准」：叙事技法标准，措辞全中性、不含任何剧本
+        专名与题材词，对任意剧本都成立，故随每个新世界出厂即激活。用户可整条删除
+        或改写，删除后本函数不会再补（只对「首次创建」播种，不做每次保存的强制回填），
+        也可 enabled=false 停用。详见 _STANDARD_ENTRY 注释。
+      - _standard_example_entry「写法示范·常驻」：中性 few-shot 示范（酒馆 example
+        messages），让「玩家不写示范也能每轮有范例可循」。同样只对首次创建播种，
+        删除后不强制回填。
     """
     name = (name or "").strip()
     if not name:
@@ -427,11 +480,15 @@ def save_world(name, entries):
     p = folder / f"{name}.json"
     entries = list(entries or [])
     first_create = not p.exists()
-    if first_create and not _has_standard_entry(entries):
+    if first_create:
         # 置于首位：前端 collectWorldEntries 按列表序重算 priority（index 0 → 100），
         # 而 world.scan 是按 priority 降序截断 max_entries——放首位才能保证
         # 「每世界多一条 constant」不会把该世界的其它设定挤出配额。
-        entries.insert(0, _standard_entry())
+        if not _has_standard_entry(entries):
+            entries.insert(0, _standard_entry())
+        # 常驻写法示范紧随其后（demo 条目不占 max_entries 配额，但保持靠前利于渲染顺序）
+        if not _has_standard_example(entries):
+            entries.insert(1, _standard_example_entry())
     data = {"name": name, "entries": entries}
     p.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
     _invalidate(p)
@@ -576,6 +633,11 @@ def import_drama(name, template):
 
     # 1) 世界书：整份覆盖写，name 对齐目标剧本名（save_world 内部会把 name 落进文件）。
     store_entries = list(world_entries)
+    # 导入时补种常驻写法示范（若模板未自带）：与「亲密描写标准」不同，常驻示范是
+    # 引擎通用默认、每轮注入，导入一个没有示范的剧本也该有范例可循。save_world 只在
+    # 首次创建时播种，导入覆盖写已存在的剧本不会触发，故在此显式补。
+    if not _has_standard_example(store_entries):
+        store_entries.insert(0, _standard_example_entry())
     save_world(name, store_entries)
 
     # 2) 角色卡：模板内名单整份重建，world 强制对齐 name。

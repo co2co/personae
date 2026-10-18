@@ -271,6 +271,16 @@ def worlds():
     return jsonify(store.list_worlds())
 
 
+@app.get("/api/defaults/opening-demo")
+def opening_demo_default():
+    """返回开局写法示范（酒馆 first message）的中性默认文本。
+
+    供「开始游戏」引导页预填：玩家可直接用、可改成贴合本剧风格的示范、也可留空
+    （留空时后端 session_new 用同一份中性默认兜底）。措辞全中性，不涉任何剧本专名。
+    """
+    return jsonify({"content": store._FIRST_ROUND_DEMO})
+
+
 @app.get("/api/world/<name>")
 def get_world(name):
     data = store.load_world_raw(name)
@@ -472,17 +482,23 @@ def session_new():
     logger.bus.clear()  # 新一轮推演：清空日志缓冲，避免上一轮内容被日志窗回放
     body = request.get_json(force=True)
     all_chars = store.list_characters()
-    # 环境推手不作为角色入场；cast 为同场角色卡列表（默认全部）
-    cast = body.get("cast") or list(all_chars)
+    world_name = (body.get("world") or "").strip()
+    # cast 缺省 = 该世界的全部角色（全员登场），首轮由引擎结合场景判断谁在场、谁只是背景。
+    # 世界名先于 cast 解析：未传 cast 时按 world 筛，避免把跨世界/未归属角色误带进场。
+    if body.get("cast"):
+        cast = body["cast"]
+    elif world_name:
+        cast = [c for c in all_chars
+                if (store.load_card(c).get("world", "") or "").strip() == world_name]
+    else:
+        cast = list(all_chars)
     # 安全网：去重、剔除不存在的卡，避免在场名单错乱/重复
     cast = [c for c in dict.fromkeys(cast) if c in all_chars]
     if not cast:
-        logger.warn("session", "开局失败：未选择任何在场角色")
-        return jsonify({"error": "至少需要选择一个在场角色"}), 400
-    # 世界名由前端显式传入（开场界面已改为「先选世界 → 再列该世界的角色」）。
-    # 仍保留"未传时回退到首个角色的 world"的旧行为，向后兼容旧调用方。
+        logger.warn("session", "开局失败：该世界下没有可登场的角色")
+        return jsonify({"error": "该世界下没有可登场的角色，请先到「剧本库」添加"}), 400
+    # 世界名未显式传时回退到首个角色的 world（向后兼容旧调用方）。
     # 卡未声明 world 时为空名，语义为「无世界书」（不播种秘密、不注入 lore）。
-    world_name = (body.get("world") or "").strip()
     if not world_name:
         world_name = (store.load_card(cast[0]).get("world", "") or "").strip()
     if world_name and world_name not in store.list_worlds():
@@ -503,6 +519,9 @@ def session_new():
     # 旧实现整体塞进 place、time 恒空，时间锚丢失后正文只能靠世界书反向脑补时间
     # （会话 256d924c 事故）。拆分后前端「场景：{place}（{time}）」展示保持不变。
     scene_place, scene_time = scene.parse_initial_scene(scene_raw)
+    # 开局写法示范（酒馆 first message）：引导页文本框带入，空则由引擎中性默认兜底。
+    # 玩家可留空（后端注入中性默认）也可改成贴合本剧风格的示范，随首轮注入一次。
+    opening_demo = (body.get("opening_demo") or "").strip() or store._FIRST_ROUND_DEMO
     # v1.0.0：玩家是场上的一个人物。确保该世界的【玩家】角色卡存在（首次创建世界时
     # 已由 save_world 播种，此处为旧世界/导入剧本的兜底），并把玩家并入在场名单。
     player_name = store.ensure_player_card(world_name)
@@ -510,7 +529,8 @@ def session_new():
         cast.append(player_name)
     try:
         sid = memory.new(cast, scene_place=scene_place, world_name=world_name,
-                         scene_time=scene_time, player=player_name)
+                         scene_time=scene_time, player=player_name,
+                         opening_demo=opening_demo)
     except Exception as exc:
         logger.error("session", "创建会话失败：" + repr(exc))
         return jsonify({"error": str(exc)}), 500
@@ -642,6 +662,11 @@ def act():
                                  include_secret=True, round=brief["round"])
         # 写法示范条目（demo）单独拆出：它们是「怎么写」的 few-shot 范例，不混入世界设定
         demo_hits = [e for e in hits_all if e.get("demo")]
+        # 开局示范（酒馆 first message）：首轮（round==1）时从快照注入，置于常驻示范之前；
+        # 之后轮次不再出现（first message 只出现一次）。
+        if brief["round"] <= 1 and (snap.get("opening_demo") or "").strip():
+            demo_hits = [{"name": store.FIRST_ROUND_DEMO_NAME, "content": snap["opening_demo"],
+                          "demo": True, "first_round": True}] + demo_hits
         world_hits = [e for e in hits_all if not e.get("secret") and not e.get("demo")]
         before_hits = [e for e in world_hits if e.get("position", "before") == "before"]
         after_hits = [e for e in world_hits if e.get("position", "before") == "after"]
