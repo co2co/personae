@@ -271,16 +271,6 @@ def worlds():
     return jsonify(store.list_worlds())
 
 
-@app.get("/api/defaults/opening-demo")
-def opening_demo_default():
-    """返回开局写法示范（酒馆 first message）的中性默认文本。
-
-    供「开始游戏」引导页预填：玩家可直接用、可改成贴合本剧风格的示范、也可留空
-    （留空时后端 session_new 用同一份中性默认兜底）。措辞全中性，不涉任何剧本专名。
-    """
-    return jsonify({"content": store._FIRST_ROUND_DEMO})
-
-
 @app.get("/api/world/<name>")
 def get_world(name):
     data = store.load_world_raw(name)
@@ -539,9 +529,11 @@ def session_new():
         else:
             logger.info("session", "开场选角：LLM 未收窄名单，全员登场（"
                         + "、".join(cast) + "）")
-    # 开局写法示范（酒馆 first message）：引导页文本框带入，空则由引擎中性默认兜底。
-    # 玩家可留空（后端注入中性默认）也可改成贴合本剧风格的示范，随首轮注入一次。
-    opening_demo = (body.get("opening_demo") or "").strip() or store._FIRST_ROUND_DEMO
+    # 开局写法示范（酒馆 first message）：v1.2.3 起不再让玩家自定义，改回引擎中性
+    # 默认静默注入（玩家曾把「我的开场动作」误填进示范框，造成语义错位——示范是
+    # 「怎么写」的格式范例，不是「玩家行动」）。玩家开场第一句/动作走引导页「玩家行动」
+    # 框，由前端在建局后作为首轮 input 传入 act，不在此处处理。
+    opening_demo = store._FIRST_ROUND_DEMO
     # v1.0.0：玩家是场上的一个人物。确保该世界的【玩家】角色卡存在（首次创建世界时
     # 已由 save_world 播种，此处为旧世界/导入剧本的兜底），并把玩家并入在场名单。
     if player_name and player_name not in cast:

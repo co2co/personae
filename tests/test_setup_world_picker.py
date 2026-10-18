@@ -154,23 +154,12 @@ def test_session_new_uses_explicit_world(client):
     assert made["player"] == "玩家"
 
 
-def test_session_new_passes_opening_demo(client):
-    """引导页传开局示范 → memory.new 收到该示范。"""
-    c, made = client
-    demo = "*甲抬头。*\"这么晚还赶路？\""
-    r = c.post("/api/session/new", json={
-        "cast": ["甲", "乙"], "scene": "客厅", "world": "世界一",
-        "opening_demo": demo})
-    assert r.status_code == 200, r.get_json()
-    assert made["opening_demo"] == demo
-
-
-def test_session_new_opening_demo_defaults_when_empty(client):
-    """引导页留空开局示范 → 后端兜底引擎中性默认（玩家不写也能开局）。"""
+def test_session_new_opening_demo_always_system_default(client):
+    """v1.2.3：写法示范不再让玩家自定义，恒用引擎中性默认（即便请求体传了也忽略）。"""
     c, made = client
     r = c.post("/api/session/new", json={
         "cast": ["甲", "乙"], "scene": "客厅", "world": "世界一",
-        "opening_demo": ""})
+        "opening_demo": "*我恐惧地张望*"})
     assert r.status_code == 200, r.get_json()
     assert made["opening_demo"] == store._FIRST_ROUND_DEMO
 

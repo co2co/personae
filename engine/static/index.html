@@ -839,11 +839,8 @@
       <input id="scene" class="field" placeholder="例如：公寓的客厅">
       <label class="form-label" for="scene-time">开场时间（可选）</label>
       <input id="scene-time" class="field" placeholder="例如：傍晚 / 深夜">
-      <div style="display:flex;justify-content:space-between;align-items:baseline;">
-        <label class="form-label" for="opening-demo">开局写法示范（已填入系统默认，可直接修改）</label>
-        <button type="button" id="opening-demo-reset" class="btn btn-sm" style="display:none;">还原默认</button>
-      </div>
-      <textarea id="opening-demo" class="field" style="min-height:110px;" placeholder="加载中…"></textarea>
+      <label class="form-label" for="player-action">玩家行动（你的开场第一句 / 第一个动作）</label>
+      <textarea id="player-action" class="field" style="min-height:80px;" placeholder="例如：*你环顾四周*「这是哪？」；留空则你静立现场、由 NPC 先动"></textarea>
       <div class="actions">
         <button id="start" class="btn btn-primary">开始</button>
       </div>
@@ -982,37 +979,6 @@ async function loadCharacters() {
   await syncNpcs();
 }
 
-// 开局写法示范：拉取引擎中性默认文本预填引导页文本框（玩家可直接改，也可一键还原默认）。
-// 默认文本非空时直接显示，用户不再面对空白框；留空会走引擎内置默认兜底。
-async function loadOpeningDemoDefault() {
-  const el = document.getElementById('opening-demo');
-  const reset = document.getElementById('opening-demo-reset');
-  try {
-    const d = await fetch('/api/defaults/opening-demo').then(r => r.json());
-    const content = (d && d.content) ? d.content : '';
-    window.__openingDemoDefault = content;
-    if (content) {
-      el.value = content;
-      el.placeholder = '（留空则使用系统默认示范）';
-    } else {
-      el.placeholder = '（无法加载默认示范，可留空，系统会用内置默认）';
-    }
-    if (reset) {
-      reset.addEventListener('click', () => {
-        el.value = window.__openingDemoDefault || '';
-        el.dispatchEvent(new Event('input'));
-      });
-      const syncReset = () => {
-        reset.style.display = (el.value === (window.__openingDemoDefault || '')) ? 'none' : '';
-      };
-      el.addEventListener('input', syncReset);
-      syncReset();
-    }
-  } catch (e) {
-    el.placeholder = '（无法加载默认示范，可留空，系统会用内置默认）';
-  }
-}
-
 // 按当前所选世界拉角色，更新提示文案。unassigned（未声明 world / world 指向已删世界）
 // 一并提示——这些角色在任何世界下都不会出现，不提示就会像凭空丢了。
 // 不再渲染勾选列表：本剧角色全员登场，首轮由引擎结合场景自行判断谁在场。
@@ -1052,14 +1018,15 @@ async function startSession() {
   setupStatus.innerHTML = '<span class="init-spinner"></span>系统正在初始化，请稍等…';
   const place = document.getElementById('scene').value.trim();
   const time = document.getElementById('scene-time').value.trim();
-  const openingDemo = document.getElementById('opening-demo').value.trim();
+  const playerAction = document.getElementById('player-action').value.trim();
   // 地点与时间分开填写，后端按 parse_initial_scene 拆成 place/time 两个字段，
   // 时间锚不再丢失（旧版混写进 place、time 恒空，正文只能自行脑补时间）。
   const scene = [place, time].filter(Boolean).join('，');
   // 不再传 cast：后端默认全员登场（该世界全部角色进 present），首轮由引擎结合场景判断谁在场。
+  // 写法示范由引擎静默用系统默认（玩家不再自定义，避免「我的开场」被误当格式范例）。
   const res = await fetch('/api/session/new', {
     method: 'POST', headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({scene, world, opening_demo: openingDemo}),
+    body: JSON.stringify({scene, world}),
   });
   const data = await res.json();
   if (data.error) {
@@ -1078,11 +1045,10 @@ async function startSession() {
   renderSnapshot(data.snapshot);
   statusEl.textContent = '世界已开启：' + SID;
   if (!es) connectLog();  // 新世界就绪后再连接日志流（缓冲已清空，仅回放本轮）
-  // 开局自动推演第一回合：玩家已通过引导页表达开场意图（地点/时间/写法示范），
-  // 建局后引擎直接产出开场叙事（first message），玩家看到 NPC 的开场动作/对白后
-  // 再输入自己的第一句，无需面对空界面手动触发。空 input 由 prompter 处理为
-  // 「在场角色自然推演」，玩家本人（人类操控）不会被代写。
-  streamAct('', {showUserBubble: false});
+  // 开局自动推演第一回合：玩家开场行动（引导页「玩家行动」框，可留空）作为首轮
+  // input 传入，玩家第一句话/动作进入正文；留空则玩家静立现场、由 NPC 自然推演。
+  // 玩家行动会进 chat 历史（【玩家行动】），继续会话时天然存在，无需另存快照。
+  streamAct(playerAction, {showUserBubble: !!playerAction});
 }
 
 function bubble(role, text) {
@@ -2299,7 +2265,6 @@ document.getElementById('end-delete').onclick = async () => {
 };
 
 loadCharacters();
-loadOpeningDemoDefault();
 refreshState();
 
 // 左栏各子面板可独立收起/展开。
