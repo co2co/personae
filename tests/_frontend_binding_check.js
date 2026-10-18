@@ -129,6 +129,9 @@ check('cfgProviders 已声明', typeof get('__q').closest === 'function'); // �
   check('人物位置：无记录的在场角色显式兜底', locHtml.includes('A：') && locHtml.includes('（位置未记录）'));
   check('人物位置：有记录的位置照常渲染', locHtml.includes('角色B：走廊'));
   await globalThis.__stage2();
+  // 开局自动推演（startSession 末尾 fire-and-forget 的 streamAct('')）是异步的：
+  // 等待其 SSE 流走完、sendBtn 恢复解锁，再断言。与上文 60ms 等待同一模式。
+  await new Promise(r => setTimeout(r, 60));
   check('按钮发送后已解锁', get('send').disabled === false);
 
   console.log(fails.length ? '\n>>> FAILED: ' + fails.join(' | ') : '\n>>> ALL PASS');

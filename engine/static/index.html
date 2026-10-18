@@ -1078,6 +1078,11 @@ async function startSession() {
   renderSnapshot(data.snapshot);
   statusEl.textContent = '世界已开启：' + SID;
   if (!es) connectLog();  // 新世界就绪后再连接日志流（缓冲已清空，仅回放本轮）
+  // 开局自动推演第一回合：玩家已通过引导页表达开场意图（地点/时间/写法示范），
+  // 建局后引擎直接产出开场叙事（first message），玩家看到 NPC 的开场动作/对白后
+  // 再输入自己的第一句，无需面对空界面手动触发。空 input 由 prompter 处理为
+  // 「在场角色自然推演」，玩家本人（人类操控）不会被代写。
+  streamAct('', {showUserBubble: false});
 }
 
 function bubble(role, text) {
@@ -1181,13 +1186,14 @@ async function refreshSnapshot() {
 //   delta  = 叙事增量，边收边显示
 //   status = 后台阶段提示（纪官同步等），据此禁用输入框
 //   done   = 本轮结束，附带 snapshot / scene_change / ending_candidate
-async function send() {
-  const text = input.value.trim();
-  if (!text || sendBtn.disabled) return;
-  input.value = '';
+// opts.showUserBubble：true 时把玩家输入渲染成气泡（正常回合）；开局自动推演传 false
+//   （无玩家输入、不弹气泡，直接渲染开场叙事）。
+async function streamAct(text, opts) {
+  opts = opts || {};
+  const showUserBubble = opts.showUserBubble !== false;
   sendBtn.disabled = true;
   statusEl.textContent = '生成中…';
-  bubble('user', text);
+  if (showUserBubble && text) bubble('user', text);
 
   const resp = await fetch('/api/act', {
     method: 'POST', headers: {'Content-Type': 'application/json'},
@@ -1247,6 +1253,13 @@ async function send() {
   // 兜底复原：无论正常结束还是中途异常，都恢复输入框默认状态
   input.placeholder = INPUT_PLACEHOLDER_DEFAULT;
   input.disabled = false;
+}
+
+async function send() {
+  const text = input.value.trim();
+  if (!text || sendBtn.disabled) return;
+  input.value = '';
+  await streamAct(text, {showUserBubble: true});
 }
 
 // 主流程按钮绑定。缺任何一个都会让界面「点了没反应」且不报错，
