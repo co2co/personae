@@ -236,49 +236,35 @@ def _all_player_cards():
     return out
 
 
-def _player_card_content_score(card):
-    """玩家卡「已填内容」的丰富度评分，用于同世界多张 is_player 卡时的去重择优。
-
-    只统计玩家手填的字段（非引擎自动字段 is_player / secrets 之外的内容），空白卡得
-    0 分——从而在「空白默认卡 vs 玩家已填人设卡」并存时，保留人设卡、删掉空卡。
-    """
-    n = 0
-    for k in ("description", "personality", "core_desire", "core_fear", "short_goal"):
-        n += len((card.get(k) or "").strip())
-    n += len(card.get("relations") or {})
-    n += len(card.get("relations_kinship") or {})
-    n += len(card.get("secrets") or [])
-    return n
-
-
 def ensure_player_card(world_name):
-    """确保全局唯一一张玩家角色卡并归属当前剧本，返回其名字（认 is_player 标志，不认卡名）。
+    """确保当前剧本存在唯一一张玩家角色卡并归属它，返回其名字（认 is_player 标志，不认卡名）。
 
-    运行时 data/ 只装一个剧本，玩家卡是**全局单例**。玩家可自由给它改名，引擎靠卡内
-    is_player 标志认玩家、与名字无关。本函数做「幂等收敛」，把全部 is_player 卡稳定
-    归一到一张并归属「正在操作的剧本」：
+    玩家卡是**运行时单例**：只活在运行态 data/characters，从不进剧本模板 / 随包 demo，
+    身份判据是卡内 is_player 标志而非卡名——玩家可在角色编辑器里自由给它改名（A 方案），
+    引擎仍认得。本函数按「玩家卡是否已归属当前剧本」决定去留，核心目标是**普适性**：
+    每个新建 / 导入 / 切换的剧本都拿到一张**空白**玩家卡槽位，绝不把上个剧本的填写内容
+    带进新剧本（玩家卡里的内容属上个剧本的运行时残留，不是该随剧本保存的模板数据）。
+      - 已有玩家卡且其 world == 当前剧本 → 玩家正在本剧本里填写 / 改名，保留其全部内容
+        （含改名），原地不动。
       - 无任何玩家卡 → 新建一张字段全空的卡（world=world_name、默认名 PLAYER_NAME），
         内容留给玩家填。
-      - 已有玩家卡（无论名字被改成什么、world 挂在哪个旧世界名下）→ 保留内容最丰富者
-        （_player_card_content_score 最高，内容相同按名字升序取首，保证确定/幂等），其余
-        is_player 卡视为改名前的旧卡 / 误建的第二张，删除；再把保留者的 world 重指到
-        当前剧本。这是必要的：否则切换/导入剧本后玩家卡还挂在旧世界名下，session_new
-        的跨世界一致性校验会把它当「外来角色」拦截，导致新剧本开不了局。
-    world_name 为空（无世界书）时不重指，避免把有归属的卡误抹成无世界。
+      - 已有玩家卡但其 world 挂在**其它**剧本名下（新建 / 导入 / 切换剧本后的残留）→
+        删除这些残留卡，为当前剧本新建一张**空白**卡。这也是切换剧本后必需的：否则
+        玩家卡还挂在旧世界名下，session_new 的跨世界一致性校验会把它当「外来角色」
+        拦截，导致新剧本开不了局。
+    world_name 为空（无世界书，防御分支，正常调用都带真实世界名）时：已有玩家卡则原样
+    返回其名字、不删不建，避免把有归属的卡误抹。
     """
     world_name = (world_name or "").strip()
     players = _all_player_cards()
     if players:
-        keep_name = max(players, key=lambda n: (_player_card_content_score(load_card(n)), n))
+        if not world_name:
+            return players[0]
         for name in players:
-            if name != keep_name:
-                delete_card(name)
-        keep = load_card(keep_name)
-        if world_name and (keep.get("world", "") or "").strip() != world_name:
-            keep = dict(keep)
-            keep["world"] = world_name
-            save_card(keep_name, keep)
-        return keep_name
+            if (load_card(name).get("world", "") or "").strip() == world_name:
+                return name
+        for name in players:
+            delete_card(name)
     save_card(PLAYER_NAME, empty_player_card(world_name))
     return PLAYER_NAME
 
