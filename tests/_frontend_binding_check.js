@@ -13,9 +13,7 @@ const listeners = {};           // 元素 id -> {onclick, keydown:[], click:[]}
 const els = new Map();
 let fetchCalls = [];
 const stubCls = { add(){}, remove(){}, toggle(){}, contains(){return false} };
-// 开场区勾选框的桩：querySelectorAll('#npcs input:checked') 必须返回它们，
-// 否则 startSession 会因「无可选角色」提前 return，沙箱就测不到真正的 POST。
-const npcInputs = [{ value: '角色A' }, { value: '角色B' }];
+// 开场不再有角色勾选列表：startSession 不传 cast，后端默认该世界全员登场。
 
 function mkEl(id, tag) {
   const el = {
@@ -28,7 +26,7 @@ function mkEl(id, tag) {
     scrollTop: 0, scrollHeight: 0, clientWidth: 0, clientHeight: 0,
     closest(){ return null }, contains(){ return false },
     querySelector(){ return mkEl('__stub', 'div') },
-    querySelectorAll(sel){ return (sel === '#npcs input:checked') ? npcInputs : []; },
+    querySelectorAll(sel){ return []; },
     appendChild(c){ el.children.push(c); return c },
     removeChild(c){ return c },
     addEventListener(ev, fn){ (listeners[id] || (listeners[id] = {}))[ev] = (listeners[id][ev]||[]).concat(fn) },
@@ -47,9 +45,7 @@ function get(id) {
 global.document = {
   getElementById: get,
   querySelector: () => mkEl('__q', 'div'),
-  // 开场区的在场角色勾选框走的是 document 级查询，须返回桩值——
-  // 返回 [] 会让 startSession 判定「无可选角色」提前 return，测不到真正的 POST。
-  querySelectorAll: (sel) => (sel === '#npcs input:checked') ? npcInputs : [],
+  querySelectorAll: (sel) => [],
   createElement: (t) => mkEl('__c', t),
   createDocumentFragment: () => mkEl('__frag', 'div'),
   addEventListener(){},
@@ -107,7 +103,7 @@ globalThis.__stage2 = async () => {
   if (newCalls[0]) {
     const body = JSON.parse(newCalls[0].body);
     check('开局请求体含所选世界', body.world === '测试世界');
-    check('开局请求体含在场角色', Array.isArray(body.cast) && body.cast.length === 2);
+    check('开局请求体不含 cast（默认全员登场）', !('cast' in body));
   }
   check('开始按钮已解锁', get('start').disabled === false);
 };

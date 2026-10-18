@@ -6,6 +6,38 @@
 
 ---
 
+## 2026-10-19 写法示范引擎化 + 玩家卡降门槛 + 开场全员登场 + 离场语义判断（semver MINOR→v1.2.0）
+
+**性质**：酒馆化改造的收口与打磨——few-shot 示范从「作者手写进 world.json」收口为引擎内置中性默认 + 引导页可改；玩家卡编辑器对齐酒馆 Persona（description 唯一必填，core 字段可选）；开场不再展示误导性的「同场角色」勾选列表，改为全员登场 + 引擎按场景判断在场；离场判断从关键词枚举升级为语义判断。**触发 MINOR**：新增引擎能力（常驻示范自动播种 + 开场语义选角 + 离场语义判断）+ 交互范式变更。
+
+**一、写法示范引擎化（engine/store.py + memory.py + app.py + index.html）**
+- 背景：few-shot 示范此前要作者手写进 world.json，普通玩家建局拿不到示范。simon 拍板两点：①「写法示范·开局」（first message）挪到「开始游戏」引导页，引擎内置中性默认、玩家可改可留空；②「写法示范·常驻」（example messages）像「亲密描写标准」一样引擎化——创建+导入剧本自动播种。
+- 落点：
+  - `store.py` 新增两条中性常量 `FIRST_ROUND_DEMO_NAME/_FIRST_ROUND_DEMO`（开局示范）、`STANDARD_EXAMPLE_NAME/_STANDARD_EXAMPLE_CONTENT`（常驻示范，`demo=True/first_round=False/priority=60`）+ `_standard_example_entry()`/`_has_standard_example()`；`save_world` 首次创建播种 2 条（标准条 index0 + 常驻示范 index1），`import_drama` 显式补种常驻示范。
+  - `memory.new` 新增 `opening_demo` 参数→快照字段；`app.py` `session_new` 接收 `opening_demo`（空则兜底 `_FIRST_ROUND_DEMO`），新增 `GET /api/defaults/opening-demo`；`act()` 首轮（`brief.round<=1`）把 opening_demo 构造成 demo 条目 prepend 到 demo_hits（置于常驻示范前）。
+  - 引导页「开局写法示范」textarea 预填系统默认（非空白框），label 明示「已填入系统默认，可直接修改」，新增「还原默认」按钮（改动后浮现、点击回填默认）。
+- 权威源分离：first message 走「引导页文本框→快照」通道（开局一次性），example messages 走「世界书 demo 条目」通道（每轮注入）。
+
+**二、玩家卡编辑器降门槛（engine/static/index.html，纯前端）**
+- 背景：玩家卡是引擎簿记护城河的玩家侧延伸，但 core_desire/core_fear 对玩家偏重。查证酒馆 Persona：只有「名称 + 一段自由描述」，无结构化 core 字段。
+- 方案：不砍机制只降门槛。后端对空 core 字段本就完全容错（prompter 条件注入 `if card.get(...)`、memory `short_goal or core_desire or ''`、director `core_desire or ''`），故零后端改动。
+- 前端：`core_desire`/`core_fear` 红星改 `class="req core-req"`（可 JS 切换）；新增 `_applyPlayerCardUi(isPlayer)` 按 `is_player` 标志隐藏红星 + 显示「可选，留空由 description 推演」提示；`saveCard` 必填校验分支——玩家卡只强制 `name+description`，NPC 卡仍强制 `desc+desire+fear`（关系/秘密簿记的 NPC 锚点不能丢）。
+
+**三、开场全员登场 + 离场语义判断（engine/app.py + director.py + index.html）**
+- 背景（simon 两问）：① 开场「同场角色」勾选列表语义误导（玩家以为勾选=锁定整局登场，实则只是初始在场名单）；② 角色移动（上朝/逃往北境/赴任）后离场判断靠 `LEAVE_KEYS` 关键词枚举，有无离场词却确已离场的盲区。
+- 落地：
+  - **去掉列表 + 全员登场**：删勾选列表/推荐按钮；`session_new` 的 cast 缺省改为「按所选 world 筛全员」（先解析 world_name 再筛，避免跨世界/未归属角色误带入），首轮由引擎结合场景判断谁在场。删 `recommend-cast` 接口（与列表是同一件事的重复）。
+  - **离场语义判断（双轨共存）**：`director.reflect` 新增 `present_change` 字段（`{leave, arrive}`），从已生成叙事读「谁离开镜头/谁进入镜头」，补关键词盲区。`scene.apply` 关键词离场保留不动（生成前处理玩家明说的离开），双轨时序互补：关键词管「玩家明说」，语义管「叙事实际发生」。安全网与 scene.apply 同款（只认合法卡/玩家恒在场/leave 只认在场者/arrive 只认未在场者/leave 覆盖全员且无 arrive 忽略/名单不清空）。
+- 普适性修正：reflect 规则示例「逃往北境」「北境来使班次」「御座西侧」为题材词泄漏，改中性表述，engine 源码角色名/题材词扫描归零。
+
+**四、验证**
+- 全量测试 335 passed + 1 skipped；新增 test_standard_example.py 7 用例（播种/中性/demo 标志/导入补种/作者保留/删除）+ test_director.py 4 用例（present_change 离场到场/全员误判忽略/玩家恒在场/越名过滤）。
+- JS node --check 通过。
+
+**设计决定**：present 名单维护 = scene.apply 关键词（生成前，玩家明说）+ reflect 语义（生成后，叙事实际）双轨；reflect 语义是补盲区的兜底，不是替代历史关键词机制。
+
+---
+
 ## 2026-10-18 输出格式改酒馆三段式 + 铁律瘦身 + few-shot 机制（semver MINOR→v1.1.0）
 
 **性质**：引擎叙事输出范式整体转向——从「多说话人自由叙事（实际趋近散文）」改为酒馆（SillyTavern）「角色动作 + 对白 + 穿插散文」三段式；配套对每回合注入 LLM 的铁律做正向化瘦身；引入酒馆式 few-shot 示范机制（first message 首轮示范 + example messages 常驻示范）并引擎化自动注入。**触发 MINOR**：输出范式变更 + 新增引擎能力（few-shot 示范条目机制）。

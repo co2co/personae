@@ -34,17 +34,19 @@ def _isolated_store(tmp_path, monkeypatch):
 
 
 def test_new_world_seeds_standard_entry():
-    """新建世界 save_world("W", []) → load 返回 1 条「亲密描写标准」。"""
+    """新建世界 save_world("W", []) → load 首条为「亲密描写标准」（另有常驻示范条）。"""
     store.save_world("新世界", [])
     ents = store.load_world("新世界")
-    assert len(ents) == 1
-    assert ents[0]["name"] == STD_NAME
+    names = [e["name"] for e in ents]
+    assert names[0] == STD_NAME
+    # 常驻写法示范（引擎通用默认）也一并播种，见 test_standard_example.py
+    assert "写法示范·常驻" in names
 
 
 def test_seeded_entry_attributes():
     """播种的标准条恒定 constant=True / position=after / priority=100。"""
     store.save_world("新世界", [])
-    std = store.load_world("新世界")[0]
+    std = next(e for e in store.load_world("新世界") if e["name"] == STD_NAME)
     assert std["constant"] is True
     assert std["position"] == "after"
     assert std["priority"] == 100
@@ -58,10 +60,12 @@ def test_standard_prepended_at_front():
     ]
     store.save_world("新世界", entries)
     loaded = store.load_world("新世界")
-    assert len(loaded) == 3
-    assert loaded[0]["name"] == STD_NAME
-    assert loaded[1]["name"] == "自定义"
-    assert loaded[2]["name"] == "其它"
+    names = [e["name"] for e in loaded]
+    assert names[0] == STD_NAME
+    # 常驻示范条在标准条之后、用户条目之前
+    assert names[1] == "写法示范·常驻"
+    assert names[2] == "自定义"
+    assert names[3] == "其它"
 
 
 def test_no_double_seed_when_standard_present():
@@ -73,26 +77,29 @@ def test_no_double_seed_when_standard_present():
     }
     store.save_world("新世界", [existing_std, {"name": "u", "keys": [], "content": "c"}])
     loaded = store.load_world("新世界")
-    assert len(loaded) == 2
-    assert loaded[0]["name"] == STD_NAME
+    names = [e["name"] for e in loaded]
+    assert names[0] == STD_NAME
     assert loaded[0]["content"] == "旧内容"
-    assert loaded[1]["name"] == "u"
+    assert "u" in names
 
 
 def test_user_can_disable_seeded_entry():
     """玩家可对播种的标准条停用（enabled=False），引擎尊重。"""
     store.save_world("新世界", [])
     ents = store.load_world("新世界")
-    ents[0]["enabled"] = False
+    std = next(e for e in ents if e["name"] == STD_NAME)
+    std["enabled"] = False
     store.save_world("新世界", ents)
-    assert store.load_world("新世界")[0]["enabled"] is False
+    loaded = store.load_world("新世界")
+    assert next(e for e in loaded if e["name"] == STD_NAME)["enabled"] is False
 
 
 def test_user_can_delete_seeded_entry():
     """玩家可整条删除标准条，再次保存不会复活（仅首建播种）。"""
     store.save_world("新世界", [])
-    store.save_world("新世界", [])
-    assert store.load_world("新世界") == []
+    # 删除标准条后再次保存（首建已过，不会回填）
+    store.save_world("新世界", [e for e in store.load_world("新世界") if e["name"] != STD_NAME])
+    assert all(e["name"] != STD_NAME for e in store.load_world("新世界"))
 
 
 def test_existing_world_legacy_entry_preserved():
@@ -105,10 +112,10 @@ def test_existing_world_legacy_entry_preserved():
     user_entry = {"name": "本剧设定", "keys": ["x"], "content": "自定义内容"}
     store.save_world("旧世界", [legacy, user_entry])
     loaded = store.load_world("旧世界")
-    assert len(loaded) == 2
-    assert loaded[0]["name"] == STD_NAME
+    names = [e["name"] for e in loaded]
+    assert names[0] == STD_NAME
     assert loaded[0]["content"] == legacy["content"]
-    assert loaded[1]["name"] == "本剧设定"
+    assert "本剧设定" in names
     # 再次保存（如玩家只改了另一条）不会删除或重复旧条
     store.save_world("旧世界", loaded)
-    assert len(store.load_world("旧世界")) == 2
+    assert "本剧设定" in [e["name"] for e in store.load_world("旧世界")]

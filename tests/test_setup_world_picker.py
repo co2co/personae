@@ -64,8 +64,9 @@ def client(monkeypatch):
     made = {}
     made["ensured"] = ensured
 
-    def fake_new(cast, scene_place="", world_name="", scene_time="", player=None):
+    def fake_new(cast, scene_place="", world_name="", scene_time="", player=None, opening_demo=""):
         made["cast"], made["world"], made["player"] = list(cast), world_name, player
+        made["opening_demo"] = opening_demo
         return "sid_test"
 
     monkeypatch.setattr(engine_app.memory, "new", fake_new)
@@ -153,6 +154,27 @@ def test_session_new_uses_explicit_world(client):
     assert made["player"] == "玩家"
 
 
+def test_session_new_passes_opening_demo(client):
+    """引导页传开局示范 → memory.new 收到该示范。"""
+    c, made = client
+    demo = "*甲抬头。*\"这么晚还赶路？\""
+    r = c.post("/api/session/new", json={
+        "cast": ["甲", "乙"], "scene": "客厅", "world": "世界一",
+        "opening_demo": demo})
+    assert r.status_code == 200, r.get_json()
+    assert made["opening_demo"] == demo
+
+
+def test_session_new_opening_demo_defaults_when_empty(client):
+    """引导页留空开局示范 → 后端兜底引擎中性默认（玩家不写也能开局）。"""
+    c, made = client
+    r = c.post("/api/session/new", json={
+        "cast": ["甲", "乙"], "scene": "客厅", "world": "世界一",
+        "opening_demo": ""})
+    assert r.status_code == 200, r.get_json()
+    assert made["opening_demo"] == store._FIRST_ROUND_DEMO
+
+
 def test_session_new_rejects_cross_world_cast(client):
     """选了世界却混入别世界的卡 → 400 并点名混入者（静默纠正会让玩家以为角色在局里）。"""
     c, _ = client
@@ -182,4 +204,12 @@ def test_session_new_empty_cast_rejected(client):
     # cast 全是不存在的名字 → 去重过滤后为空
     r = c.post("/api/session/new", json={"cast": ["不存在"], "world": "世界一"})
     assert r.status_code == 400
-    assert "在场角色" in r.get_json()["error"]
+    assert "没有可登场" in r.get_json()["error"]
+
+
+def test_session_new_default_cast_is_world_members(client):
+    """不传 cast：默认该世界的全部角色登场，不含跨世界/未归属角色。"""
+    c, made = client
+    r = c.post("/api/session/new", json={"world": "世界一", "scene": "集市"})
+    assert r.status_code == 200, r.get_json()
+    assert set(made["cast"]) == {"甲", "乙", "玩家"}

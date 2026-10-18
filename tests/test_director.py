@@ -655,6 +655,85 @@ def test_reflect_location_fallback_skips_without_scene_place(monkeypatch):
     assert out.get("locations", {}) == {}
 
 
+# ---- 在场名单语义更新（present_change，双轨共存）----
+# scene.apply 靠关键词在生成前处理玩家明说的离场；reflect 从叙事读「谁实际走了/来了」，
+# 补关键词枚举不到的盲区（上朝/逃往北境/赴任等）。安全网同 scene.apply：只认合法卡、
+# 玩家恒在场、离开者须在场、到达者须未在场、leave 覆盖全员且无 arrive 时忽略。
+
+def _pc_snap():
+    return {"scene": {"round": 3}, "present": [A, B, C], "relations": {},
+            "actions": {}, "silent_rounds": {}, "secrets": [], "facts": [],
+            "states": {}, "goals": {}, "ledger": []}
+
+
+def test_reflect_present_change_leave_and_arrive(monkeypatch):
+    """语义离场/到场：从叙事读谁走了谁来了，更新 present。"""
+    import json as _json
+    snap = _pc_snap()
+    payload = {"actions": {A: "上朝"},
+               "present_change": {"leave": [A], "arrive": [D]}}
+    monkeypatch.setattr(director.llm, "complete",
+                        lambda *a, **k: _json.dumps(payload, ensure_ascii=False))
+    monkeypatch.setattr(director.memory, "load", lambda sid: snap)
+    monkeypatch.setattr(director.memory, "save", lambda sid, s: None)
+    monkeypatch.setattr(director.store, "list_characters", lambda: [A, B, C, D])
+    monkeypatch.setattr(director.store, "load_card", lambda n: {"name": n})
+    out = director.reflect("sid", f"{A}上朝去了，{D}恰好赶来。")
+    assert A not in out["present"]
+    assert D in out["present"]
+
+
+def test_reflect_present_change_ignores_all_leave_without_arrive(monkeypatch):
+    """leave 覆盖全员且无 arrive = 误判「随世界移动」，忽略，present 不得清空。"""
+    import json as _json
+    snap = _pc_snap()
+    payload = {"actions": {},
+               "present_change": {"leave": [A, B, C], "arrive": []}}
+    monkeypatch.setattr(director.llm, "complete",
+                        lambda *a, **k: _json.dumps(payload, ensure_ascii=False))
+    monkeypatch.setattr(director.memory, "load", lambda sid: snap)
+    monkeypatch.setattr(director.memory, "save", lambda sid, s: None)
+    monkeypatch.setattr(director.store, "list_characters", lambda: [A, B, C])
+    monkeypatch.setattr(director.store, "load_card", lambda n: {"name": n})
+    out = director.reflect("sid", f"{A}带所有人转移。")
+    assert set(out["present"]) == {A, B, C}
+
+
+def test_reflect_present_change_keeps_player(monkeypatch):
+    """玩家（is_player）恒在场：即便被填进 leave 也剔除，不被移出镜头。"""
+    import json as _json
+    snap = _pc_snap()
+    payload = {"actions": {},
+               "present_change": {"leave": [A], "arrive": []}}
+    monkeypatch.setattr(director.llm, "complete",
+                        lambda *a, **k: _json.dumps(payload, ensure_ascii=False))
+    monkeypatch.setattr(director.memory, "load", lambda sid: snap)
+    monkeypatch.setattr(director.memory, "save", lambda sid, s: None)
+    monkeypatch.setattr(director.store, "list_characters", lambda: [A, B, C])
+    monkeypatch.setattr(director.store, "load_card",
+                        lambda n: {"name": n, "is_player": n == A})
+    out = director.reflect("sid", f"{A}转身离开。")
+    assert A in out["present"]
+
+
+def test_reflect_present_change_filters_invalid_names(monkeypatch):
+    """越名/不在名册的名字丢弃；leave 只认在场者、arrive 只认未在场者。"""
+    import json as _json
+    snap = _pc_snap()
+    payload = {"actions": {},
+               "present_change": {"leave": ["幻觉戊", A], "arrive": ["幻觉己", B]}}
+    monkeypatch.setattr(director.llm, "complete",
+                        lambda *a, **k: _json.dumps(payload, ensure_ascii=False))
+    monkeypatch.setattr(director.memory, "load", lambda sid: snap)
+    monkeypatch.setattr(director.memory, "save", lambda sid, s: None)
+    monkeypatch.setattr(director.store, "list_characters", lambda: [A, B, C, D])
+    monkeypatch.setattr(director.store, "load_card", lambda n: {"name": n})
+    out = director.reflect("sid", f"{A}离场，{B}已在场。")
+    assert A not in out["present"]   # 合法离场生效
+    assert "幻觉戊" not in out["present"] and "幻觉己" not in out["present"]
+    assert B in out["present"]       # B 本就在场，arrive 重复忽略
+
+
 
 
 # 叙事复读检测（detect_narrative_repeat）回归守护
