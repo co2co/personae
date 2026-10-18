@@ -554,9 +554,9 @@ def build_session(cards_present, directive, world_hits, snap,
 
     fixed = "\n\n".join(blocks)
     messages = [{"role": "system", "content": fixed}]
-    # 历史可能含压缩摘要（system 角色块）。Qwen3.6 等严格 chat 模板要求 system 仅能在
+    # 历史可能含压缩摘要（system 角色块）。部分严格 chat 模板要求 system 仅能在
     # 首位，故把所有非首位的 system 消息并入首条 system，避免「System message must be at
-    # the beginning」导致 llama.cpp 500 空回（Qwen3.8 较宽松可容忍，但统一收口更稳）。
+    # the beginning」导致 llama.cpp 500 空回（部分新模型较宽松可容忍，但统一收口更稳）。
     for m in compress_history(history, HISTORY_WINDOW_ROUNDS):
         if m.get("role") == "system":
             messages[0]["content"] += "\n\n" + m["content"]
