@@ -36,6 +36,9 @@ engine/data/worlds/
 # Test run artifacts（走查生成的 markdown 日志，非源码）
 tests/runs/
 
+# 探针脚手架（A/B 对照脚本，仅开发工具，不入库）
+tests/_probe*
+
 # 会话产物（摘录、导出等运行时态输出）
 outputs/
 
