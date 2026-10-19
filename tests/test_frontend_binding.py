@@ -104,7 +104,8 @@ class TestFrontendSandbox(unittest.TestCase):
     def test_binding_sandbox(self):
         proc = subprocess.run(
             ["node", CHECK_JS],
-            capture_output=True, text=True, timeout=120,
+            capture_output=True, text=True, encoding="utf-8", errors="replace",
+            timeout=120,
             cwd=ROOT,
         )
         self.assertEqual(
