@@ -29,7 +29,8 @@ screenshots/
 # 人眼核验不合格、含私人剧本角色名/题材词的截图：留磁盘不入库不进包
 screenshots-excluded/
 
-# 用户私人剧本数据（官方 demo 在 data/examples/，入库且随包分发；其余 characters/worlds 为私人数据，不入库）
+# 剧本 demo：data/examples/ 承载全部剧本（由 dramas/ 作者源经 sync_drama 铺入，入库且随包分发，2026-10-20 simon 裁定所有剧本均入库）；
+# 其余 characters/worlds 为运行态（临时会话状态），不入库
 engine/data/characters/
 engine/data/worlds/
 
@@ -64,5 +65,5 @@ audit*.md
 # 临时对比/压测脚本（含旧剧本角色名，仅作开发工具，不入库）
 scripts/
 
-# 剧本库（作者态：每剧本一个子目录 + 退役剧本备份；私人内容含 NSFW 实验田，永不提交/打包）
+# 剧本库（作者态：每剧本一个子目录 + 退役剧本备份；源不入库，内容经 sync_drama 同步至 data/examples/ 随包分发）
 dramas/
