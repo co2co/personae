@@ -96,8 +96,8 @@ pip install -r requirements.txt
 
 引擎通过 **OpenAI 兼容接口** 调用大模型，在「系统设置」面板填写：
 
-- `base_url`：接口地址（默认对接 SiliconFlow，也可填本地 llama.cpp / 中转代理）
-- `model`：模型名（如 `tencent/Hy4-preview`）
+- `base_url`：接口地址（默认对接本地推理服务，如 llama.cpp 的 `http://127.0.0.1:1234/v1`；也可填其它 OpenAI 兼容服务地址）
+- `model`：模型名（本地按后端实际填写，如 gguf 文件名；云端按服务商提供的模型名）
 - `api_key`：你的密钥
 
 修改后点保存即可生效，**无需重启**。

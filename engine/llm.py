@@ -24,7 +24,7 @@ DEFAULTS = {
     # 「恢复默认」按钮回填的就是这里，故出厂值以本表为唯一真相源。
     "temperature": 1.0,
     "top_p": 0.95,
-    # top_k：由 40 下调至 20——ninfer(KVMem) 只接受 top_k ∈ [0,20]，40 会被 400 拒绝。
+    # top_k：由 40 下调至 20——部分 OpenAI 兼容后端只接受 top_k ∈ [0,20]，40 会被 400 拒绝。
     # 20 对 llama.cpp 等后端同样安全。
     # 「恢复默认采样参数」按钮回填的就是本表，故出厂值以本表为唯一真相源。
     "top_k": 20,
@@ -39,9 +39,9 @@ DEFAULTS = {
     # ★ 泛用性决策（v0.22.x，2026-10-12）：默认改用 OpenAI 官方标准字段
     #   frequency_penalty / presence_penalty，而非 llama.cpp 私有的 repeat_penalty。
     #   理由：frequency/presence 是 OpenAI Chat Completions 官方字段，所有自称
-    #   「OpenAI 兼容」的后端都有义务实现（ninfer / vLLM / SGLang / 硅基流动 /
+    #   「OpenAI 兼容」的后端都有义务实现（vLLM / SGLang /
     #   OpenAI 官方 / llama.cpp 的 OpenAI 兼容层）。而 repeat_penalty 只有
-    #   llama.cpp 系认，其余后端会静默忽略（ninfer 甚至返回 200 但完全无视，
+    #   llama.cpp 系认，其余后端会静默忽略（部分后端甚至返回 200 但完全无视，
     #   见 2026-10-12 会话 87e4ac46 复读根因排查），等于零防护。
     #
     #   frequency_penalty 语义：按 token 在「已生成内容」中的出现频次惩罚，频次越高
@@ -250,7 +250,7 @@ def _base_payload(messages, temperature, top_p, max_tokens, top_k, base_model,
     # Qwen3 一类带思考的模型默认会把预算耗在 reasoning 上，content 全是空
     if not setting("enable_thinking"):
         payload["chat_template_kwargs"] = {"enable_thinking": False}
-        payload["enable_thinking"] = False  # SiliconFlow / OpenAI 兼容网关认顶层字段
+        payload["enable_thinking"] = False  # 部分 OpenAI 兼容网关认顶层字段
     return payload
 
 
@@ -298,7 +298,7 @@ def _stream_once(messages, temperature, top_p, max_tokens, top_k, timeout, base_
     #   1) 默认已发标准字段 frequency/presence（见 _base_payload）。
     #   2) 若 4xx（后端不认标准字段，罕见）→ 换 llama.cpp 的 repeat_penalty 重试。
     #   3) 若仍 4xx → 剥离全部惩罚字段，退回该后端缺省行为。
-    #   注：ninfer 这类「静默吞未知字段」的后端对标准字段是认的（frequency 实测生效），
+    #   注：「静默吞未知字段」的后端对标准字段是认的（frequency 实测生效），
     #   故不会走到降级；此链路只兜底那些严格校验标准字段的网关。
     #   getattr 兜底：测试桩/非常规响应对象可能没有 status_code，此时不重试。
     if getattr(resp, "status_code", 200) in (400, 404, 422):

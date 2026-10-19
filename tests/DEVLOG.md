@@ -6,6 +6,27 @@
 
 ---
 
+## 2026-10-19 LLM 单轨化具名清洗 + 测试编码修复（semver PATCH→v1.2.4）
+
+**性质**：普适性红线收口 + 测试环境依赖修复。10-19 simon 裁决：LLM 单轨化，只留本地 llama.cpp + Qwen 系列，删除云服务商与第二个本地推理引擎的所有具名引用（源码注释 + 分发文档）。裁决执行后遗留「是否 bump / 补 DEVLOG / 提交」未处理，本版本收口。
+
+**改动**
+- `engine/config.json`（运行时态，不入库）：`providers` 三轨→单轨，删云服务商 provider（含真实 key）与 ninfer(:1235) 轨，只留本地 llama.cpp :1234 轨（Qwen3.8-27B-UD-Q4_K_M）。备份 `_backup_purge_providers_20261019_224100/`。
+- `engine/llm.py`：top_k 注释、enable_thinking 注释、采样参数协商注释三处具名（ninfer / SiliconFlow / Hy4-preview）改中性表述（「部分 OpenAI 兼容后端」）。
+- `engine/director.py`：叙事去重段背景注释 ninfer 改「多数非 llama.cpp 后端」。
+- `engine/README.md` / `engine/INSTALL.md`：「默认对接 SiliconFlow `tencent/Hy4-preview`」改「默认对接本地推理服务如 llama.cpp / Qwen 系列」。
+- `tests/test_frontend_binding.py`：JS 沙箱绑定测试 `subprocess.run` 显式 `encoding="utf-8", errors="replace"`。根因：node 输出恒为 UTF-8，`text=True` 无显式编码时随控制台代码页解码——代码页 936（GBK）下解码崩溃使 stdout 为 None、断言 TypeError 假失败；此前全绿仅因跑在 UTF-8 控制台会话。修后不再依赖会话代码页。
+
+**保留项（simon 裁决口径）**：`DEFAULTS["base_url"]="http://127.0.0.1:1234/v1"` 出厂默认、llama.cpp / Qwen 泛称、`enable_thinking` 的 Qwen3 注释保留；web/UI 占位示例（index.html「如 Qwen3.5-32B」）不算违反。
+
+**验证**
+- 全量 `pytest tests/`：338 passed + 1 skipped（integration 按 pytest.ini 默认 deselect，与改动前一致）。
+- `engine/` 全范围 grep SiliconFlow / siliconflow / ninfer / 硅基流动 / Hy4：零命中。
+
+**设计决定**：注释与文档的具名清洗属 PATCH（行为零变化，仅分发包文本卫生）；测试编码修复独立成 commit，不并入本版本语义。
+
+---
+
 ## 2026-10-19 引导页「玩家行动」入口 + 写法示范收回后台（semver PATCH→v1.2.3）
 
 **性质**：交互语义纠错。v1.2.2 开局自动推演发的是空 input，玩家第一回合无实际行动；而引导页唯一的输入框是「开局写法示范」，玩家（simon）直觉把「*我恐惧张望*，这是哪」填进去，却不知它是 few-shot 格式范例而非「玩家行动」，导致首轮正文完全没有「我」——引擎行为正确（prompter 288 行「玩家指令为空则静立现场」+ 不代写玩家言行铁律），缺的是「玩家开场行动」入口。

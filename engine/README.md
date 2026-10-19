@@ -7,7 +7,7 @@ TTS/图生图等冗余，保留了最关键的：多角色沙盘、世界书、�
 ## 技术栈
 
 - 后端：Python 3.12 + Flask 3
-- 模型：OpenAI 兼容接口（默认对接 SiliconFlow `tencent/Hy4-preview`；亦可接本地 llama.cpp / Qwen 代理）
+- 模型：OpenAI 兼容接口（默认对接本地推理服务如 llama.cpp / Qwen 系列；亦可接任意云端 OpenAI 兼容服务）
 - 前端：单页 `static/index.html`（原生 JS，无构建步骤）
 - 数据：本地 JSON / JSONL，无数据库
 
