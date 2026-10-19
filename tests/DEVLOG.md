@@ -6,6 +6,28 @@
 
 ---
 
+## 2026-10-20 DeepSeek 400 修复：参数协商四级化 + 错误透明化（semver PATCH→v1.2.5）
+
+**性质**：云网关兼容性修复。叙事后端切到 DeepSeek（OpenAI 兼容云网关）后每回合 400，本地 llama.cpp 路径不受影响。
+
+**根因链**（2026-10-20 simon 报障）：
+1. 提供商切换错配：deepseek 卡片的 model 留空，前端「model 留空不覆盖」保护让顶层 model 保留旧后端的本地 GGUF 路径；`save_config` 的自动取模型只在 model 为空时触发 → 把 Windows 文件路径当模型名发给云网关 → 400。
+2. 厂商字段被严格网关拒绝：`_base_payload` 无条件发 `top_k`/`min_p`，`enable_thinking=false` 时另发 `chat_template_kwargs`+`enable_thinking`——llama.cpp/Qwen 特化字段，DeepSeek 等严格校验网关对未知参数一律 400；旧三级协商只剥惩罚类字段，剥不到这四个。
+3. 报错黑箱：异常只有裸 `400 Bad Request`，不带上游响应体，无法定位是哪个字段/模型名被拒。
+
+**改动**
+- `engine/llm.py`：新增 `_VENDOR_FIELDS` 与协商第四级（流式/非流式同）：惩罚字段降级仍 4xx 时剥 `top_k`/`chat_template_kwargs`/`enable_thinking` 再试；新增 `_raise_with_body`：4xx/5xx 异常附上游响应体前 300 字，报错即自解释；`save_config`：`base_url` 变化时旧 model 对新后端必然无效，先作废再由既有逻辑从新后端 `/v1/models` 自动取。
+- `engine/data/config.json`（运行时态，不入库）：顶层 model 与 deepseek 卡片 model 均为 `deepseek-chat`（不用 reasoner：思考 token 耗预算且拖慢叙事输出）。备份 `backup/deepseek-fix-20261020_030003/`。
+- `tests/test_llm_repeat_penalty.py`：协商契约三级→四级（两处断言更新），新增「严格网关剥厂商扩展后成功」用例。
+
+**验证**
+- DeepSeek 实测（最小请求）：流式与非流式均成功；假模型名场景异常消息带上游响应体（直接点名非法 model）。
+- 全量 `pytest tests/`：339 passed + 1 skipped + 1 deselected（与改动前基线一致）。
+
+**设计决定**：第四级沿用「4xx 探测后剥」的既有协商风格，不解析 400 响应体做精确剥离——代价是云网关上每回合先吃一次 400 再探测成功（数百毫秒级），本地 llama.cpp 全认这些字段、不会走到该级；若后续嫌慢再升级为按响应体点名剥离。
+
+---
+
 ## 2026-10-19 LLM 单轨化具名清洗 + 测试编码修复（semver PATCH→v1.2.4）
 
 **性质**：普适性红线收口 + 测试环境依赖修复。10-19 simon 裁决：LLM 单轨化，只留本地 llama.cpp + Qwen 系列，删除云服务商与第二个本地推理引擎的所有具名引用（源码注释 + 分发文档）。裁决执行后遗留「是否 bump / 补 DEVLOG / 提交」未处理，本版本收口。
