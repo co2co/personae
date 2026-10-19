@@ -16,6 +16,14 @@ import sys
 import zipfile
 from pathlib import Path
 
+# 控制台编码容错：GBK（代码页 936）控制台输出 ✓/✗/⚠ 会抛 UnicodeEncodeError；
+# 保持控制台自身编码，仅把不可编码符号降级为 ?（中文信息内容不受影响）。
+for _stream in (sys.stdout, sys.stderr):
+    try:
+        _stream.reconfigure(errors="replace")
+    except Exception:
+        pass
+
 ROOT = Path(__file__).resolve().parent
 ENGINE = ROOT / "engine"
 
