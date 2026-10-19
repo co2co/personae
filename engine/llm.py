@@ -144,6 +144,7 @@ _WRITABLE = {"base_url", "api_key", "model", "budget", "max_tokens", "top_k",
 def save_config(partial):
     """把用户改动的字段合并写回 data/config.json，其余字段保留。不重启即生效。"""
     cfg = _file_config()
+    old_base_url = str(cfg.get("base_url", "")).strip()
     for k, v in (partial or {}).items():
         if k not in _WRITABLE:
             continue
@@ -159,6 +160,12 @@ def save_config(partial):
         elif k == "providers":
             v = _clean_providers(v)
         cfg[k] = v
+    # base_url 变了 → 旧 model 属于旧后端，在新后端上必然无效
+    # （实测：本地 GGUF 路径发给云网关 → 400 "model does not exist"）。
+    # 先作废旧 model，由下方从新后端 /v1/models 自动取；base_url 未变则保留。
+    new_base_url = str(cfg.get("base_url", "")).strip()
+    if new_base_url and new_base_url != old_base_url:
+        cfg.pop("model", None)
     # 模型留空时尝试从后端自动取第一个，避免发出空 model 字段
     if not str(cfg.get("model", "")).strip():
         try:
@@ -258,6 +265,10 @@ def _base_payload(messages, temperature, top_p, max_tokens, top_k, base_model,
 _STD_FIELDS = ("frequency_penalty", "presence_penalty")
 # llama.cpp 特化扩展（repeat_* 与 min_p）：标准字段被 4xx 后的后备，或再被 4xx 时剥离。
 _EXT_FIELDS = ("repeat_penalty", "repeat_last_n", "min_p")
+# 厂商扩展（llama.cpp / Qwen 系）：默认发送（本地有用），但严格校验参数的
+# 云网关（如 DeepSeek）对 top_k / chat_template_kwargs / enable_thinking 等
+# 未知参数一律 400；惩罚字段降级仍 4xx 时剥离这些再试。
+_VENDOR_FIELDS = ("top_k", "chat_template_kwargs", "enable_thinking")
 
 
 def _strip_penalty(payload):
@@ -273,6 +284,26 @@ def _swap_to_repeat(payload, repeat_penalty, repeat_last_n):
         payload.pop(k, None)
     payload.update(_repeat_fallback_params(repeat_penalty, repeat_last_n))
     return payload
+
+def _raise_with_body(resp):
+    """raise_for_status 的增强版：4xx/5xx 时把上游响应体前 300 字附进异常消息。
+
+    裸的「400 Bad Request」查不出是哪个字段/模型名被拒（黑箱）；
+    云网关的错误体会直接点名非法参数，附上后报错即自解释。
+    """
+    if getattr(resp, "status_code", 200) < 400:
+        return
+    body = ""
+    try:
+        body = (resp.text or "").strip()[:300]
+    except Exception:
+        pass
+    try:
+        resp.raise_for_status()
+    except requests.HTTPError as exc:
+        raise requests.HTTPError(
+            str(exc) + ((" ｜ 上游响应: " + body) if body else "")
+        ) from exc
 
 
 def _stream_once(messages, temperature, top_p, max_tokens, top_k, timeout, base_url, api_key, model,
@@ -294,12 +325,15 @@ def _stream_once(messages, temperature, top_p, max_tokens, top_k, timeout, base_
         return requests.post(url, json=p, headers=headers, stream=True, timeout=timeout)
 
     resp = _post(payload)
-    # ★ 参数协商（v0.22.x，泛用性）：三级降级，逐级探测后端能力。
+    # ★ 参数协商（v0.22.x，泛用性）：四级降级，逐级探测后端能力。
     #   1) 默认已发标准字段 frequency/presence（见 _base_payload）。
     #   2) 若 4xx（后端不认标准字段，罕见）→ 换 llama.cpp 的 repeat_penalty 重试。
     #   3) 若仍 4xx → 剥离全部惩罚字段，退回该后端缺省行为。
+    #   4) 若仍 4xx → 剥离 top_k / chat_template_kwargs / enable_thinking 等厂商
+    #      扩展再试（严格校验的云网关如 DeepSeek 对未知参数一律 400；
+    #      本地 llama.cpp 全认，正常不会走到这一级）。
     #   注：「静默吞未知字段」的后端对标准字段是认的（frequency 实测生效），
-    #   故不会走到降级；此链路只兜底那些严格校验标准字段的网关。
+    #   故不会走到 1-3 级降级；此链路整体只兜底严格校验参数的网关。
     #   getattr 兜底：测试桩/非常规响应对象可能没有 status_code，此时不重试。
     if getattr(resp, "status_code", 200) in (400, 404, 422):
         if any(k in payload for k in _STD_FIELDS):
@@ -313,8 +347,14 @@ def _stream_once(messages, temperature, top_p, max_tokens, top_k, timeout, base_
             payload = _strip_penalty(dict(payload))
             payload["stream"] = True
             resp = _post(payload)
+        if getattr(resp, "status_code", 200) in (400, 404, 422) \
+                and any(k in payload for k in _VENDOR_FIELDS):
+            resp.close()
+            payload = {k: v for k, v in payload.items() if k not in _VENDOR_FIELDS}
+            payload["stream"] = True
+            resp = _post(payload)
     with resp:
-        resp.raise_for_status()
+        _raise_with_body(resp)
         # 上游不返回 charset 时 requests 会按 latin-1 解码，中文直接变乱码
         if not resp.encoding or resp.encoding.lower() == "iso-8859-1":
             resp.encoding = "utf-8"
@@ -368,14 +408,21 @@ def _complete_once(messages, temperature, top_p, max_tokens, top_k, timeout, bas
         headers["Authorization"] = f"Bearer {api_key}"
 
     resp = requests.post(url, json=payload, headers=headers, timeout=timeout)
-    # 与流式同：网关不认重复惩罚扩展字段时去掉重试一次，不让整次判定失败。
+    # 与流式同：网关不认重复惩罚扩展字段时去掉重试一次，不让整次判定失败；
+    # 仍 4xx 再剥厂商扩展（top_k / 思考开关）。
     if (getattr(resp, "status_code", 200) in (400, 404, 422)
             and any(k in payload for k in _EXT_FIELDS)):
         resp.close()
         payload = _strip_penalty(dict(payload))
         payload["stream"] = False
         resp = requests.post(url, json=payload, headers=headers, timeout=timeout)
-    resp.raise_for_status()
+    if (getattr(resp, "status_code", 200) in (400, 404, 422)
+            and any(k in payload for k in _VENDOR_FIELDS)):
+        resp.close()
+        payload = {k: v for k, v in payload.items() if k not in _VENDOR_FIELDS}
+        payload["stream"] = False
+        resp = requests.post(url, json=payload, headers=headers, timeout=timeout)
+    _raise_with_body(resp)
     if not resp.encoding or resp.encoding.lower() == "iso-8859-1":
         resp.encoding = "utf-8"
     return resp.json()["choices"][0]["message"].get("content", "")

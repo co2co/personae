@@ -12,10 +12,10 @@ v0.22.x 泛用性重构（会话 87e4ac46 复读根因排查后）：
 本文件锁死以下契约：
 1. 默认发 frequency_penalty（偏离 0.0 中性值时），presence_penalty 中性（0.0）不发。
 2. repeat_penalty 不再由 _penalty_params 默认发送，改由 _repeat_fallback_params 在后备链路使用。
-3. 网关 4xx 时三级降级：标准字段 -> repeat_penalty -> 全剥。
+3. 网关 4xx 时四级降级：标准字段 -> repeat_penalty -> 惩罚全剥 -> 厂商扩展（top_k/思考开关）剥除。
 4. 字段可经 config 持久化（_WRITABLE + 类型转换）。
 5. min_p 缺省 0.02 发送；显式 0 不发；与惩罚字段独立。
-6. _STD_FIELDS / _EXT_FIELDS 是降级判据来源，新增字段必须登记。
+6. _STD_FIELDS / _EXT_FIELDS / _VENDOR_FIELDS 是降级判据来源，新增字段必须登记。
 
 所有网络请求 mock requests.post，自给自足，不依赖磁盘剧本/真实后端。
 """
@@ -244,7 +244,7 @@ def test_gateway_rejects_std_fields_then_repeat_fallback(monkeypatch):
 
 
 def test_gateway_rejects_all_then_stripped(monkeypatch):
-    """连 repeat_penalty 也 4xx -> 全剥，退回后端缺省。"""
+    """连 repeat_penalty 也 4xx -> 惩罚全剥，再剥厂商扩展，退回后端缺省。"""
     sent = []
 
     def fake_post(url, json=None, headers=None, stream=False, timeout=None):
@@ -259,15 +259,36 @@ def test_gateway_rejects_all_then_stripped(monkeypatch):
         assert False, "应抛出"
     except RuntimeError:
         pass
-    # 三级降级：标准 -> repeat -> 全剥，共 3 次请求
-    assert len(sent) == 3
+    # 四级降级：标准 -> repeat -> 惩罚全剥 -> 厂商扩展剥除，共 4 次请求
+    assert len(sent) == 4
     assert "frequency_penalty" in sent[0]
     assert "repeat_penalty" in sent[1]
     assert not any(k in sent[2] for k in (*llm._STD_FIELDS, *llm._EXT_FIELDS))
+    assert not any(k in sent[3] for k in (*llm._STD_FIELDS, *llm._EXT_FIELDS, *llm._VENDOR_FIELDS))
 
 
-def test_no_penalty_no_extra_retry(monkeypatch):
-    """请求体无任何惩罚字段时，4xx 直接抛，不做降级重试（不掩盖真实错误）。"""
+def test_gateway_rejects_vendor_fields_stripped_last(monkeypatch):
+    """严格网关（如 DeepSeek）对 top_k/chat_template_kwargs/enable_thinking 一律 400：
+    惩罚字段降级无效时，末级剥除厂商扩展后成功。"""
+    sent = []
+
+    def fake_post(url, json=None, headers=None, stream=False, timeout=None):
+        sent.append(json)
+        if any(k in json for k in llm._VENDOR_FIELDS):
+            return _Resp(status=400)
+        return _Resp(status=200, content="成功")
+
+    monkeypatch.setattr(llm.requests, "post", fake_post)
+    monkeypatch.setattr(llm, "_file_config", lambda: dict(_CFG))
+    out = "".join(llm.stream([{"role": "user", "content": "hi"}],
+                             repeat_penalty=1.1, repeat_last_n=256))
+    assert out == "成功"
+    assert any(k in sent[0] for k in llm._VENDOR_FIELDS)
+    assert not any(k in sent[-1] for k in llm._VENDOR_FIELDS)
+
+
+def test_no_penalty_only_vendor_retry(monkeypatch):
+    """请求体无惩罚字段时，4xx 不走惩罚降级，只剥厂商扩展重试一次（不掩盖真实错误）。"""
     calls = []
 
     def fake_post(url, json=None, headers=None, stream=False, timeout=None):
@@ -288,8 +309,10 @@ def test_no_penalty_no_extra_retry(monkeypatch):
         assert False, "应抛出"
     except RuntimeError:
         pass
-    assert len(calls) == 1
+    assert len(calls) == 2
     assert not any(k in calls[0] for k in (*llm._STD_FIELDS, *llm._EXT_FIELDS))
+    assert "top_k" in calls[0]  # 厂商扩展默认照发
+    assert not any(k in calls[1] for k in llm._VENDOR_FIELDS)
 
 
 # ---------- 4：配置持久化 ----------
