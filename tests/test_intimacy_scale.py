@@ -1,11 +1,13 @@
-"""亲密与性内容铁律特化测试（NSFW 支持版，2026-10-18 架构改造后）。
+"""亲密与性内容铁律特化测试（铁律⑧ 恢复版，2026-10-20）。
 
-对齐 2026-10-18 铁律瘦身决策：原铁律⑧「亲密与性描写」的**尺度措辞**（怎么写亲密戏）
-已整体下沉到世界书的「亲密描写标准」条目（各剧本出厂自带），引擎系统层不再堆尺度词，
-避免与剧本设定重复堆料。
+对齐 2026-10-20 simon 裁决：2026-10-18 把铁律⑧ 尺度措辞下沉世界书后 NSFW 支持度
+不足，已按历史版本（v0.15.0 中性折衷）恢复引擎级恒定注入——「怎么写亲密戏」的
+尺度措辞（身临其境/正面写实/不预设上限/不强制克制）与时机层（没到位不硬写）
+回到 _LAW8_DEFAULT，系统层每回合必在。
 
-唯一保留在引擎层的，是**未成年法律红线**——这是引擎级法律底线，永远生效，
-不可由世界书覆盖（各剧本可停用/改写「亲密描写标准」条目，但红线始终在引擎）。
+引擎层同时保留**未成年法律红线**（_LAWS_PREFIX「己、法律底线」）——引擎级法律底线，
+永远生效，不可由世界书覆盖（各剧本可停用/改写世界书「亲密描写标准」条目，
+但红线始终在引擎）。铁律⑧ 内不重复该红线。
 
 本文件断言绑定该架构，改铁律文案须同步本文件。
 
@@ -35,13 +37,27 @@ def _system_prompt(snap=None, cards=None):
     return msgs[0]["content"]
 
 
-def test_scale_wording_dropped_from_engine():
-    """亲密描写尺度措辞已下沉世界书，引擎层不再注入尺度词。"""
+def test_scale_wording_restored_in_engine():
+    """铁律⑧ 尺度措辞已恢复引擎级恒定注入（2026-10-20 恢复）。"""
     sys_p = _system_prompt()
-    assert "身临其境" not in sys_p
-    assert "正面写实" not in sys_p
-    assert "不预设上限" not in sys_p
-    assert "不强制克制" not in sys_p
+    assert "亲密与性描写" in sys_p
+    assert "身临其境" in sys_p
+    assert "正面写实" in sys_p
+    assert "不预设上限" in sys_p
+    assert "不强制克制" in sys_p
+
+
+def test_law8_timing_layer_in_engine():
+    """时机层（未推进到亲密时刻前不得提前/硬写）随铁律⑧ 一并回到引擎层。"""
+    sys_p = _system_prompt()
+    assert "提前引入" in sys_p
+    assert "硬写" in sys_p
+
+
+def test_redline_not_duplicated_in_law8():
+    """未成年红线由「己、法律底线」单点承载，铁律⑧ 内不重复硬红线句。"""
+    law8 = prompter._LAW8_DEFAULT
+    assert "未成年" not in law8, "铁律⑧ 与「己、法律底线」重复承载红线"
 
 
 def test_minor_redline_kept_in_engine():

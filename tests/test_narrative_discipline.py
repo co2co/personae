@@ -82,11 +82,12 @@ def test_build_laws_appends_discipline_after_laws():
     assert idx_disc > idx_laws
 
 
-def test_law8_intimacy_removed_from_engine():
-    """铁律⑧（亲密描写尺度）已下沉世界书，引擎系统层不再注入尺度词。"""
+def test_law8_intimacy_restored_in_engine():
+    """铁律⑧（亲密描写）已恢复引擎级恒定注入（2026-10-20）。"""
     laws = prompter._build_laws()
-    # 尺度措辞（怎么写亲密戏）已整体下沉；「未成年」是引擎级法律红线，必须保留。
-    assert "性行为" not in laws and "尺度" not in laws and "身临其境" not in laws
+    # 尺度措辞（怎么写亲密戏）与时机层回到引擎层；「未成年」是引擎级法律红线，
+    # 由「己、法律底线」承载，必须保留。
+    assert "亲密与性描写" in laws and "身临其境" in laws
     assert "未成年" in laws and "法律底线" in laws
 
 
