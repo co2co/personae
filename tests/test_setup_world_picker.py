@@ -50,30 +50,11 @@ def client(monkeypatch):
     monkeypatch.setattr(engine_app.store, "unassigned_characters",
                         lambda: [n for n, c in CARDS.items()
                                  if (c.get("world") or "") not in WORLDS])
-    # v1.0.0：session_new 会 ensure_player_card 并把玩家并入 cast。mock 掉，
-    # 既避免触碰真实磁盘（真函数写真实 data/characters），又让本组「世界一致性」
-    # 测试保持聚焦（不为玩家卡的世界归属而引入额外断言）。
-    ensured = []
-    ensured_browse = []
-
-    def fake_ensure(w):
-        ensured.append(w)
-        return "玩家"
-
-    def fake_ensure_browse(w):
-        ensured_browse.append(w)
-        return "玩家"
-
-    monkeypatch.setattr(engine_app.store, "ensure_player_card", fake_ensure)
-    # 2026-10-20：by-world 改调浏览安全版补建（只读列表不得删卡重建），同样 mock。
-    monkeypatch.setattr(engine_app.store, "ensure_player_card_if_absent", fake_ensure_browse)
     # memory.new / director 的 LLM 路径全部短路
     made = {}
-    made["ensured"] = ensured
-    made["ensured_browse"] = ensured_browse
 
-    def fake_new(cast, scene_place="", world_name="", scene_time="", player=None, opening_demo=""):
-        made["cast"], made["world"], made["player"] = list(cast), world_name, player
+    def fake_new(cast, scene_place="", world_name="", scene_time="", opening_demo=""):
+        made["cast"], made["world"] = list(cast), world_name
         made["opening_demo"] = opening_demo
         return "sid_test"
 
@@ -106,9 +87,7 @@ def test_list_characters_by_world_filters(tmp_path, monkeypatch):
     for name, w in [("甲", "世界一"), ("乙", "世界一"), ("丙", "世界二"), ("丁", "")]:
         store.save_card(name, {"world": w} if w else {})
     assert set(store.list_characters_by_world("世界一")) == {"甲", "乙"}
-    # v1.0.0：save_world 首次创建时播种玩家卡，ensure_player_card 把其 world 重指到
-    # 「最后保存的世界」——本例先世界一后世界二，故玩家卡归属世界二。
-    assert set(store.list_characters_by_world("世界二")) == {"丙", "玩家"}
+    assert store.list_characters_by_world("世界二") == ["丙"]
     assert store.list_characters_by_world("不存在") == []
     # 未归属 = world 为空 + world 指向不存在的世界书
     assert set(store.unassigned_characters()) == {"丁"}
@@ -134,24 +113,6 @@ def test_by_world_endpoint_unknown_world_returns_empty(client):
     assert d["names"] == []
 
 
-def test_by_world_endpoint_browse_ensures_player_for_real_world(client):
-    """2026-10-20：浏览真实世界的角色列表 → 走浏览安全版补建（保留 v1.0.0 兜底初衷），
-    且**不得**调用破坏性 ensure_player_card（玩家卡 world 不匹配时删卡重建，
-    多剧本并存下页面加载会抹空玩家已填内容——重启丢档 bug 的根因）。"""
-    c, made = client
-    c.get("/api/characters/by-world?world=%E4%B8%96%E7%95%8C%E4%B8%80")
-    assert made["ensured_browse"] == ["世界一"]
-    assert made["ensured"] == []
-
-
-def test_by_world_endpoint_does_not_ensure_unknown_world(client):
-    """world 指向不存在的世界书时不得补建（避免把玩家卡 world 重指到幽灵世界）。"""
-    c, made = client
-    c.get("/api/characters/by-world?world=%E4%B8%8D%E5%AD%98%E5%9C%A8")
-    assert made["ensured_browse"] == []
-    assert made["ensured"] == []
-
-
 # ---------------------------------------------------------------------------
 # 3. 开局：世界显式传入 + 两条校验
 # ---------------------------------------------------------------------------
@@ -161,9 +122,7 @@ def test_session_new_uses_explicit_world(client):
     r = c.post("/api/session/new", json={"cast": ["甲", "乙"], "scene": "客厅", "world": "世界一"})
     assert r.status_code == 200, r.get_json()
     assert made["world"] == "世界一"
-    # v1.0.0：玩家并入在场名单（ensure_player_card 兜底 + cast 末尾追加）
-    assert made["cast"] == ["甲", "乙", "玩家"]
-    assert made["player"] == "玩家"
+    assert made["cast"] == ["甲", "乙"]
 
 
 def test_session_new_opening_demo_always_system_default(client):
@@ -213,4 +172,4 @@ def test_session_new_default_cast_is_world_members(client):
     c, made = client
     r = c.post("/api/session/new", json={"world": "世界一", "scene": "集市"})
     assert r.status_code == 200, r.get_json()
-    assert set(made["cast"]) == {"甲", "乙", "玩家"}
+    assert set(made["cast"]) == {"甲", "乙"}

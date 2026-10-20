@@ -21,30 +21,19 @@ def _new_id():
     return uuid.uuid4().hex[:8]
 
 
-def new(cast, scene_place="", world_name="", scene_time="", player=None, opening_demo=""):
-    """开启一个沙盘世界。cast 为在场的 NPC 角色卡列表，player 为在场玩家角色卡名。
+def new(cast, scene_place="", world_name="", scene_time="", opening_demo=""):
+    """开启一个沙盘世界。cast 为在场的 NPC 角色卡列表。
 
-    v1.0.0：玩家不再是「环境推手/外部导演」（不登场、不说话、只注入扰动），而是局势中的
-    一名**在场角色**——有自己的角色卡（身份/性格/核心渴望/恐惧）、自己的短期目标、
-    甚至自己的暗牌（秘密，如「穿越者」）。建局时玩家卡随其它 NPC 一并入 present、播种进
-    关系图，并在首轮初始推演中与 NPC 一起交给 LLM。玩家由人类实时操控：LLM 只写「其它
-    角色如何感知与回应玩家的言行」，绝不代写玩家本人的言行与内心（见 prompter）。
-
-    player 为 None 或空串时退化为旧行为（纯 NPC 沙盘，无玩家角色），供测试与存量调用兼容。
+    环境推手（导演）不登场、不说话，只通过本轮指令扰动世界，因此不进入 present。
 
     scene_place / scene_time：开场地点的纯地点名与时间锚，已由 session_new 经
-    scene.parse_initial_scene 拆分（玩家混写「傍晚，客厅」时，时间词进 time、地点进 place）。
+    scene.parse_initial_scene 拆分（混写「傍晚，客厅」时，时间词进 time、地点进 place）。
     时间锚缺失会让模型只能靠世界书反向脑补时间（会话 256d924c 事故），故单独保留 time。
     """
     sid = _new_id()
     folder = SESS_DIR / sid
     folder.mkdir(parents=True, exist_ok=True)
     present = list(cast)
-    # 玩家角色并入在场名单（去重、置于末尾）。玩家卡也在 present 内，故下方关系/
-    # 亲属/目标播种循环会自然把玩家卡的内容一并固化，无需特判。
-    player = (player or "").strip()
-    if player and player not in present:
-        present.append(player)
     cards = {c: store.load_card(c) for c in present}
 
     relations = {}
@@ -83,30 +72,6 @@ def new(cast, scene_place="", world_name="", scene_time="", player=None, opening
                 "pressure": 0,
             })
 
-    # 玩家暗牌（v1.0.0）：玩家角色卡的 secrets 字段是玩家自己的秘密（如「穿越者」），
-    # 建局时转成与 NPC 完全同格式的秘密条目进秘密跟踪系统（不放世界书）。owner 为
-    # 玩家名，潜伏态下 NPC 的角色块天然拿不到其内容——认知隔离由现有秘密机制自动保证：
-    # NPC 只看见玩家表面行为，只有起疑/暴露后才会触及，且暴露走的是同一套举证归档。
-    if player and cards.get(player):
-        for sec in (cards[player].get("secrets") or []):
-            if not isinstance(sec, dict):
-                continue
-            content = (sec.get("content") or "").strip()
-            if not content:
-                continue
-            secrets.append({
-                "owner": player,
-                "content": content,
-                "bottom_line": (sec.get("bottom_line") or "").strip(),
-                "keys": sec.get("keys", []) or [],
-                "state": "潜伏",
-                "public": False,
-                "known_by": [],
-                "exposures": [],
-                "suspicions": [],
-                "pressure": 0,
-            })
-
     # 短期目标：优先用角色卡手填的 short_goal；未填则退回核心渴望作为初始意图
     # （两者皆无则留空，由推演引擎在首轮后自动补写）
     goals = {c: (cards[c].get("short_goal") or cards[c].get("core_desire") or "")
@@ -118,8 +83,7 @@ def new(cast, scene_place="", world_name="", scene_time="", player=None, opening
         # 据此把运行时会话挂回所属剧本。存量会话无此字段，前端回退从角色卡读 world。
         "world": world_name,
         "scene": {"place": scene_place, "time": scene_time, "weather": "", "round": 0, "same_scene": 0},
-        # 开局写法示范（酒馆 first message）：从「开始游戏」引导页的时间/地点下方
-        # 文本框带入，预填引擎中性默认、玩家可改。首轮 act 时注入一次，之后不再出现。
+        # 开局写法示范：由引擎静默注入的中性格式范例。首轮 act 时注入一次，之后不再出现。
         "opening_demo": (opening_demo or "").strip(),
         "relations": relations,
         # 权威关系基线：与 relations 一同固化自角色卡 relations 字段。

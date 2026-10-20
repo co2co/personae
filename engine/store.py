@@ -14,13 +14,6 @@ from pathlib import Path
 DATA_DIR = Path(__file__).parent / "data"
 EXAMPLES_DIR = DATA_DIR / "examples"
 
-# 玩家角色卡（v1.0.0 核心：玩家不再是「环境推手/外部导演」，而是局势中的一名在场角色）。
-# 引擎识别玩家靠的是卡内 is_player=True 这个**标志**，与卡的名字无关——玩家在角色编辑器里
-# 可自由改玩家卡的名（如把人设命名成「苏定城」），引擎仍认得。PLAYER_NAME 只用作「新建一张
-# 空玩家卡」时的默认显示名，不是识别依据。运行时 data/ 只装一个剧本，玩家卡是全局单例
-# （save_card 保证同一世界至多一张 is_player 卡），无跨世界重名冲突。
-PLAYER_NAME = "玩家"
-
 # 进程级只读缓存：角色卡与世界书在会话内基本不变，但每轮推演会被反复
 # load_card / load_world 读盘（app.py 每轮为在场角色逐张 load、director 反复
 # load_characters/load_world）。带 mtime 校验的缓存：命中时比对文件修改时间，
@@ -143,13 +136,7 @@ def load_card(name):
 
 
 def save_card(name, card):
-    """新建或覆盖角色卡。name 同时作为文件名与卡内 name 字段。
-
-    单例约束（v1.0.0）：玩家卡（is_player 为真）在同一世界至多一张。玩家可在角色
-    编辑器里给玩家卡改名——保存一张新的 is_player 卡时，同世界其它 is_player 卡即
-    视为「改名前的旧卡 / 误建的第二张」，一并删去，确保引擎始终认得唯一玩家卡。
-    普通角色卡不受此约束。
-    """
+    """新建或覆盖角色卡。name 同时作为文件名与卡内 name 字段。"""
     name = (name or "").strip()
     if not name:
         raise ValueError("角色名不能为空")
@@ -160,18 +147,6 @@ def save_card(name, card):
     p = folder / f"{name}.json"
     p.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
     _invalidate(p)
-    if data.get("is_player"):
-        world = (data.get("world", "") or "").strip()
-        if world:
-            for other in _all_player_cards():
-                if other == name:
-                    continue
-                try:
-                    oc = load_card(other)
-                except FileNotFoundError:
-                    continue
-                if (oc.get("world", "") or "").strip() == world:
-                    delete_card(other)
 
 
 def delete_card(name):
@@ -189,126 +164,6 @@ def delete_card(name):
     p.unlink()
     _invalidate(p)
     return True
-
-
-def empty_player_card(world_name, name=None):
-    """一张字段全空的玩家角色卡（v1.0.0）。
-
-    字段结构与其它角色卡完全一致（description / personality / core_desire / core_fear /
-    short_goal / relations / relations_kinship），外加两个玩家专属字段：
-      - is_player: True  引擎据此把它当「人类操控的在场角色」，LLM 不代写其言行。
-        这是引擎识别玩家的**唯一判据**，与卡名无关（玩家可自由给玩家卡改名）。
-      - secrets:   []    玩家自己的暗牌（如「穿越者」），建局时由 memory.new 转成
-                         与其它 NPC 同格式的秘密条目进秘密跟踪系统（不放世界书）。
-    内容一律留空，由玩家在建局后自行填写——引擎不替玩家脑补身份。
-    name 缺省为 PLAYER_NAME（新建空卡时的默认显示名）。
-    """
-    return {
-        "name": (name or "").strip() or PLAYER_NAME,
-        "world": world_name or "",
-        "description": "",
-        "personality": "",
-        "core_desire": "",
-        "core_fear": "",
-        "short_goal": "",
-        "relations": {},
-        "relations_kinship": {},
-        "is_player": True,
-        "secrets": [],
-    }
-
-
-def _all_player_cards():
-    """返回所有 is_player 为真的角色卡名（升序）。
-
-    玩家卡的身份判据是卡内 is_player 标志而非名字——玩家可自由改名，引擎靠这个
-    标志认玩家。运行时 data/ 只装一个剧本，正常恒 ≤ 1 张；此函数返回全集，供
-    ensure（按 world 取）与 save_card（同世界去重）使用。
-    """
-    out = []
-    for name in list_characters():
-        try:
-            c = load_card(name)
-        except FileNotFoundError:
-            continue
-        if c.get("is_player"):
-            out.append(name)
-    return out
-
-
-def ensure_player_card(world_name):
-    """确保当前剧本存在唯一一张玩家角色卡并归属它，返回其名字（认 is_player 标志，不认卡名）。
-
-    玩家卡是**运行时单例**：只活在运行态 data/characters，从不进剧本模板 / 随包 demo，
-    身份判据是卡内 is_player 标志而非卡名——玩家可在角色编辑器里自由给它改名（A 方案），
-    引擎仍认得。本函数按「玩家卡是否已归属当前剧本」决定去留，核心目标是**普适性**：
-    每个新建 / 导入 / 切换的剧本都拿到一张**空白**玩家卡槽位，绝不把上个剧本的填写内容
-    带进新剧本（玩家卡里的内容属上个剧本的运行时残留，不是该随剧本保存的模板数据）。
-      - 已有玩家卡且其 world == 当前剧本 → 玩家正在本剧本里填写 / 改名，保留其全部内容
-        （含改名），原地不动。
-      - 无任何玩家卡 → 新建一张字段全空的卡（world=world_name、默认名 PLAYER_NAME），
-        内容留给玩家填。
-      - 已有玩家卡但其 world 挂在**其它**剧本名下（新建 / 导入 / 切换剧本后的残留）→
-        删除这些残留卡，为当前剧本新建一张**空白**卡。这也是切换剧本后必需的：否则
-        玩家卡还挂在旧世界名下，session_new 的跨世界一致性校验会把它当「外来角色」
-        拦截，导致新剧本开不了局。
-    world_name 为空（无世界书，防御分支，正常调用都带真实世界名）时：已有玩家卡则原样
-    返回其名字、不删不建，避免把有归属的卡误抹。
-    """
-    world_name = (world_name or "").strip()
-    players = _all_player_cards()
-    if players:
-        if not world_name:
-            return players[0]
-        for name in players:
-            if (load_card(name).get("world", "") or "").strip() == world_name:
-                return name
-        for name in players:
-            delete_card(name)
-    save_card(PLAYER_NAME, empty_player_card(world_name))
-    return PLAYER_NAME
-
-
-def player_card_name(world_name):
-    """返回归属该剧本的玩家角色卡名；无则返回 None。
-
-    判据：card.is_player 为真且 card.world == world_name——靠标志认玩家，与卡名无关
-    （玩家已改名的玩家卡同样能命中）。世界不存在或该剧本尚无玩家卡时返回 None，
-    由调用方决定是否补建。
-    """
-    world_name = (world_name or "").strip()
-    for name in _all_player_cards():
-        if (load_card(name).get("world", "") or "").strip() == world_name:
-            return name
-    return None
-
-
-def ensure_player_card_if_absent(world_name):
-    """浏览安全版玩家卡补建（供 by-world 等只读列表接口用），返回玩家卡名。
-
-    场景：前端页面加载时左栏对每个剧本各调一次 by-world，而运行态可同时持有
-    多个剧本（sync_drama 铺入 / 历史遗留）。若此处用破坏性 ensure_player_card，
-    只要已有玩家卡的 world 与请求的世界不匹配就立刻删卡重建——玩家在某剧本里
-    填的内容会在每次页面加载 / 引擎重启后被抹空（2026-10-20 报障：多剧本并存时
-    重启引擎玩家卡内容丢失，根因即此）。本函数语义严格弱于 ensure_player_card：
-      - 已有玩家卡（无论 world 挂在哪个剧本名下）→ 原样不动，返回其名字；
-      - 无任何玩家卡 → 新建一张字段全空的卡（world=world_name），覆盖「剧本已铺入
-        但用户只是浏览、还没点开始建局」的场景（保留 v1.0.0 浏览兜底的初衷）；
-      - world_name 为空且无玩家卡 → 返回 None，不建无归属的卡。
-    归属其它剧本的残留卡的重指，仍只发生在有意切换场景（session_new 建局 /
-    import_drama 导入 / save_world 新建世界），那些路径继续走 ensure_player_card。
-    """
-    world_name = (world_name or "").strip()
-    players = _all_player_cards()
-    if players:
-        for name in players:
-            if (load_card(name).get("world", "") or "").strip() == world_name:
-                return name
-        return players[0]
-    if not world_name:
-        return None
-    save_card(PLAYER_NAME, empty_player_card(world_name))
-    return PLAYER_NAME
 
 
 def list_worlds():
@@ -422,30 +277,33 @@ _STANDARD_ENTRY_CONTENT = (
 
 # ---- 写法示范（few-shot，对标酒馆 first message / example messages）----
 #
-# 引擎内置两份中性示范，让「玩家不写示范也能直接开局」：
-#   1. FIRST_ROUND_DEMO（开局示范，酒馆 first message）：放在「开始游戏」引导页
-#      时间/地点下方的文本框，预填此中性默认、玩家可改；随 scene 一并传入
-#      session_new 存进快照，首轮 act 时注入，之后不再出现。
-#   2. STANDARD_EXAMPLE_ENTRY（常驻示范，酒馆 example messages）：作为世界书条目，
-#      创建剧本（save_world 首次创建）与导入剧本（import_drama）时自动播种，每轮注入。
+# 引擎内置两份中性示范，让任何剧本无需作者手写也能直接开局：
+#   1. FIRST_ROUND_DEMO（开局示范）：由 session_new 静默写入快照，首轮 act 注入一次。
+#   2. STANDARD_EXAMPLE_ENTRY（常驻示范）：作为世界书条目，在创建剧本与导入剧本时自动播种。
 #
 # 两份示范措辞全中性、不含任何剧本专名与题材词（普适性红线），用「角色甲/角色乙」
 # 这类占位，任何剧本都可直接用；作者想换成贴合本剧风格的示范，可整条改写或删除。
 
 FIRST_ROUND_DEMO_NAME = "写法示范·开局"
 _FIRST_ROUND_DEMO = (
-    "本剧开局的写法（动作*星号*、对白\"双引号\"、散文穿插，不用\"角色名：\"前缀）：\n"
-    "*角色甲抬头，灯影在脸上晃了晃，才慢慢看向来人。*\"这么晚了，还赶路？\"\n"
-    "*角色乙把肩上的雪抖落，往炭火边挪了半步。*\"赶不赶，都得找个地方落脚。\"\n"
-    "堂里安静了一瞬，只有炭火哔剥地响。两人各怀各的心思，谁也没先挑破那半句没出口的话。"
+    "本剧开局的写法（多说话人叙事，可用「角色名：」标注说话人，动作与叙事穿插推进）：\n"
+    "角色甲抬起头，灯影在脸上晃了晃，才慢慢看向来人。\n"
+    "角色甲：这么晚了，还赶路？\n"
+    "角色乙把肩上的雪抖落，往炭火边挪了半步。\n"
+    "角色乙：赶不赶，都得找个地方落脚。\n"
+    "堂里安静了一瞬，只有炭火哔剥地响。两人各怀各的心事，谁也没先挑破那半句没出口的话。"
+
 )
 
 STANDARD_EXAMPLE_NAME = "写法示范·常驻"
 _STANDARD_EXAMPLE_CONTENT = (
-    "写法常驻示范（多角色交织、动作归属对白、不用\"角色名：\"前缀）：\n"
-    "*角色甲把手里那卷纸往桌上一搁，没抬头。*\"这事，还有谁知道？\"\n"
-    "*角色乙端茶的手停了一下。*\"该知道的，都知道了。\"\n"
-    "屋里静了一瞬，谁也没接谁的话，只有茶盏落几那一声，脆得像是敲在鼓面上。"
+    "写法常驻示范（多说话人叙事，角色台词以「角色名：」起段，动作与旁白穿插）：\n"
+    "角色甲把手里那卷纸往桌上一搁，没抬头。\n"
+    "角色甲：这事，还有谁知道？\n"
+    "角色乙端茶的手停了一下。\n"
+    "角色乙：该知道的，都知道了。\n"
+    "屋里静了一瞬，谁也没接谁的话，只有茶盏落桌那一声，脆得像是敲在鼓面上。"
+
 )
 
 
@@ -520,10 +378,6 @@ def save_world(name, entries):
     data = {"name": name, "entries": entries}
     p.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
     _invalidate(p)
-    # v1.0.0：新世界首次创建时默认生成一张字段全空的玩家角色卡，内容留给玩家自己填。
-    # 仅「首次创建」补建，已存在的剧本（含 import_drama 覆盖写）不重复触发、不覆盖旧卡。
-    if first_create:
-        ensure_player_card(name)
     return name
 
 
@@ -694,10 +548,6 @@ def import_drama(name, template):
         if (card.get("world", "") or "").strip() == name and cname not in template_names:
             if delete_card(cname):
                 deleted.append(cname)
-
-    # v1.0.0：导入后确保该剧本有一张玩家角色卡。模板若自带玩家卡已在第 2 步写入
-    # （且因在 template_names 内不会被第 3 步误删）；未自带则补一张空卡，内容留给玩家填。
-    ensure_player_card(name)
 
     return {
         "ok": True,

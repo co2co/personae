@@ -354,13 +354,13 @@ def _evidence_transfer(evidence, by, owner):
 
 
 # ---- 镜头跟随（焦点）----
-# 玩家把扰动引向某个在场子集时，叙事镜头应跟随该子集，其余在场角色视为"在别处待命、
+# 导演指令把扰动引向某个在场子集时，叙事镜头应跟随该子集，其余在场角色视为"在别处待命、
 # 不在本回合镜头内"，避免模型死守初始位置、只写留下的戏剧性角色（如怀孕/秘密组）。
 # 这是此前"指令指向离开者但叙事不跟随"问题的根因：引擎只有单一 present 名单，
 # 缺少"镜头"概念，导致模型在指令点名子集后仍默认全员出场、并偏爱更戏剧的留存组。
 _FOLLOW_WORDS = ["两人", "俩人", "2人", "他们", "他俩", "这俩", "那俩", "二人",
                 "双方", "两个", "他们俩", "这二人", "那二人"]
-# 群体点名：玩家显式把镜头交给全体在场者（「众人讨论」「大家商量」）。这类指令是玩家
+# 群体点名：导演指令显式把镜头交给全体在场者（「众人讨论」「大家商量」）。这类指令是玩家
 # 明确的操控意图，须尊重、不得被高压秘密强制覆盖——否则不了解机制的玩家会以为引擎
 # 不遵循指令（见会话 97589153 事故：导演指令「众人讨论去处」被高压镜头压成二人戏）。
 _GROUP_WORDS = ["众人", "大家", "所有人", "全员", "每个人", "大家伙", "众人皆"]
@@ -376,10 +376,10 @@ def compute_focus(directive, snap):
     - 指令点名全体或无人 -> None，表示自然推演、全员在场皆可写。
     place 取快照当前场景地点（scene.apply 已更新为新地点）。
 
-    玩家体验优先（v0.18.3 裁定）：镜头只由玩家的指令驱动，秘密发酵压力（pressure）不再
+    导演体验优先（v0.18.3 裁定）：镜头只由导演指令驱动，秘密发酵压力（pressure）不再
     对镜头施加任何强制——不强制并入、不强制锁定、不兜底撑镜头。引擎定位是小空间群像，
     空间本就局限，高压双方迟早会在某轮自然同场，碰撞由叙事自然命中，无需镜头层「导演」。
-    压力只剩「提级文案」这一个提示出口（见 prompter），不再抢玩家的方向盘。
+    压力只剩「提级文案」这一个提示出口（见 prompter），不再抢导演指令的方向盘。
     """
     present = snap.get("present", [])
     if not present or not directive:
@@ -387,15 +387,15 @@ def compute_focus(directive, snap):
     named = [n for n in present if n in directive]
     prev = snap.get("focus") or {}
 
-    # 群体点名：玩家显式把镜头交给全体在场者 -> 自然推演。
+    # 群体点名：导演指令显式把镜头交给全体在场者 -> 自然推演。
     if any(w in directive for w in _GROUP_WORDS):
         return None
 
-    # 玩家点名具体子集 -> 镜头跟随该子集。
+    # 导演指令点名具体子集 -> 镜头跟随该子集。
     if 0 < len(named) < len(present):
         return {"subjects": named, "place": snap["scene"].get("place", ""), "sticky": False}
 
-    # 玩家点名全体（列出所有在场者名）-> 自然推演。
+    # 导演指令点名全体（列出所有在场者名）-> 自然推演。
     if named:
         return None
 
@@ -410,8 +410,7 @@ def compute_focus(directive, snap):
 def brief(sid, directive):
     """返回 (directives, snap)。会就地更新快照里的秘密状态与回合数。
 
-    directive 是玩家本回合的行动/台词（玩家是场上的一个人物，由玩家本人实时操控）。
-    用于 A2 后果账本激活与本轮驱动事实。
+    directive 是环境推手（导演）注入的扰动指令，用于驱动本轮推演。
     """
     snap = memory.load(sid)
     text = directive or ""
@@ -556,15 +555,11 @@ def _as_dict_list(val):
 
 
 def validate_present(reply, present, known_names, allowed=None):
-    """后处理：剥离非在场角色的台词块（兜底，非主要防线）。
+    """后处理：剥离非在场角色的台词块，修掉模型偶发写出已离场角色的出戏问题。
 
-    自酒馆三段式输出范式落地后，正文不再用「角色名：」前缀标注说话人（对白归属靠
-    紧邻动作/上下文交代），本函数的前缀匹配在正常酒馆格式下匹配不到任何行、原样透传，
-    剥离退化为「若模型偶发仍写『角色名：』前缀才触发」的兜底网；非在场角色的出戏台词
-    主要由 prompter 的在场约束软抑制。
-    出现在正文中的、已知但不在保留集合（默认为在场名单 present，或显式传入的 allowed
-    焦点子集）内的「角色名：」台词块（含其续行）会被移除；无说话人的叙述行与保留集合
-    内角色台词保留。
+    reply 是"角色名："分段的多说话人叙事。出现在其中的、已知但不在保留集合（默认为
+    在场名单 present，或显式传入的 allowed 焦点子集）内的角色台词块（含其续行）会被移除；
+    无说话人的叙述行与保留集合内角色台词保留。
     返回 (清洗后文本, 是否发生违例)。
     """
     keep = set(allowed) if allowed else set(present)
@@ -819,7 +814,7 @@ def fill_relation_gaps(snap):
 
 # 秘密发酵压力上限：封顶以免长期无进展时无限加压，把剧情逼成机械碰撞。
 PRESSURE_MAX = 5
-# 高压档：达到该值即从「角色块内的一句提示」升级为全局软提醒（提级文案，玩家指令优先，不再强制进镜头）。
+# 高压档：达到该值即从「角色块内的一句提示」升级为全局软提醒（提级文案，导演指令优先，不再强制进镜头）。
 PRESSURE_FORCE = PRESSURE_MAX
 # 同时只强制一条碰撞：多条并下达会互相打架，结果是全部僵住（见 pressure_targets）。
 PRESSURE_FORCE_LIMIT = 1
@@ -1084,9 +1079,9 @@ def reflect(sid, reply, directive=""):
     这是“状态机自动演化”的核心——推演产生的后果必须落回快照，否则次日无痕。
     任何解析/调用失败都保持快照不变，绝不阻塞主流程。
 
-    directive：本轮玩家行动（玩家本人的权威设定）。关键事实（如某群演死亡）
-    可能只由玩家行动承载、正文未清晰复述甚至被弱化，故退场判定须同时参照它。
-    玩家静默轮（指令为空）prompt 不增行，零 token 增量。
+    directive：本轮导演指令（环境推手本轮的权威设定）。关键事实（如某群演死亡）
+    可能只由指令承载、正文未清晰复述甚至被弱化，故退场判定须同时参照它。
+    自然推演轮指令为空，prompt 不增行，零 token 增量。
     """
     snap = memory.load(sid)
     if not snap:
@@ -1132,9 +1127,9 @@ def reflect(sid, reply, directive=""):
     # 位置是物理事实而非猜测，喂了场景地点，原地未动者至少能报到场景基准处。
     _sc = snap.get("scene") or {}
     scene_text = "｜".join(x for x in (_sc.get("place"), _sc.get("time"), _sc.get("weather")) if x) or "（无）"
-    # 玩家行动回喂：关键事实（群演死亡等）可能只由玩家行动承载、正文未复述甚至弱化。
-    # 仅当玩家行动非空时占一行，玩家静默轮零开销。玩家行动是玩家本人的权威设定，优先级高于正文。
-    dir_block = ("\n本轮玩家行动（玩家本人设定，权威，正文与其冲突时以玩家行动为准）：\n" + directive + "\n") if directive else ""
+    # 导演指令回喂：关键事实（群演死亡等）可能只由导演指令承载、正文未复述甚至弱化。
+    # 仅当指令非空时占一行，自然推演轮零开销。指令是环境推手的权威设定，优先级高于正文。
+    dir_block = ("\n本轮导演指令（环境推手设定，权威，正文与其冲突时以指令为准）：\n" + directive + "\n") if directive else ""
 
     prompt = [
         {"role": "system",
@@ -1164,7 +1159,6 @@ def reflect(sid, reply, directive=""):
             '  "secret_touches": [{"owner": "秘密归属者", "touched": true}],\n'
             '  "location_updates": [{"who": "角色名", "place": "该角色本轮结束时所在的具体地点"}],\n'
             '  "scene_shift": {"changed": false, "place": "本轮叙事末尾所处的地点", "time": "本轮叙事末尾的时间", "weather": "本轮叙事末尾的天气"},\n'
-            '  "present_change": {"leave": ["离开镜头的角色名"], "arrive": ["进入镜头的角色名"]},\n'
             '  "relations": { "源 → 目标": "关系定性（只写稳定的人物关系定位，如\'妈妈，独占欲\'，不要包含本轮具体动作描写）" },\n'
             '  "actions": { "角色名": "本轮该角色做的一句具体行为（不含关系定性，只写这回合发生了什么）" },\n'
             '  "goals": { "角色名": "新的短期目标" },\n'
@@ -1205,7 +1199,7 @@ def reflect(sid, reply, directive=""):
             "  已记录且本轮未动的角色才不必重报（沿用既有位置）——这是「首轮全量、此后增量」的本意，**不是**「谁没动\n"
             "  就谁不报」：开局全员无记录时，本轮就是「首轮」，必须全员全量。\n"
             "  place 写本轮叙事末尾该角色**实际所处**的具体地点（如「电梯内」「地库」「卧室」「客厅」），"
-            "正文点明了具体站位/班次就报具体（如「来使班次」「主位一侧」），正文未点明、人又未移动就报当前场景基准处，\n"
+            "正文点明了具体站位/班次就报具体（如「北境来使班次」「御座西侧」），正文未点明、人又未移动就报当前场景基准处，\n"
             "不要写泛称「外面」「那边」。\n"
             "  位置是物理事实、每角色唯一：同一角色本轮只报一条，后写覆盖前写，绝不可报两条互相矛盾的位置。\n"
             "  who 用角色的正式名字（沿用「在场角色」「既有位置」里的写法）；刚移动过的在场角色与群演都要覆盖到。\n"
@@ -1432,24 +1426,21 @@ def reflect(sid, reply, directive=""):
     else:
         snap.pop("scene_shift", None)
 
-    # 在场名单语义兜底（双轨共存）：scene.apply 靠关键词在生成前处理玩家明说的离场，
+    # 在场名单语义兜底（双轨共存）：scene.apply 靠关键词在生成前处理导演指令明说的离场，
     # 这里纪官从「已生成的叙事」里读谁实际离开了镜头、谁进入了镜头，补关键词枚举
     # 不到的盲区（「上朝」「逃往别处」「赴任」等无离场词却确已离场的移动）。
     # 时序自洽：present_change 从下一轮起生效——本轮 prompt 已按旧 present 生成，
     # 但「离场」本就是「下一轮才生效」的状态变更，不影响本轮已写出的内容。
-    # 安全网沿用 scene.apply 同款：只认合法卡、离开者须在场、到达者须未在场、去重、
-    # 玩家恒在场（玩家离开镜头不改变其在场身份，仍由 is_player 标志识别）。
+    # 安全网沿用 scene.apply 同款：只认合法卡、离开者须在场、到达者须未在场、去重。
     pc = data.get("present_change")
     if isinstance(pc, dict):
         all_chars = set(store.list_characters())
         cur_present = list(snap.get("present", []))
         orig = set(cur_present)
         leave = [c for c in dict.fromkeys(pc.get("leave") or [])
-                 if c in all_chars and c in cur_present
-                 and not (store.load_card(c) or {}).get("is_player")]
+                 if c in all_chars and c in cur_present]
         arrive = [c for c in dict.fromkeys(pc.get("arrive") or [])
-                  if c in all_chars and c not in cur_present
-                  and not (store.load_card(c) or {}).get("is_player")]
+                  if c in all_chars and c not in cur_present]
         # 安全网：leave 覆盖全员且无 arrive = 误判「随世界移动」，忽略；名单不得清空。
         if leave and set(leave) >= orig and not arrive:
             leave, arrive = [], []

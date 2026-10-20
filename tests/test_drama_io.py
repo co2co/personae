@@ -70,13 +70,8 @@ def test_export_shape_and_membership(data):
     assert tpl["schema_version"] == store.SCHEMA_VERSION
     assert tpl["drama"] == "甲"
     assert tpl["world"]["name"] == "甲"
-    # 角色只收录 world==甲 的两张，乙角不在内；按名升序。
-    # v1.0.0：玩家卡是全局单例、world 跟随「最后保存的世界」（本例 _seed 先甲后乙，
-    # 玩家卡被重指到乙），故导出甲不含玩家卡——与生产「data/ 只装一个剧本」一致。
+    # 角色只收录 world==甲 的两张，乙角不在内；按名升序
     assert [c["name"] for c in tpl["characters"]] == ["甲角", "甲角2"]
-    # 导出乙则含玩家卡（玩家卡 world 已重指到乙）
-    tpl_yi = store.export_drama("乙")
-    assert "玩家" in [c["name"] for c in tpl_yi["characters"]]
     # 扩展字段随卡原样保留
     assert next(c for c in tpl["characters"] if c["name"] == "甲角2")["extensions"] == {"avatar": "a.png"}
     # NSFW 支持版：save_world 出厂播种「亲密描写标准」，故导出的 world 条目含该条
@@ -109,10 +104,8 @@ def test_import_restores_world_and_characters(data):
     assert res["ok"] is True and res["name"] == "甲"
     # 世界书恢复（含甲的设定）
     assert any(e["content"] == "甲的设定" for e in store.load_world("甲"))
-    # 角色恢复、扩展字段保留。
-    # v1.0.0：导入后恒补一张玩家卡（save_world 重指 + 第 4 步 ensure 重建），
-    # 故名单比旧版多「玩家」；imported 只统计模板内写入的卡，玩家卡不计入。
-    assert set(store.list_characters()) == {"甲角", "甲角2", "乙角", "玩家"}
+    # 角色恢复、扩展字段保留
+    assert set(store.list_characters()) == {"甲角", "甲角2", "乙角"}
     assert store.load_card("甲角2")["extensions"] == {"avatar": "a.png"}
     assert res["imported"] == ["甲角", "甲角2"]
     # 乙剧本未受影响
@@ -128,12 +121,10 @@ def test_import_aligns_world_to_target_name(data):
     # 乙的世界书被甲的设定覆盖
     assert any(e["content"] == "甲的设定" for e in store.load_world("乙"))
     # 原乙角不在模板里 → 被清理；甲角/甲角2 的 world 对齐成「乙」
-    # v1.0.0：导入恒补一张玩家卡（被清理后由 ensure 重建），world 对齐目标「乙」。
     assert "乙角" in res["deleted"]
     assert store.load_card("甲角")["world"] == "乙"
     assert store.load_card("甲角2")["world"] == "乙"
-    assert set(store.list_characters()) == {"甲角", "甲角2", "玩家"}
-    assert store.load_card("玩家")["world"] == "乙"
+    assert set(store.list_characters()) == {"甲角", "甲角2"}
     # 源剧本「甲」不受影响（导入是恢复快照到目标，不是把甲搬去乙）
     assert store.load_world_raw("甲") is not None
     assert any(e["content"] == "甲的设定" for e in store.load_world("甲"))
@@ -147,8 +138,7 @@ def test_import_removes_stale_cards_not_in_template(data):
     tpl["characters"] = [c for c in tpl["characters"] if c["name"] != "甲角残"]
     res = store.import_drama("甲", tpl)
     assert "甲角残" in res["deleted"]
-    # v1.0.0：导入恒补一张玩家卡，故名单含「玩家」。
-    assert set(store.list_characters()) == {"甲角", "甲角2", "乙角", "玩家"}
+    assert set(store.list_characters()) == {"甲角", "甲角2", "乙角"}
 
 
 def test_import_does_not_touch_other_dramas(data):
@@ -189,8 +179,7 @@ def test_import_accepts_legacy_template_without_schema(data):
               "characters": [{"name": "甲角", "world": "甲", "core_desire": "d"}]}
     res = store.import_drama("甲", legacy)
     assert res["ok"] is True
-    # v1.0.0：甲角2 不在旧模板 → 被清；导入恒补一张玩家卡，故含「玩家」。
-    assert set(store.list_characters()) == {"甲角", "乙角", "玩家"}
+    assert set(store.list_characters()) == {"甲角", "乙角"}  # 甲角2 不在旧模板 → 被清
 
 
 # ---------------------------------------------------------------------------
@@ -222,8 +211,7 @@ def test_import_endpoint_roundtrip(client):
     assert r.status_code == 200, r.get_json()
     d = r.get_json()
     assert d["ok"] is True and d["name"] == "甲"
-    # v1.0.0：导入恒补一张玩家卡，故名单含「玩家」。
-    assert set(store.list_characters()) == {"甲角", "甲角2", "乙角", "玩家"}
+    assert set(store.list_characters()) == {"甲角", "甲角2", "乙角"}
 
 
 def test_import_endpoint_bad_body_400(client):
@@ -250,9 +238,8 @@ def test_delete_drama_removes_world_and_all_cards(data):
     assert sorted(res["characters_deleted"]) == ["甲角", "甲角2"]
     # 世界书没了
     assert store.load_world_raw("甲") is None
-    # 甲的两张卡全删，乙角保留（world==乙，不碰）。
-    # v1.0.0：玩家卡 world 跟随 _seed 最后保存的世界「乙」，删甲不触碰玩家卡。
-    assert set(store.list_characters()) == {"乙角", "玩家"}
+    # 甲的两张卡全删，乙角保留（world==乙，不碰）
+    assert set(store.list_characters()) == {"乙角"}
     assert store.load_card("乙角")["world"] == "乙"
 
 
@@ -269,15 +256,11 @@ def test_delete_drama_empty_name_raises(data):
 
 
 def test_delete_drama_orphan_world_only(data):
-    """只有世界书、没有归属角色 → 删世界书 + 该剧本角色卡。
-
-    v1.0.0：save_world 首次创建即播种一张玩家卡（world=甲），故删甲会把这张
-    玩家卡一并清掉——characters_deleted 不再是空，而是 ['玩家']。
-    """
+    """只有世界书、没有归属角色 → 删世界书，characters_deleted 为空。"""
     store.save_world("甲", [{"keys": ["x"], "content": "甲的设定"}])
     res = store.delete_drama("甲")
     assert res["ok"] is True and res["world_removed"] is True
-    assert res["characters_deleted"] == ["玩家"]
+    assert res["characters_deleted"] == []
 
 
 def test_delete_drama_endpoint_removes_world_and_cards(client):
@@ -290,8 +273,7 @@ def test_delete_drama_endpoint_removes_world_and_cards(client):
     assert d["world_removed"] is True
     assert sorted(d["characters_deleted"]) == ["甲角", "甲角2"]
     assert store.load_world_raw("甲") is None
-    # v1.0.0：玩家卡 world 跟随 _seed 最后保存的世界「乙」，删甲不触碰玩家卡。
-    assert set(store.list_characters()) == {"乙角", "玩家"}
+    assert set(store.list_characters()) == {"乙角"}
 
 
 def test_delete_drama_endpoint_missing_404(client):

@@ -206,16 +206,6 @@ def characters_by_world():
     供前端显示提示，不必再发一次请求。
     """
     world = request.args.get("world", "")
-    # v1.0.0：查看某剧本的角色前，确保该剧本有一张【玩家】角色卡（空白，留给玩家填）。
-    # 玩家卡是全局单例、运行时只装一个剧本，此处兜底覆盖「已存在剧本（sync_drama 铺入）
-    # 且用户只是浏览、还没点开始建局」的场景——否则玩家卡只在点开始时才出现。
-    # 仅当 world 指向真实存在的世界书才 ensure：避免把玩家卡 world 重指到已删/不存在世界。
-    if world and world in store.list_worlds():
-        # 浏览安全版补建（2026-10-20 修复）：本接口是只读列表 API，前端页面加载时左栏
-        # 会对**每个**剧本各调一次；破坏性 ensure_player_card 在玩家卡 world 与请求世界
-        # 不匹配时删卡重建，多剧本并存下等于每次重启 / 刷新都把玩家已填内容抹空。
-        # 残留卡（world 挂在别的剧本名下）的重指只留给建局 / 导入等有意切换路径。
-        store.ensure_player_card_if_absent(world)
     return jsonify({
         "names": store.list_characters_by_world(world),
         "unassigned": store.unassigned_characters(),
@@ -477,7 +467,7 @@ def session_new():
     body = request.get_json(force=True)
     all_chars = store.list_characters()
     world_name = (body.get("world") or "").strip()
-    # cast 缺省 = 该世界的全部角色（全员登场），首轮由引擎结合场景判断谁在场、谁只是背景。
+    # 环境推手不作为角色入场；cast 为同场角色卡列表（未传时缺省为该世界的全部角色）。
     # 世界名先于 cast 解析：未传 cast 时按 world 筛，避免把跨世界/未归属角色误带进场。
     if body.get("cast"):
         cast = body["cast"]
@@ -513,39 +503,11 @@ def session_new():
     # 旧实现整体塞进 place、time 恒空，时间锚丢失后正文只能靠世界书反向脑补时间
     # （会话 256d924c 事故）。拆分后前端「场景：{place}（{time}）」展示保持不变。
     scene_place, scene_time = scene.parse_initial_scene(scene_raw)
-    # 开场冷启动选角（v1.2.1）：全员进 present 后，按开场地点由 LLM 判断谁合理在场，
-    # 选出的名单才是首轮 present——否则 prompter 把全员注入「在场角色」块，模型会把
-    # 所有人都写到开场地点（实测填「街道」却全员 6 人冒出来）。玩家卡不参与选角
-    # （玩家恒在场）；LLM 失败/选 0 人时回退全员（不阻断建局，退化回旧行为）。
-    player_name = store.ensure_player_card(world_name)
-    if scene_place and world_name:
-        roster = [{"name": c, "brief": (store.load_card(c).get("description") or "")[:120]}
-                  for c in cast
-                  if not (store.load_card(c).get("is_player"))]
-        picked = scene.select_present(roster, scene_place, scene_time)
-        if picked and set(picked) != {r["name"] for r in roster}:
-            dropped = [c for c in cast if c not in picked
-                       and not (store.load_card(c).get("is_player"))]
-            cast = picked + ([player_name] if player_name else [])
-            logger.info("session", "开场选角（地点「" + scene_place + "」）：在场 "
-                        + "、".join(cast)
-                        + ("" if not dropped else " ｜ 暂不在场（仍可随剧情到场）：" + "、".join(dropped)))
-        else:
-            logger.info("session", "开场选角：LLM 未收窄名单，全员登场（"
-                        + "、".join(cast) + "）")
-    # 开局写法示范（酒馆 first message）：v1.2.3 起不再让玩家自定义，改回引擎中性
-    # 默认静默注入（玩家曾把「我的开场动作」误填进示范框，造成语义错位——示范是
-    # 「怎么写」的格式范例，不是「玩家行动」）。玩家开场第一句/动作走引导页「玩家行动」
-    # 框，由前端在建局后作为首轮 input 传入 act，不在此处处理。
+    # 开局写法示范由引擎静默使用中性默认：它是「怎么写」的格式范例，不作为使用者输入。
     opening_demo = store._FIRST_ROUND_DEMO
-    # v1.0.0：玩家是场上的一个人物。确保该世界的【玩家】角色卡存在（首次创建世界时
-    # 已由 save_world 播种，此处为旧世界/导入剧本的兜底），并把玩家并入在场名单。
-    if player_name and player_name not in cast:
-        cast.append(player_name)
     try:
         sid = memory.new(cast, scene_place=scene_place, world_name=world_name,
-                         scene_time=scene_time, player=player_name,
-                         opening_demo=opening_demo)
+                         scene_time=scene_time, opening_demo=opening_demo)
     except Exception as exc:
         logger.error("session", "创建会话失败：" + repr(exc))
         return jsonify({"error": str(exc)}), 500
@@ -624,7 +586,7 @@ def session_chat_route(sid):
 def act():
     body = request.get_json(force=True)
     sid = body.get("session")
-    directive = (body.get("input") or "").strip()   # 玩家本回合的行动/台词
+    directive = (body.get("input") or "").strip()   # 环境推手注入的扰动指令
     try:
         snap = memory.load(sid)
     except Exception as exc:
@@ -634,21 +596,18 @@ def act():
         logger.warn("session", "指令发往不存在的会话：" + str(sid))
         return jsonify({"error": "会话不存在"}), 404
 
-    logger.info("session", "收到玩家行动：" + (directive or "（无，玩家静默，自然推演）"))
+    logger.info("session", "收到导演扰动：" + (directive or "（无，自然推演）"))
     try:
         # 场景自动切换：生成前先决定，使新场景/天气进入提示词；同时更新在场名单
         scene_changed, scene_prop = scene.apply(sid, directive, snap)
-        # 镜头跟随：玩家把扰动引向某子集时，镜头跟随该子集，其余在场者视为镜头外
+        # 镜头跟随：导演指令把扰动引向某子集时，镜头跟随该子集，其余在场者视为镜头外
         focus = director.compute_focus(directive, snap)
         snap["focus"] = focus
         memory.save(sid, snap)
         if focus and focus.get("forced"):
             logger.info("director", "镜头让位于高压秘密：强制并入 " + "、".join(focus["subjects"]))
-        present = snap["present"]                  # 含玩家（场上的一个人物）与其余 NPC
+        present = snap["present"]                  # 全部为 NPC，环境推手不在场
         cards_present = {c: store.load_card(c) for c in present}
-        # 玩家名：按 is_player 标志从在场卡里认（玩家是 present 里的一员、名字可被玩家
-        # 自由修改，故不硬编码固定文件名）。build_session 据此对其角色块注入「人类操控」标记。
-        player_name = next((c for c in present if cards_present[c].get("is_player")), None)
 
         # 导演简报（含秘密状态更新、回合数）
         brief, snap = director.brief(sid, directive)
@@ -703,7 +662,6 @@ def act():
             after_hits=after_hits,
             focus=focus,
             active_consequences=brief.get("active_consequences") or [],
-            player_name=player_name,
             demo_hits=demo_hits,
         )
         messages = hooks.emit("prompt_ready", messages=messages, snap=snap)["messages"]
@@ -848,19 +806,17 @@ def act():
         # 后果清单 / 下回合预告），与 prompter 的「输出纪律」双保险。
         # 必须在 present 校验 / 背景自检 / reflect / 落盘之前，使下游都吃到干净正文。
         full = narrative_clean.clean_narrative(full)
-        # present 名单校验/后处理（兜底网）：酒馆三段式范式下正文无「角色名：」前缀，
-        # 剥离退化为「仅当模型偶发仍写前缀时触发」的兜底；非在场角色出戏主要由
-        # prompter 在场约束软抑制。若本轮有镜头焦点，则按焦点子集裁剪。
-        # known 含玩家卡（已在 store），玩家台词块得以放行。
+        # present 名单校验/后处理：剥离非在场角色（含已离场者）的台词块；
+        # 若本轮有镜头焦点，则按焦点子集裁剪，使镜头真正跟随被引向的角色，其余在场者不展开。
         known = store.list_characters()
         keep_set = set(focus["subjects"]) if focus else set(present)
         full, present_violation = director.validate_present(
             full, present, known, allowed=list(keep_set))
         if present_violation:
-            logger.warn("model", "在场校验（兜底）：剥离了带「角色名：」前缀的非在场角色台词块")
+            logger.warn("model", "在场校验：剥离了非在场角色的台词块（已自动清洗）")
         else:
-            logger.info("model", "在场校验（兜底）：无带前缀的非在场角色台词，透传")
-        # 临时群演（aux）机制已废除（v0.30.0）：临时角色交还 LLM 与玩家自主管理，
+            logger.info("model", "在场校验通过：仅含在场角色台词")
+        # 临时群演（aux）机制已废除（v0.30.0）：临时角色交还 LLM 与使用者自主管理，
         # 引擎不再登记、追踪或确保其生命周期；未入册的名字在 validate_present
         # 中当叙述行保留，不会被剥离。
         # 注：原始 token 已实时流式回传，此处不再回吐整段以免重复；
@@ -879,7 +835,7 @@ def act():
         # 关系/秘密/行动全没记账，且状态丢失不可逆）。新顺序让「状态先落、正文后落」：
         # 最坏是正文丢了（可重生成），不再丢不可逆的推演状态。reflect 只用内存 full
         # 做举证核验，不读 chat 文件，故顺序调整无副作用。
-        memory.append_chat(sid, {"role": "user", "content": "【玩家行动】" + directive})
+        memory.append_chat(sid, {"role": "user", "content": "【导演指令】" + directive})
         memory.append_chat(sid, {"role": "assistant", "content": full})
 
         snap_now = memory.load(sid)

@@ -102,11 +102,9 @@ def test_validate_present_empty_present_returns_as_is():
     assert v is False and out == r
 
 
-def test_validate_present_tavern_format_passthrough():
-    """酒馆三段式范式（动作*星号* + 对白"双引号" + 散文，无「角色名：」前缀）
-    应原样透传、不报违例——剥离已退化为仅对「角色名：」前缀兜底。"""
-    r = ("*她往后退了半步。*\"你知道了？\"*目光躲闪。* 窗外更鼓敲过三响。\n"
-         "*他上前一步。*\"别怕。\"*伸手按住她的肩。*")
+def test_validate_present_multi_speaker_blocks():
+    """v2.0.0 正文格式回归 v0.31.11：多说话人叙事按「角色名：」分段并正常清洗。"""
+    r = f"{A}：我来帮你。\n{B}：别信他。\n{C}：不关我事。"
     out, v = director.validate_present(r, PRESENT, KNOWN)
     assert v is False and out == r
 
@@ -656,9 +654,9 @@ def test_reflect_location_fallback_skips_without_scene_place(monkeypatch):
 
 
 # ---- 在场名单语义更新（present_change，双轨共存）----
-# scene.apply 靠关键词在生成前处理玩家明说的离场；reflect 从叙事读「谁实际走了/来了」，
+# scene.apply 靠关键词在生成前处理导演指令明说的离场；reflect 从叙事读「谁实际走了/来了」，
 # 补关键词枚举不到的盲区（上朝/逃往北境/赴任等）。安全网同 scene.apply：只认合法卡、
-# 玩家恒在场、离开者须在场、到达者须未在场、leave 覆盖全员且无 arrive 时忽略。
+# 离开者须在场、到达者须未在场、leave 覆盖全员且无 arrive 时忽略。
 
 def _pc_snap():
     return {"scene": {"round": 3}, "present": [A, B, C], "relations": {},
@@ -697,23 +695,6 @@ def test_reflect_present_change_ignores_all_leave_without_arrive(monkeypatch):
     monkeypatch.setattr(director.store, "load_card", lambda n: {"name": n})
     out = director.reflect("sid", f"{A}带所有人转移。")
     assert set(out["present"]) == {A, B, C}
-
-
-def test_reflect_present_change_keeps_player(monkeypatch):
-    """玩家（is_player）恒在场：即便被填进 leave 也剔除，不被移出镜头。"""
-    import json as _json
-    snap = _pc_snap()
-    payload = {"actions": {},
-               "present_change": {"leave": [A], "arrive": []}}
-    monkeypatch.setattr(director.llm, "complete",
-                        lambda *a, **k: _json.dumps(payload, ensure_ascii=False))
-    monkeypatch.setattr(director.memory, "load", lambda sid: snap)
-    monkeypatch.setattr(director.memory, "save", lambda sid, s: None)
-    monkeypatch.setattr(director.store, "list_characters", lambda: [A, B, C])
-    monkeypatch.setattr(director.store, "load_card",
-                        lambda n: {"name": n, "is_player": n == A})
-    out = director.reflect("sid", f"{A}转身离开。")
-    assert A in out["present"]
 
 
 def test_reflect_present_change_filters_invalid_names(monkeypatch):
