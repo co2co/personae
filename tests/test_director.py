@@ -331,6 +331,36 @@ def test_reflect_records_location_updates(monkeypatch):
     assert out["locations"][A]["round"] == 8
 
 
+def test_reflect_location_fallback_only_for_characters_in_narrative(monkeypatch):
+    """位置兜底只填「正文或指令写到过」的角色（v2.1.1）。
+
+    起因：`present` 已从在场名单改为名册（全员）。旧兜底对全名册用 scene.place 占位，
+    等于把正文没写的人也搬进这一场——寝殿独处那一轮，六个人全被记在寝殿，下一轮
+    [本轮场面] 就照着错的记录分场。判据改为「本轮正文或导演指令点到过这个名字」，
+    没点到的人留空，由 [本轮场面] 的「位置未更新」如实交代。
+    """
+    import json as _json
+    monkeypatch.setattr(director.llm, "complete",
+                        lambda *a, **k: _json.dumps({"actions": {},
+                                                     "location_updates": []},
+                                                    ensure_ascii=False))
+    monkeypatch.setattr(director.memory, "save", lambda sid, s: None)
+    snap = {"scene": {"round": 1, "place": "书房"}, "present": [A, B, C],
+            "relations": {}, "actions": {}, "silent_rounds": {}, "secrets": [],
+            "facts": [], "states": {}, "goals": {}, "ledger": [], "locations": {}}
+    monkeypatch.setattr(director.memory, "load", lambda sid: snap)
+    director.reflect("sid", A + "：把门关上。")   # 正文只写到 A
+    assert snap["locations"][A]["place"] == "书房"
+    assert B not in snap["locations"] and C not in snap["locations"], \
+        "正文未写到的名册成员不该被兜底搬进当前场景"
+
+    # 导演指令是权威设定：指令点名的人同样算「本轮写过」，兜底照填。
+    snap["locations"] = {}
+    director.reflect("sid", A + "：把门关上。", "让" + B + "从外面回来。")
+    assert snap["locations"][B]["place"] == "书房"
+    assert C not in snap["locations"]
+
+
 def test_exposure_requires_real_transfer_via(monkeypatch):
     """v0.17.3：纪官报 secret_exposures 但 via 非实传类（或缺失）时，
     不得翻成暴露，降级为起疑——防止「内心早已看穿」这类心理描写被误判成

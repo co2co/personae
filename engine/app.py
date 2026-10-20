@@ -483,8 +483,10 @@ def session_new():
     body = request.get_json(force=True)
     all_chars = store.list_characters()
     world_name = (body.get("world") or "").strip()
-    # 环境推手不作为角色入场；cast 为同场角色卡列表（未传时缺省为该世界的全部角色）。
-    # 世界名先于 cast 解析：未传 cast 时按 world 筛，避免把跨世界/未归属角色误带进场。
+    # 环境推手不作为角色入场。名册不再由使用者挑选（v2.1.1）：本引擎以「剧本全部角色」
+    # 为簿记定义域——关系网、秘密归属、亲缘、短期目标都按名册建账，少一个人就在快照里
+    # 留下指向无卡角色的悬空引用（世界书设定点名他、关系基线里有他，prompt 里却没有他的卡）。
+    # cast 因此只作兼容入参：必须是该世界的全部角色，传子集直接拒绝并点名缺谁。
     if body.get("cast"):
         cast = body["cast"]
     elif world_name:
@@ -513,6 +515,18 @@ def session_new():
         logger.warn("session", "开局失败：跨世界角色混入 " + "、".join(alien))
         return jsonify({
             "error": "所选角色不属于该世界，请刷新后重选：" + "、".join(alien)
+        }), 400
+    # 名册完整性（v2.1.1）：cast 只能是该世界的全部角色。多出来的已在上面按「跨世界」
+    # 拦掉，这里只剩「缺人」。不静默补齐——补齐会让调用方以为自己的选择生效了，而实际
+    # 上场的是别人；宁可报错让它改。
+    expected = [c for c in all_chars
+                if (store.load_card(c).get("world", "") or "").strip() == world_name]
+    missing = [c for c in expected if c not in cast]
+    if missing:
+        logger.warn("session", "开局失败：名册不完整，缺少 " + "、".join(missing))
+        return jsonify({
+            "error": "本引擎要求该剧本全部角色登场（不支持部分登场），缺少："
+                     + "、".join(missing)
         }), 400
     scene_raw = body.get("scene", "")
     # 把玩家混写的「傍晚，公寓的客厅」拆成 (place, time)：时间词进 time、地点进 place。

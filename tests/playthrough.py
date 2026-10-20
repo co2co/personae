@@ -47,17 +47,18 @@ DEFAULT_ARC_TEMPLATE = [
 ARC_SLOTS = ["{A}", "{B}", "{C}", "{D}", "{E}"]
 
 
-def fetch_cast(base_url, size=5, timeout=30):
-    """从引擎取当前可用角色名（取前 size 名）。取不到则报错退出。
+def fetch_cast(base_url, size=None, timeout=30):
+    """从引擎取当前可用角色名（size=None 取全量）。取不到则报错退出。
 
     普适性红线：走查卡组必须跟随磁盘上的实际剧本，不能在脚本里写死人名。
+    v2.1.1 起建局不接受部分登场，本函数只用于取名字填弧线模板与统计点名率。
     """
     resp = requests.get(base_url + "/api/characters", timeout=timeout)
     resp.raise_for_status()
     names = resp.json()
     if not names:
         raise SystemExit("引擎未返回任何角色卡：先在界面导入或使用随包 demo。")
-    return names[:size]
+    return names[:size] if size else names
 
 
 def build_arc(cast, template=None):
@@ -147,8 +148,9 @@ def run_playthrough(base_url=BASE_DEFAULT, cast=None, scene=None, arc=None,
     scene = scene or DEFAULT_SCENE
     arc = arc or build_arc(cast)
 
+    # 不传 cast：v2.1.1 起名册由后端按剧本取全量（引擎不接受部分登场）。
     new = requests.post(base_url + "/api/session/new",
-                        json={"cast": cast, "scene": scene}, timeout=30).json()
+                        json={"scene": scene}, timeout=30).json()
     sid = new["session"]
     rounds = []
     try:

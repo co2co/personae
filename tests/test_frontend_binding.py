@@ -114,6 +114,24 @@ class TestFrontendMainFlowBound(unittest.TestCase):
                 "世界书保存链路丢失%s——界面上没有对应控件，一旦不回传就被永久抹掉" % desc,
             )
 
+    def test_setup_cast_is_readonly_roster(self):
+        """开场区不再提供角色勾选（v2.1.1）。
+
+        引擎以「剧本全部角色」为簿记定义域：关系基线、秘密归属、亲缘、短期目标都按
+        名册建账。少选一个人不会少写一段戏，而是让世界书点名的角色没有卡可依——
+        悬空引用不会报错，只会让模型自由发明那个人。故前端只保留只读名册（回答
+        「这一局有谁」），不再收集 cast，开局请求交给后端按剧本取全量。
+        """
+        html = _read_index()
+        self.assertNotIn("#npcs input:checked", html, "开场区仍从勾选框收集角色")
+        self.assertIn("let NPC_NAMES = [];", html, "登场名册缓存缺失")
+        self.assertIn('<span class="chip">', html, "登场名册未渲染为只读 chip")
+        self.assertIn("body: JSON.stringify({scene, world})", html,
+                      "开局请求仍携带 cast")
+        m = re.search(r"async function startSession\(\)\s*\{(.*?)\n\}", html, re.S)
+        self.assertIsNotNone(m, "startSession() 缺失")
+        self.assertIn("NPC_NAMES.length", m.group(1), "startSession 未校验名册非空")
+
     def test_no_dangling_dom_ids(self):
         """renderSnapshot 引用的 DOM id 必须在 HTML 里真实存在。
 

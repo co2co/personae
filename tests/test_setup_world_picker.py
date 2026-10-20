@@ -167,6 +167,23 @@ def test_session_new_empty_cast_rejected(client):
     assert "没有可登场" in r.get_json()["error"]
 
 
+def test_session_new_rejects_partial_cast(client):
+    """名册必须完整：传子集直接 400 并点名缺谁（v2.1.1）。
+
+    起因：开场区的角色勾选已改为只读名册。引擎以「剧本全部角色」为簿记定义域——
+    关系基线、秘密归属、亲缘、短期目标都按名册建账，少一个人就会在快照里留下指向
+    无卡角色的悬空引用（世界书点名他、关系里有他，prompt 里却没有他的卡）。
+    故 cast 只作兼容入参，必须等于该世界的全部角色；不静默补齐，因为补齐会让调用方
+    以为自己的选择生效了，而实际登场的是别人。
+    """
+    c, made = client
+    r = c.post("/api/session/new", json={"cast": ["甲"], "world": "世界一"})
+    assert r.status_code == 400, r.get_json()
+    err = r.get_json()["error"]
+    assert "全部角色" in err and "乙" in err, err
+    assert "cast" not in made, "名册不完整的请求不该建局"
+
+
 def test_session_new_default_cast_is_world_members(client):
     """不传 cast：默认该世界的全部角色登场，不含跨世界/未归属角色。"""
     c, made = client

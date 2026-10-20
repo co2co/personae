@@ -150,8 +150,9 @@ def run(base_url, rounds, timeout, cast=None, scene=None):
     arc = arc[:rounds] if rounds <= len(arc) else arc * (rounds // len(arc) + 1)
     arc = arc[:rounds]
 
+    # 不传 cast：v2.1.1 起名册由后端按剧本取全量（引擎不接受部分登场）。
     new = requests.post(base_url + "/api/session/new",
-                        json={"cast": cast, "scene": scene or SCENE},
+                        json={"scene": scene or SCENE},
                         timeout=60).json()
     sid = new["session"]
     records, errors = [], []

@@ -216,9 +216,10 @@
   .card h2{ margin:8px 0 6px; font-size:23px; font-weight:650; letter-spacing:.01em; }
   .card .lead{ margin:0 0 22px; font-size:14px; color:var(--muted); line-height:1.6; }
   .form-label{ display:block; margin:16px 0 7px; font-size:13px; color:var(--ink-2); font-weight:500; }
-  .npcs{ display:flex; gap:10px 18px; flex-wrap:wrap; }
-  .npcs label{ display:flex; align-items:center; gap:7px; font-size:14px; color:var(--ink-2); cursor:pointer; }
-  .npcs input{ width:16px; height:16px; accent-color:var(--accent); }
+  .npcs{ display:flex; gap:8px; flex-wrap:wrap; }
+  /* 登场名册是只读的（v2.1.1）：这里只回答「这一局有谁」。引擎以剧本全部角色为
+     簿记定义域，少一个就在快照里留下指向无卡角色的悬空引用，因此不提供勾选。 */
+  .npcs .chip{ font-size:13.5px; }
   /* 世界选择：与角色区联动的下拉。角色区未出时给一段占位，避免页面出现空白块。 */
   select.field{ cursor:pointer; }
   select.field:disabled{ opacity:.55; cursor:not-allowed; }
@@ -881,7 +882,7 @@
       <p class="lead">你是外部导演，不登场、不说话。先选一个世界，它的世界书与全部角色会一并载入；再设定开场场景，然后注入环境扰动，看这个迷你世界如何运转。</p>
       <label class="form-label" for="world-pick">世界</label>
       <select id="world-pick" class="field"></select>
-      <label class="form-label">同场角色（本世界的角色，默认全选）</label>
+      <label class="form-label">登场角色（本剧本全部角色，不可增减）</label>
       <div class="npcs" id="npcs"></div>
       <div class="npcs-note" id="npcs-note"></div>
       <label class="form-label" for="scene">开场地点（可选）</label>
@@ -1007,9 +1008,9 @@ let SID = '';
 // 输入框默认引导文案，供「同步中」状态时临时切换、结束后复原
 const INPUT_PLACEHOLDER_DEFAULT = input.placeholder;
 
-// 开场区：先选世界 → 再列该世界的角色。
+// 开场区：先选世界 → 再列该世界的角色（只读名册，v2.1.1）。
 // 选世界即加载该世界的全部角色与世界观（世界书），取代早期「按角色逐个反查world」的
-// 做法——后者在多世界并存时会把不同世界的角色混在同一张勾选列表里。
+// 做法——后者在多世界并存时会把不同世界的角色混在同一张列表里。
 const WORLD_PLACEHOLDER = '请选择一个世界';
 async function loadCharacters() {
   const sel = document.getElementById('world-pick');
@@ -1019,10 +1020,13 @@ async function loadCharacters() {
     + (worlds || []).map(w => `<option value="${escHtml(w)}">${escHtml(w)}</option>`).join('');
   sel.disabled = !(worlds || []).length;
   if (keep && (worlds || []).includes(keep)) sel.value = keep;
-  // 没有世界书时给出可执行的指引，而不是留一个空白下拉。
-  document.getElementById('npcs').innerHTML = (worlds || []).length
-    ? '' : '<div class="npcs-empty">还没有任何剧本。先到「剧本库」新建一个剧本，或用「从剧本生成」把剧本一键转成角色与设定。</div>';
   document.getElementById('npcs-note').textContent = '';
+  // 没有世界书时给出可执行的指引，而不是留一个空白下拉。
+  if (!(worlds || []).length) {
+    renderNpcs([]);
+    document.getElementById('npcs').innerHTML = '<div class="npcs-empty">还没有任何剧本。先到「剧本库」新建一个剧本，或用「从剧本生成」把剧本一键转成角色与设定。</div>';
+    return;
+  }
   await syncNpcs();
 }
 
@@ -1031,9 +1035,8 @@ async function loadCharacters() {
 async function syncNpcs() {
   const sel = document.getElementById('world-pick');
   const world = sel.value;
-  const box = document.getElementById('npcs');
   const note = document.getElementById('npcs-note');
-  if (!world) { box.innerHTML = ''; note.textContent = ''; return; }
+  if (!world) { renderNpcs([]); note.textContent = ''; return; }
   const d = await fetch('/api/characters/by-world?world=' + encodeURIComponent(world)).then(r => r.json());
   const names = d.names || [];
   renderNpcs(names);
@@ -1047,9 +1050,14 @@ async function syncNpcs() {
   }
 }
 
+// 登场名册（只读，v2.1.1）：不允许挑选子集。引擎以「剧本全部角色」为簿记定义域，
+// 少选一个人不会少写一段戏，而是让关系基线、秘密归属、亲属身份里出现指向无卡角色的
+// 悬空引用——世界书点名他、关系里有他，prompt 里却没有他的卡。这里只回答「有谁」。
+let NPC_NAMES = [];
 function renderNpcs(list) {
-  document.getElementById('npcs').innerHTML = (list || [])
-    .map(n => `<label><input type="checkbox" value="${escHtml(n)}" checked> ${escHtml(n)}</label>`).join('');
+  NPC_NAMES = list || [];
+  document.getElementById('npcs').innerHTML = NPC_NAMES
+    .map(n => `<span class="chip">${escHtml(n)}</span>`).join('');
 }
 
 async function startSession() {
@@ -1066,10 +1074,11 @@ async function startSession() {
     setupStatus.textContent = '请先选择一个世界';
     return;
   }
-  const cast = [...document.querySelectorAll('#npcs input:checked')].map(c => c.value);
-  if (!cast.length) {
+  // 名册为空说明该剧本一张卡都没有：开局无意义，直接提示去建卡。
+  // v2.1.1 起不再从前端选人，cast 交由后端按 world 取全量，因此这里只校验名册非空。
+  if (!NPC_NAMES.length) {
     setupStatus.className = 'setup-status';
-    setupStatus.textContent = '该剧本下没有可用的在场角色，请先到「剧本库」添加或勾选';
+    setupStatus.textContent = '该剧本下没有可用的登场角色，请先到「剧本库」添加';
     return;
   }
   startBtn.disabled = true;
@@ -1082,7 +1091,8 @@ async function startSession() {
   const scene = [place, time].filter(Boolean).join('，');
   const res = await fetch('/api/session/new', {
     method: 'POST', headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({cast, scene, world}),
+    // 不传 cast：后端按 world 取该剧本全部角色。前端已无挑选入口（v2.1.1）。
+    body: JSON.stringify({scene, world}),
   });
   const data = await res.json();
   if (data.error) {
@@ -1804,6 +1814,8 @@ function escAttr(s){ return escHtml(s).replace(/"/g,'&quot;'); }
 // 角色名册按位置分场展示（v2.1.0）：present 已改为「建局 cast 名册」，不再随进出收缩，
 // 所以面板不能再把它画成一排「在场的人」——那会与「有人已离开」的事实打架。
 // 分组规则与后端 [本轮场面] 段一致：人数最多的一处为主镜头，其余各处整组降透明度。
+// 位置未记录的人单独成组、排在最后且不参与主镜头评选（v2.1.1：首轮只写到两人时，
+// 若把「未记录」按人数排序，四人组会被标成主镜头，与后端分场规则正好相反）。
 // 只在不止一处时分组；全员同场时刻意不分块，避免每回合多出一层与场景行重复的框。
 function rosterHtml(snap, chipOf) {
   const names = snap.present || [];
@@ -1811,18 +1823,25 @@ function rosterHtml(snap, chipOf) {
   const locs = snap.locations || {};
   const place = ((snap.scene || {}).place || '').trim();
   const groups = new Map();
+  const unknown = [];
   names.forEach(n => {
     const p = ((locs[n] || {}).place || '').trim();
+    if (!p) { unknown.push(n); return; }
     if (!groups.has(p)) groups.set(p, []);
     groups.get(p).push(n);
   });
   const ordered = [...groups.entries()].sort((a, b) =>
     b[1].length - a[1].length || ((b[0] === place) ? 1 : 0) - ((a[0] === place) ? 1 : 0));
-  if (ordered.length <= 1) return names.map(chipOf).join('');
-  return ordered.map(([p, ns], i) =>
+  if (ordered.length <= 1 && !unknown.length) return names.map(chipOf).join('');
+  const parts = ordered.map(([p, ns], i) =>
     '<div class="roster-group' + (i ? ' off' : '') + '">'
-    + '<span class="roster-place">' + escHtml(p || '位置未记录') + (i ? '' : '·主镜头') + '</span>'
-    + ns.map(chipOf).join('') + '</div>').join('');
+    + '<span class="roster-place">' + escHtml(p) + (i ? '' : '·主镜头') + '</span>'
+    + ns.map(chipOf).join('') + '</div>');
+  if (unknown.length) {
+    parts.push('<div class="roster-group off"><span class="roster-place">位置未记录</span>'
+      + unknown.map(chipOf).join('') + '</div>');
+  }
+  return parts.join('');
 }
 function entryCard(e, i, expanded) {
   const keys = (e.keys||[]).join('、');

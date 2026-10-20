@@ -60,12 +60,30 @@ def test_single_place_collapses_to_one_line():
     assert "全员同处这一处" in out
 
 
-def test_first_round_without_locations_degrades_to_scene_place():
-    """首轮 locations 还没建立：全员按主场景处理，不制造「位置未更新」噪音。"""
-    out = prompter.scene_roster_block(_snap("某处甲", round_no=1), [A, B, C])
+def test_first_round_does_not_assert_everyone_in_one_place():
+    """首轮没有任何位置记录：只给开场场景 + 一条约束，不把名册全员摆进同一场。
+
+    这是 v1.2.0 删勾选列表时撞的那面墙：首轮写「全员同处这一处」后，六个人被
+    一起搬进开场场景——开场是某人的寝殿，朝堂六人也照塞。引擎此刻并不知道谁在哪，
+    所以只约束「让本就有理由在此处的人登场」，位置等首轮 reflect 记录后再分场。
+    """
+    out = prompter.scene_roster_block(_snap("某处甲", round_no=0), [A, B, C])
     assert "位置未更新" not in out
-    assert "某处甲（深夜）：" + A + "、" + B + "、" + C in out
-    assert "全员同处这一处" in out
+    assert "- 开场：某处甲（深夜）" in out
+    assert "全员同处" not in out
+    # 不把名册列成分场行：列出来模型就会照着名单逐个过场
+    assert A + "、" + B not in out
+    assert "谁现身由本轮情节决定" in out
+
+
+def test_all_stale_locations_not_asserted_as_same_place():
+    """非首轮但全员位置都已陈旧：只报「位置不确定」，同样不断言同处。"""
+    snap = _snap("某处甲", round_no=9, locations={
+        n: {"place": "某处乙", "round": 1} for n in (A, B, C, D)})
+    out = prompter.scene_roster_block(snap, [A, B, C, D])
+    assert "全员同处" not in out
+    assert "位置未更新" in out
+    assert "不要按「名册上还有谁」" in out
 
 
 def test_stale_location_listed_as_unknown():
