@@ -110,8 +110,10 @@ def test_focus_lock_does_not_collapse_to_full_present_v2():
 
 def test_focus_untouched_without_pressure():
     snap = _snap(["角色甲", "角色丙", "角色丁"], [_secret("角色丙", pressure=1)])
+    snap["locations"] = {"角色甲": {"place": "二楼走廊"}}
     focus = director.compute_focus("角色甲独自上楼查看", snap)
-    assert focus == {"subjects": ["角色甲"], "place": "街角仓库", "sticky": False}
+    # v2.1.0：焦点地点取焦点角色的实际位置，不再回退 scene.place
+    assert focus == {"subjects": ["角色甲"], "place": "二楼走廊", "sticky": False}
 
 
 def test_no_focus_no_force():
@@ -119,6 +121,23 @@ def test_no_focus_no_force():
     secrets = [_secret("角色丙", susp=[{"by": "角色丁"}])]
     snap = _snap(["角色甲", "角色丙", "角色丁"], secrets)
     assert director.compute_focus("", snap) is None
+
+
+def test_pressure_rival_requires_same_place():
+    """同场判据改由 locations 承担（v2.1.0）。
+
+    present 现在是「角色名册」（全员），拿它判「眼前有没有人逼近」等于恒真——
+    千里之外的起疑者也会被当成当场对峙。任一方位置未记录时不做否定（不夺其资格）。
+    """
+    snap = _snap(["角色甲", "角色乙"],
+                 [_secret("角色甲", state="起疑", susp=[{"by": "角色乙"}])])
+    snap["locations"] = {"角色甲": {"place": "某处甲"},
+                         "角色乙": {"place": "某处乙"}}
+    assert director.pressure_targets(snap) == [("角色甲", None)]
+    snap["locations"]["角色乙"]["place"] = "某处甲"
+    assert director.pressure_targets(snap) == [("角色甲", "角色乙")]
+    snap["locations"] = {}          # 位置未记录：不否定其在场资格
+    assert director.pressure_targets(snap) == [("角色甲", "角色乙")]
 
 
 # --- 3. prompter 全局提醒段 ---

@@ -55,6 +55,10 @@ MAIN_FLOW_PROBES = [
     # 分组后的两条排序约束：跨组拖拽无效、常量段恒定置顶（否则保存重载后位置弹回）
     ("dragSrc.parentElement !== box", "拖拽禁止跨组"),
     ("Math.min(k, constCount) : Math.max(k, constCount)", "常量段恒定置顶：拖拽插入点钳制"),
+    # 角色名册（v2.1.0）：present 改为建局名册，面板按位置分场渲染
+    ("function rosterHtml", "角色名册按位置分组渲染"),
+    ("角色名册 / 场景", "左栏面板标题已改为角色名册"),
+    ("rosterHtml(snap, chipOf)", "名册面板使用分场渲染"),
 ]
 
 

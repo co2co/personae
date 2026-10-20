@@ -824,14 +824,17 @@ def act():
         full = narrative_clean.clean_narrative(full)
         # present 名单校验/后处理：剥离非在场角色（含已离场者）的台词块；
         # 若本轮有镜头焦点，则按焦点子集裁剪，使镜头真正跟随被引向的角色，其余在场者不展开。
+        # 台词校验：v2.1.0 起 present 是「角色名册」（建局 cast，永不收缩），不再是
+        # 「在场白名单」——无焦点轮 keep=名册，等于只剥名册外角色（如串剧本的卡）；
+        # 有焦点轮按焦点子集裁剪，因为那是导演显式指定「本轮只看这几个人」。
         known = store.list_characters()
         keep_set = set(focus["subjects"]) if focus else set(present)
         full, present_violation = director.validate_present(
             full, present, known, allowed=list(keep_set))
         if present_violation:
-            logger.warn("model", "在场校验：剥离了非在场角色的台词块（已自动清洗）")
+            logger.warn("model", "台词校验：剥离了名册/镜头外的台词块（已自动清洗）")
         else:
-            logger.info("model", "在场校验通过：仅含在场角色台词")
+            logger.info("model", "台词校验通过")
         # 临时群演（aux）机制已废除（v0.30.0）：临时角色交还 LLM 与使用者自主管理，
         # 引擎不再登记、追踪或确保其生命周期；未入册的名字在 validate_present
         # 中当叙述行保留，不会被剥离。

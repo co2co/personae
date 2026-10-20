@@ -653,22 +653,24 @@ def test_reflect_location_fallback_skips_without_scene_place(monkeypatch):
     assert out.get("locations", {}) == {}
 
 
-# ---- 在场名单语义更新（present_change，双轨共存）----
-# scene.apply 靠关键词在生成前处理导演指令明说的离场；reflect 从叙事读「谁实际走了/来了」，
-# 补关键词枚举不到的盲区（上朝/逃往北境/赴任等）。安全网同 scene.apply：只认合法卡、
-# 离开者须在场、到达者须未在场、leave 覆盖全员且无 arrive 时忽略。
+# ---- 名册不再收缩（v2.1.0 拆职责）----
+# present 从「在场名单」改为「角色名册」（建局 cast，永不收缩）。原 present_change
+# 语义兜底整段移除：它同时承担「本轮可写的人」与「物理上同处一地的人」，而群像多线
+# 叙事里两者必然打架（实测：模型把与主角同处一室的角色踢出名单、把千里之外的人留场，
+# arrive 又基本不填）。物理同场改由 locations 表达（[本轮场面] 段按位置分场渲染）。
+# 以下用例反转原三例，守护「present_change 不再被消费、也不再出现在模板里」。
 
 def _pc_snap():
     return {"scene": {"round": 3}, "present": [A, B, C], "relations": {},
             "actions": {}, "silent_rounds": {}, "secrets": [], "facts": [],
-            "states": {}, "goals": {}, "ledger": []}
+            "states": {}, "goals": {}, "ledger": [], "locations": {}}
 
 
-def test_reflect_present_change_leave_and_arrive(monkeypatch):
-    """语义离场/到场：从叙事读谁走了谁来了，更新 present。"""
+def test_reflect_ignores_present_change_field(monkeypatch):
+    """旧字段残留或模型臆造 present_change 时，名册不得收缩、也不得扩张。"""
     import json as _json
     snap = _pc_snap()
-    payload = {"actions": {A: "上朝"},
+    payload = {"actions": {},
                "present_change": {"leave": [A], "arrive": [D]}}
     monkeypatch.setattr(director.llm, "complete",
                         lambda *a, **k: _json.dumps(payload, ensure_ascii=False))
@@ -677,42 +679,32 @@ def test_reflect_present_change_leave_and_arrive(monkeypatch):
     monkeypatch.setattr(director.store, "list_characters", lambda: [A, B, C, D])
     monkeypatch.setattr(director.store, "load_card", lambda n: {"name": n})
     out = director.reflect("sid", f"{A}上朝去了，{D}恰好赶来。")
-    assert A not in out["present"]
-    assert D in out["present"]
+    assert out["present"] == [A, B, C]
 
 
-def test_reflect_present_change_ignores_all_leave_without_arrive(monkeypatch):
-    """leave 覆盖全员且无 arrive = 误判「随世界移动」，忽略，present 不得清空。"""
+def test_reflect_prompt_has_no_present_change(monkeypatch):
+    """纪官 prompt 模板里不得再有 present_change：字段留在模板而代码不消费 = 死机制。
+
+    v2.0.0 那次定向反向合并误删了模板行，写回代码却留着，于是字段成了死代码
+    （模型拿不到模板就从不输出）。此例防止它再回到模板里。
+    """
     import json as _json
+    captured = []
     snap = _pc_snap()
-    payload = {"actions": {},
-               "present_change": {"leave": [A, B, C], "arrive": []}}
-    monkeypatch.setattr(director.llm, "complete",
-                        lambda *a, **k: _json.dumps(payload, ensure_ascii=False))
+
+    def _cap(prompt, **kw):
+        text = prompt if isinstance(prompt, str) else "".join(
+            m.get("content", "") for m in prompt)
+        captured.append(text)
+        return _json.dumps({"actions": {}}, ensure_ascii=False)
+
+    monkeypatch.setattr(director.llm, "complete", _cap)
     monkeypatch.setattr(director.memory, "load", lambda sid: snap)
     monkeypatch.setattr(director.memory, "save", lambda sid, s: None)
     monkeypatch.setattr(director.store, "list_characters", lambda: [A, B, C])
-    monkeypatch.setattr(director.store, "load_card", lambda n: {"name": n})
-    out = director.reflect("sid", f"{A}带所有人转移。")
-    assert set(out["present"]) == {A, B, C}
-
-
-def test_reflect_present_change_filters_invalid_names(monkeypatch):
-    """越名/不在名册的名字丢弃；leave 只认在场者、arrive 只认未在场者。"""
-    import json as _json
-    snap = _pc_snap()
-    payload = {"actions": {},
-               "present_change": {"leave": ["幻觉戊", A], "arrive": ["幻觉己", B]}}
-    monkeypatch.setattr(director.llm, "complete",
-                        lambda *a, **k: _json.dumps(payload, ensure_ascii=False))
-    monkeypatch.setattr(director.memory, "load", lambda sid: snap)
-    monkeypatch.setattr(director.memory, "save", lambda sid, s: None)
-    monkeypatch.setattr(director.store, "list_characters", lambda: [A, B, C, D])
-    monkeypatch.setattr(director.store, "load_card", lambda n: {"name": n})
-    out = director.reflect("sid", f"{A}离场，{B}已在场。")
-    assert A not in out["present"]   # 合法离场生效
-    assert "幻觉戊" not in out["present"] and "幻觉己" not in out["present"]
-    assert B in out["present"]       # B 本就在场，arrive 重复忽略
+    director.reflect("sid", "无人离开。")
+    assert captured, "纪官必须被调用"
+    assert '"present_change"' not in captured[0]
 
 
 

@@ -395,7 +395,6 @@ def test_scene_shift_consumed_once(monkeypatch):
     import scene
     calls = []
     monkeypatch.setattr(scene.llm, "complete", lambda *a, **k: calls.append(1) or "{}")
-    monkeypatch.setattr(scene.store, "list_characters", lambda: ["角色甲"])
     snap = {"scene": {"same_scene": 0, "place": "客厅", "time": "清晨", "weather": ""},
             "present": ["角色甲"], "goals": {},
             "scene_shift": {"changed": True, "place": "楼道", "time": "", "weather": ""}}

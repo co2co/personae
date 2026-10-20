@@ -2,8 +2,9 @@
 
 不调真实 LLM：monkeypatch scene.llm.complete 返回受控 JSON。
 覆盖：
-- 危险响应（leave 覆盖全部在场者、arrive 为空）-> 视为随世界移动，present 不得清空
-- 显式单人离场（leave 仅含部分）-> 仍应生效
+- 名册不因离场收缩（v2.1.0）：present 是「建局角色名册」，scene.apply 只改场景
+  （地点/时间/天气）；纪官/场景导演即便吐 leave/arrive 也不消费——「谁在哪」由
+  locations 维护，由 [本轮场面] 段按位置分场渲染
 - 场景防僵死：指令含触发词但 LLM 判定无变化时，停留计数必须累加（不得清零）
 - 停留超时触发时必须带"强制推进"提示，且失败后进入冷却而非每轮调 LLM
 """
@@ -31,9 +32,6 @@ def _fake_complete(messages, **kw):
 @pytest.fixture
 def patched(monkeypatch):
     monkeypatch.setattr(scene.llm, "complete", _fake_complete)
-    monkeypatch.setattr(scene.store, "list_characters",
-                        lambda: ["角色甲", "角色丙", "角色戊", "角色丁", "角色乙"])
-    monkeypatch.setattr(scene.store, "load_card", lambda n: {"short_goal": ""})
 
 
 def _snap():
@@ -48,12 +46,16 @@ def test_scene_apply_keeps_present_on_move_together(patched):
     snap = _snap()
     changed, prop = scene.apply("sid", "角色甲带所有人从后窗突围撤离，目标城东", snap)
     assert changed is True
-    # 关键回归：leave 覆盖全员且无 arrive -> 视为随世界移动，present 不得清空
+    # v2.1.0：名册是建局 cast，不随场景切换收缩
     assert snap["present"] == ["角色甲", "角色丙", "角色戊", "角色丁", "角色乙"]
 
 
-def test_scene_apply_explicit_single_leave_respected(patched):
-    # 显式单人离场仍应生效（leave 仅含部分在场者）
+def test_scene_apply_does_not_shrink_roster_on_leave(patched):
+    """场景导演吐 leave 也不再改名单：名册恒定，「谁在哪」交给 locations。
+
+    原行为（v2.1.0 前）：leave 只含部分在场者时把该角色移出 present。实测后果是
+    名册与「本轮可写范围」被绑死——同处一室的角色被踢出、支线角色整条消失。
+    """
     def _fake2(messages, **kw):
         return json.dumps({"changed": True, "place": "便利店后仓", "time": "",
                            "weather": "（未设定）", "leave": ["角色丁"], "arrive": [],
@@ -61,8 +63,8 @@ def test_scene_apply_explicit_single_leave_respected(patched):
     scene.llm.complete = _fake2
     snap = _snap()
     changed, prop = scene.apply("sid", "角色丁出去找女儿", snap)
-    assert "角色丁" not in snap["present"]
-    assert len(snap["present"]) == 4
+    assert snap["present"] == ["角色甲", "角色丙", "角色戊", "角色丁", "角色乙"]
+    assert prop and prop.get("leave") == ["角色丁"], "字段可留在响应里，但不得被消费"
 
 
 def _no_change_complete(messages, **kw):
@@ -123,9 +125,12 @@ def test_triggered_on_spatial_door_split():
     assert force is False
 
 
-def test_leave_respected_on_door_split(patched):
-    """T2 根因修复：指令含「门外/挡在门外」时，scene LLM 返回的 leave 不被清空，
-    被挡在门外的角色应从在场名单移除（其余人随场景移动）。
+def test_leave_ignored_on_door_split(patched):
+    """门内门外不再是「离场」：场景照常更新，名册不变。
+
+    v2.1.0 前这里断言「被挡在门外的角色应从在场名单移除」，靠 LEAVE_KEYS 与
+    leave 字段把空间分隔塞进名单。现在空间分隔由 locations 的 place 表达
+    （角色甲在门外、其余人在门内），名单不承担这件事。
     """
     def _fake_door(messages, **kw):
         return json.dumps({"changed": True, "place": "门内", "time": "",
@@ -136,7 +141,8 @@ def test_leave_respected_on_door_split(patched):
     changed, prop = scene.apply(
         "sid", "角色丁挤进门内找家人，角色甲被挡在门外，两边分开", snap)
     assert changed is True
-    assert "角色甲" not in snap["present"]
+    assert snap["scene"]["place"] == "门内"
+    assert "角色甲" in snap["present"], "被挡在门外不等于从名册移除"
 
 
 def test_scene_apply_clears_goals_on_place_change(patched):

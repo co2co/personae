@@ -153,6 +153,81 @@ def _ferment_hint(secret, forced=False):
     return ""
 
 
+# 位置记录超过这么多轮未更新，就当作「位置不确定」而不是「还在原处」：
+# 纪官按叙事重点报位置，支线角色可能连续多轮不被提及，硬按旧位置分场会把
+# 早已离开的人钉在原地（v2.1.0 拆职责时定）。
+_ROSTER_STALE_ROUNDS = 3
+
+
+def scene_roster_block(snap, roster):
+    """渲染「本轮场面」段：谁与谁同处一地、哪一处是默认主镜头。
+
+    这是 v2.1.0 拆职责的核心：`present` 不再是「在场名单」而是「角色名册」
+    （建局 cast，永不收缩），所以「谁在场」不再由名单表达——名单说不出口
+    「六人分处四地」，只会让模型把六个名字逐个过一遍。物理同场改由
+    `locations` × 默认主镜头派生，与 [人物位置] 段合并渲染（同源不重复投料）。
+
+    默认主镜头取「人数最多的一处」，是确定性规则，不依赖模型自报。
+    `scene.place` 只作「镜头所在」提示：它与人群脱钩时（镜头漂到空场景）
+    显式点出来，让模型知道该从哪一处写起。
+    """
+    if not roster:
+        return ""
+    sc = snap.get("scene") or {}
+    place = (sc.get("place") or "").strip()
+    locs = snap.get("locations") or {}
+    cur = sc.get("round") or 0
+    groups, unknown = {}, []
+    for n in roster:
+        rec = locs.get(n) or {}
+        p = (rec.get("place") or "").strip()
+        rnd = rec.get("round")
+        if not p or (isinstance(rnd, int) and isinstance(cur, int)
+                     and cur - rnd >= _ROSTER_STALE_ROUNDS):
+            unknown.append((n, p))
+        else:
+            groups.setdefault(p, []).append(n)
+    stamp = "｜".join(x for x in [sc.get("time") or "", sc.get("weather") or ""] if x)
+    place_raw = place
+    if stamp and place:
+        place = place + "（" + stamp + "）"
+
+    # 首轮尚无任何位置记录：全员按主场景处理，不制造「位置未更新」噪音。
+    if not groups:
+        groups = {place or "（未设定）": list(roster)}
+        unknown = []
+
+    lines = ["[本轮场面（按位置分场，不可违背）]"]
+    single = len(groups) == 1 and not unknown
+    main_place, main_names = "", []
+    for p, ns in groups.items():
+        if len(ns) > len(main_names):
+            main_place, main_names = p, ns
+    for p, ns in groups.items():
+        mark = ""
+        if not single and p == main_place:
+            mark = "　← 默认主镜头"
+        lines.append("- " + p + "：" + "、".join(ns) + mark)
+    if unknown:
+        lines.append("- 位置未更新：" + "、".join(
+            n + ("（上次在 " + p + "）" if p else "") for n, p in unknown)
+            + "　（位置不确定，写到时按叙事自然交代，勿断言其与谁同处一室）")
+    if not single and place_raw and place_raw not in groups:
+        lines.append("镜头所在：" + place_raw + "（此刻无人）——除非本轮指令要求切到这里，否则从 "
+                     + (main_place or "人数最多处") + " 写起。")
+    if single:
+        lines.append("本回合全员同处这一处，按同一场写。")
+    else:
+        lines.append(
+            "以上是各人此刻的位置（不可违背）：除非本轮指令或叙事明确推动其移动，"
+            "否则角色不得凭空出现在别处，更不得同一角色同时身处两地。"
+            "这也是分场依据，不是「谁有资格被写」：主镜头落在导演指令指向的那一处，"
+            "无指定时落在默认主镜头；其余各处只用一两句话交代（他在哪里、在做什么），"
+            "不给整段「角色名：」对白、不逐个过场。分处两地的人听不见彼此说话，"
+            "不得写成同场对话，也不得让一处的人知道另一处刚发生的细节。")
+    return "\n".join(lines)
+
+
 def _global_pressure_block(snap, cards_present):
     """高压秘密的全局提醒段：与导演指令同级，位于输出格式之后（近因最强）。
 
@@ -191,8 +266,9 @@ _LAWS_PREFIX = (
     "你在写一场多人角色扮演的戏，是在场的多个角色之间的实时互动。你是叙事者，"
     "写的是「此刻正在发生的事」，不是复述规则、不是解说、不是预告。\n"
     "写作基调（照着这样写）：\n"
-    "① 让每个在场角色都动起来、都说话：他们各自带着自己的欲望与盘算，在互动里推进剧情，"
-    "不是站着当背景。关系（亲近/对立/和解）要在具体的动作与对话里落地，落到实处，"
+    "① 让本场的人动起来、都说话：他们各自带着自己的欲望与盘算，在互动里推进剧情，"
+    "不是站着当背景。别处的人不必都开口——分处两地的场面按场次写，不要为了「人人有份」"
+    "把每个角色都过一遍。关系（亲近/对立/和解）要在具体的动作与对话里落地，落到实处，"
     "不要只停留在心理铺垫。\n"
     "② 每个角色按其「核心渴望」行动、受其「核心恐惧」约束：这两样是这个角色做事的依据。"
     "当角色被迫做出违背恐惧的选择时，写出他内心的挣扎与让步，让转折有过程。\n"
@@ -446,14 +522,11 @@ def build_session(cards_present, directive, world_hits, snap,
     # 人物位置：谁在哪里是物理事实，须与状态键分离（见 director.update_locations）。
     # 分队/离场时镜头所在（scene.place）与各角色实际位置不同，此处给出逐人位置，
     # 防止模型把「已困电梯的人」又写回「在卧室里」造成空间矛盾（会话 9f2e16e9 事故）。
-    loc_lines = ["- " + k + "：" + (v.get("place") or "")
-                 for k, v in (snap.get("locations") or {}).items() if v]
-    if loc_lines:
-        blocks.append(
-            "[人物位置（不可违背）]\n" + "\n".join(loc_lines)
-            + "\n以上为各角色本轮所处的位置；除非本轮指令或叙事明确推动其移动，"
-              "否则角色不得凭空出现在别处，更不得同一角色同时身处两地。"
-        )
+    # v2.1.0：与「本轮场面」合并渲染——两者同源于 locations，分开写等于重复投料，
+    # 且「逐人一行」的旧形态只说了位置、没说分场，模型仍会当成「人人有镜头」。
+    roster = scene_roster_block(snap, list(cards_present))
+    if roster:
+        blocks.append(roster)
     blocks.append(
         state_block
         + "\n回合：" + str(sc["round"])
@@ -469,34 +542,37 @@ def build_session(cards_present, directive, world_hits, snap,
         subs = "、".join(focus["subjects"])
         others = [n for n in cards_present if n not in focus["subjects"]]
         others_s = "、".join(others) if others else "（无）"
-        place = focus.get("place") or snap["scene"].get("place", "")
+        fplace = (focus.get("place") or "").strip()
         present_clause = (
             "本回合镜头主角（必须重点描写并推动其剧情）：" + subs
-            + ("（当前位于 " + place + "）" if place else "")
-            + "。其余在场角色 " + others_s + " 此刻在别处/原场景待命，不在本回合镜头内；"
+            + ("（位于 " + fplace + "）" if fplace else "")
+            + "。其余角色 " + others_s + " 不在本回合镜头内；"
             + "除非指令明确把他们带进来，否则不要写他们的「角色名：」段落、也不要展开描写，"
-            + "最多用一句无说话人的旁白带过「在别处待命」。"
-            + "严禁写任何未在场的角色（含已离场者）与环境推手（导演）台词。"
+            + "最多用一句无说话人的旁白带过（他们在哪儿见 [本轮场面]）。"
+            + "叙事中只可出现名册内角色，不得发明新角色，也不要写环境推手（导演）台词。"
         )
         focus_block = (
             "\n【镜头跟随】导演指令将镜头引向 " + subs
-            + ("（" + place + "）" if place else "")
+            + ("（" + fplace + "）" if fplace else "")
             + "，他们必须作为本轮叙事主视角出场并推进剧情；"
             + others_s + " 在镜头之外，本轮不展开。"
         )
     else:
         present_clause = (
-            "本轮在场角色：" + present_names + "。"
-            + "只能写这些在场角色（含其台词与动作），严禁写任何未在场的角色（包括已离场者），"
+            "本剧角色名册（有卡、可出场）：" + present_names + "。"
+            + "这是全部角色，不等于本轮同场——谁在哪儿、哪一处是主镜头，见 [本轮场面]。"
+            + "叙事中只可出现名册内角色，不得发明新角色；"
             + "也绝对不要写环境推手（导演）台词或让任何角色对环境推手说话。"
         )
 
     blocks.append(
 
-        "[输出格式]\n用多说话人叙事写这一轮，" + present_clause + "\n"
+        "[输出格式]\n用多说话人叙事写这一轮：开口的角色以「角色名：」另起一段接台词"
+        "（动作与神态写在叙述里）。" + present_clause + "\n"
         "情节由导演指令驱动，推进关系碰撞、秘密发酵与后果留痕，让这个世界自己运转起来。"
-        "导演指令点名的角色必须作为本轮叙事焦点之一出场并推动剧情；严禁把指令点名角色无声略过或写成已离场"
-        "（除非指令明确令其离开）。若点名角色前往某地/做某事，必须呈现其对应段落，不得只写留下的其他人。"
+        "导演指令点名的角色必须作为本轮叙事焦点之一出场并推动剧情；严禁把指令点名角色无声略过"
+        "（除非指令明确令其离开当前场景）。"
+        "若点名角色前往某地/做某事，必须呈现其对应段落，不得只写留下的其他人。"
     )
     # 写法示范（demo）：剧本在世界书里写的 few-shot 范例，放在输出格式段之后（近因位置）。
     if demo_hits:

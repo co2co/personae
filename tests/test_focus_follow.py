@@ -60,12 +60,19 @@ def _snap(present, place="下水道", focus=None):
 # ---------------------------------------------------------------------------
 
 def test_compute_focus_named_subset():
-    """指令点名一个真子集 -> 镜头跟随该子集（sticky=False）。"""
+    """指令点名一个真子集 -> 镜头跟随该子集（sticky=False）。
+
+    v2.1.0：焦点地点取焦点角色的 locations（不再用 scene.place——多线叙事里
+    scene.place 是「主镜头落点」，会漂到支线甚至空场景）。
+    """
     snap = _snap(["角色丙", "角色丁", "角色戊", "角色甲", "角色乙"], "下水道")
+    snap["locations"] = {"角色甲": {"place": "下水道深处"},
+                         "角色乙": {"place": "下水道深处"},
+                         "角色丙": {"place": "街口"}}
     f = director.compute_focus("角色甲带领角色乙下去下水道查看", snap)
     assert f is not None
     assert f["subjects"] == ["角色甲", "角色乙"]
-    assert f["place"] == "下水道"
+    assert f["place"] == "下水道深处"
     assert f["sticky"] is False
 
 
@@ -102,6 +109,26 @@ def test_compute_focus_no_name_is_none():
     assert f is None
 
 
+def test_compute_focus_avoidance_phrase_keeps_named_subject():
+    """「避开众人」不是群体点名（v2.1.0 删掉群体词白名单后的关键回归）。
+
+    原实现用 _GROUP_WORDS 白名单判「是否把镜头交给全体」，只要指令含「众人」二字
+    就 return None，于是「角色甲避开众人，独自去后院」丢了焦点，镜头退回全员平摊。
+    这类白名单只能靠不断加词去兜语义，加到最后一无所获，故整条删除：
+    镜头只由「有没有点名具体的人」决定，没点名就交给 [本轮场面] 的默认主镜头。
+    """
+    snap = _snap(["角色甲", "角色乙", "角色丙", "角色丁"], "某处")
+    f = director.compute_focus("角色甲避开众人，独自去后院", snap)
+    assert f is not None
+    assert f["subjects"] == ["角色甲"]
+
+
+def test_compute_focus_group_word_without_names_is_none():
+    """真正没点名任何人的群体指令 -> 仍无焦点（默认主镜头接管）。"""
+    snap = _snap(["角色甲", "角色乙", "角色丙", "角色丁"], "某处")
+    assert director.compute_focus("众人各自收拾行装", snap) is None
+
+
 # ---------------------------------------------------------------------------
 # 2. prompter 注入镜头跟随指令
 # ---------------------------------------------------------------------------
@@ -123,14 +150,19 @@ def test_prompter_injects_camera_block():
 
 
 def test_prompter_no_focus_keeps_all_present():
-    """无焦点时提示词应保留"本轮在场角色"全覆盖句式，不注入镜头跟随块。"""
+    """无焦点时提示词按「角色名册」给全量，不注入镜头跟随块。
+
+    v2.1.0：措辞从「本轮在场角色…只能写这些」改为「本剧角色名册…不等于本轮同场」——
+    前者在六人分处四地时逼模型逐个过场，后者把同场判断交给 [本轮场面] 段。
+    """
     cards = make_cards(["角色甲", "角色乙", "角色丙"])
     snap = _snap(["角色甲", "角色乙", "角色丙"], "下水道")
     msgs = prompter.build_session(
         cards, "夜色渐深", [], snap, [], [], focus=None)
     text = "\n".join(m["content"] for m in msgs)
     assert "【镜头跟随】" not in text
-    assert "本轮在场角色：" in text
+    assert "本剧角色名册" in text
+    assert "[本轮场面（按位置分场，不可违背）]" in text
 
 
 # ---------------------------------------------------------------------------

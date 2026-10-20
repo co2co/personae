@@ -1,16 +1,16 @@
-"""场景自动切换：环境推手注入扰动 / 时间推移时，调用一次轻量 LLM 产出新场景与在场变化。
+"""场景自动切换：环境推手注入扰动 / 时间推移时，调用一次轻量 LLM 产出新场景。
 
 设计原则：
 - 规则版触发（关键词命中）避免每轮都调 LLM；命中后才发一次小请求定稿。
 - 同场景停留超过 AUTO_TIME_THRESHOLD 回合，自动让时间流逝一次，避免场景僵死。
-- 始终保护在场名单：环境推手不入场，在场名单只受指令显式进出影响；去重、只认合法卡、离开/到达都做安全网过滤。
-  这正是此前"在场角色" bug 的同一类坑，这里用与 session_new 一致的去重/剔除逻辑。
+- 只管场景本身（地点/时间/天气），**不判断角色进出**（v2.1.0）：`present` 是建局
+  定下的角色名册，永不收缩；「谁在哪」由 locations 维护，并由 [本轮场面] 段按位置
+  分场渲染。早期把「物理同场」塞进「可写名单」的做法已在 v2.1.0 移除。
 """
 
 import json
 
 import llm
-import store
 
 # 移动类触发词：指令明确要求换地点
 MOVE_KEYS = ["去", "回", "走到", "前往", "出门", "下楼", "上楼", "离开", "回到",
@@ -33,36 +33,29 @@ INITIAL_TIME_KEYS = [
 # 天气类触发词：环境扰动
 WEATHER_KEYS = ["下雨", "雨", "下雪", "雪", "刮风", "风", "打雷", "雷", "放晴", "晴",
                 "阴", "起雾", "雾", "天色", "天气", "降温", "升温"]
-# 显式离场触发词：仅当指令含这些词时，才允许把角色移出在场名单。
-# 纯地点移动（去/来到/前往/走到）视作全员随世界一起转移，绝不移除在场者，
-# 避免导演指令指向的角色（如“去下水道侦察”）被 scene LLM 误判离场而静默丢弃。
-LEAVE_KEYS = ["离开", "离场", "回房", "回去睡", "出去", "走开", "撤离", "退出", "离去",
-              "撤走", "先走", "离开这里", "离开现场", "退场", "出门去", "离开仓库",
-              "门外", "挡在门外", "留守", "留在", "隔开"]
+# v2.1.0：LEAVE_KEYS（显式离场触发词表）随 leave/arrive 处理一并删除。
+# 「谁在哪」改由 locations 表达，本层不再判断角色进出，也就没有「离场词」这个概念。
 # 同场景停留这么多回合后，自动让时间/地点自然流逝一次（贴合原版 A4 的 ≥3 回合）
 AUTO_TIME_THRESHOLD = 3
 
-_PROMPT = """你是关系沙盘的“场景导演”。环境推手注入一条扰动指令，判断场景/天气/在场是否变化，仅输出一行 JSON。
+_PROMPT = """你是关系沙盘的“场景导演”。环境推手注入一条扰动指令，判断场景/天气是否变化，仅输出一行 JSON。
 当前场景：{place} ｜ 时间：{time} ｜ 天气：{weather}
-当前在场：{present}
 环境推手指令：{action}
-已知全部角色卡：{all_chars}
 
 输出 JSON 字段：
-- changed: 布尔。仅当指令明确要求切换地点、推移时间、改变天气，或有人进出时为真。
+- changed: 布尔。仅当指令明确要求切换地点、推移时间或改变天气时为真。
 - place: 新地点（无变化填原 place）。
 - time: 新时间（无变化填原 time）。**必须是一个干净的「时刻/时段」名词**，例如
   傍晚/夜晚/深夜/清晨/凌晨/午后/中午/正午/第二天/次日/入夜/天亮/天黑/黄昏/黎明/早晨/早上/上午/下午/白天。
   严禁填入动作句、描写句或括号补充，例如「夜幕降临」「天色暗沉」「无（室内…）」「窗外夜色浓稠」这类都不允许。
 - weather: 新天气（无变化填原 weather；可填 晴/雨/雪/阴/大风/雾 等，同样只填干净名词，不要带括号描述）。
-- leave: 明确离开场景、不再在场的角色（必须来自 all_chars）。
-- arrive: 新进入场景的角色（必须来自 all_chars）。
 - reason: 一句话说明。
 
 约束（务必遵守）：
-1. 若指令仅切换地点/时间/天气（如“切换到阳台”“天黑了”“下起雨”），全员随世界一起移动，leave/arrive 必须为空数组。
-2. 仅当指令明确写某角色离开，或空间上与队伍分隔（如“让X离开”“X回房睡了”“X被挡在门外”“X留守门外”“两人分开，X留在原地”），才在 leave/arrive 填入；其中“被挡在门外/留在另一处/与队伍分开”也视为离场，可在 leave 填该角色，其余人随场景移动，不要因此把全员都移出。
-3. leave/arrive 名字必须严格来自 all_chars；无人进出则为空数组。只输出 JSON，不要任何解释文字。
+1. 若指令仅切换地点/时间/天气（如“切换到阳台”“天黑了”“下起雨”），只更新对应字段，其余保持原值。
+2. 你**不判断角色进出**：谁在哪由事后从叙事里读位置来维护（纪官 location_updates），
+   本层只管场景本身。指令若点名某人离开，place/时间照常更新，不要额外推断其余人的去向。
+3. 只输出 JSON，不要任何解释文字。
 4. **将来时态不算当前变化**：指令写「即将到来的夜晚」「明天会下雨」「稍后去某地」这类**尚未发生**的事，只是铺垫或预告，不代表时间/天气/地点此刻已经改变——此时 changed 填 false，time/weather/place 保持原值，不得把「即将到来」当成「已经到来」。「夜晚快到了」「天快黑了」等同属将来时预告，同样不推进。
 5. **时间词原样采用**：指令里若出现明确时间词（如「第二天」「清晨」「入夜」「午后」），time 应**原样采用该词或其等价时段名词**，不得自由改写成别的时段——尤其「第二天」不得丢掉跨日语义、降级成「白天」「天亮」。「傍晚」不得被改写成「入夜」。"""
 
@@ -144,14 +137,11 @@ def apply(sid, directive, snap):
         snap["scene"]["same_scene"] = snap["scene"].get("same_scene", 0) + 1
         return False, None
 
-    all_chars = store.list_characters()
     prompt = _PROMPT.format(
         place=snap["scene"].get("place", ""),
         time=snap["scene"].get("time", ""),
         weather=snap["scene"].get("weather", "") or "（未设定）",
-        present="、".join(snap["present"]),
         action=directive,
-        all_chars="、".join(all_chars),
     )
     if force:
         prompt += _FORCE_HINT.format(stuck=snap["scene"].get("same_scene", 0))
@@ -205,32 +195,11 @@ def apply(sid, directive, snap):
     if new_place and new_place != old_place:
         snap["goals"] = {}
 
-    # 落实場名单变化（安全网：去重、仅合法卡、离开者须当前在场、到达者须未在场）
-    present = list(snap["present"])
-    orig_present = set(present)
-    leave = [c for c in dict.fromkeys(prop.get("leave", []))
-             if c in all_chars and c in present]
-    arrive = [c for c in dict.fromkeys(prop.get("arrive", []))
-              if c in all_chars and c not in present]
-    # 硬约束：指令未显式含离场词时，纯地点移动视作全员随世界转移，
-    # 绝不移除任何在场者——避免导演指令指向的角色被静默丢弃（如“去下水道侦察”被误判离场）。
-    if not any(k in (directive or "") for k in LEAVE_KEYS):
-        leave = []
-    # 安全网增强：LLM 偶发把"全员随世界转移"误填进 leave（把"离开旧地点"理解成每人离场），
-    # 一旦清空在场名单，下游 validate_present 会把整段回复剥空、用户拿到一片空白。
-    # 规则：若 leave 覆盖全部在场者且无 arrive，判定为"随世界一起移动"，忽略 leave/arrive；
-    # 若施加后名单仍为空（任何原因），同样回退为全员随世界移动，绝不允许空在场名单。
-    if leave and set(leave) >= orig_present and not arrive:
-        leave, arrive = [], []
-    for c in leave:
-        present.remove(c)
-    for c in arrive:
-        present.append(c)
-        # 到达者补齐短期目标，避免前端/后续归因缺失
-        snap.setdefault("goals", {})[c] = store.load_card(c).get("short_goal", "")
-    if not present:
-        present = list(orig_present)
-    snap["present"] = present
+    # v2.1.0 拆职责：present 是「角色名册」（建局 cast），不再随场景切换或人员进出收缩。
+    # 「谁在哪」由 locations 表达（纪官的 location_updates → [本轮场面] 段按位置分场），
+    # 本层只负责场景本身（地点/时间/天气）。原 leave/arrive 处理整段移除：它把「物理同场」
+    # 硬塞进「可写名单」，而群像多线叙事里两者必然打架（实测会把与主角同处一室的角色
+    # 踢出名单、让支线角色整条消失，且 arrive 基本不会被模型填）。
     return True, prop
 
 

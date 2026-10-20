@@ -363,18 +363,39 @@ _FOLLOW_WORDS = ["两人", "俩人", "2人", "他们", "他俩", "这俩", "那�
 # 群体点名：导演指令显式把镜头交给全体在场者（「众人讨论」「大家商量」）。这类指令是玩家
 # 明确的操控意图，须尊重、不得被高压秘密强制覆盖——否则不了解机制的玩家会以为引擎
 # 不遵循指令（见会话 97589153 事故：导演指令「众人讨论去处」被高压镜头压成二人戏）。
-_GROUP_WORDS = ["众人", "大家", "所有人", "全员", "每个人", "大家伙", "众人皆"]
+# v2.1.0：原 _GROUP_WORDS（「众人/大家/所有人/全员…」）白名单已删除。
+# 它想解决的是「指令把镜头交给全体 → 不要只盯一个人」，但判据是「指令里有没有这几个字」，
+# 于是「避开众人」被当成群体点名、焦点直接丢失（8 轮探针 R6 实测）。这类白名单只能靠
+# 不断加词去兜语义，加到最后一无所获。真正该决定镜头的是「场上有没有一个明确的人被点名」：
+# 点了一部分人就跟随那一部分；没点名就交给 [本轮场面] 的默认主镜头（由位置算出，确定）。
+
+
+def _focus_place(snap, subjects):
+    """焦点所在地：取焦点角色 locations 的众数（人数相同取先出现者）。
+
+    v2.1.0：不再退回 scene.place——那是「主镜头落点」，多线叙事里会漂到支线甚至空场景，
+    而焦点角色实际在哪由 locations 说话（探针 R7：scene.place 已是空无一人的大营）。
+    """
+    locs = snap.get("locations") or {}
+    cnt = {}
+    for n in subjects:
+        p = ((locs.get(n) or {}).get("place") or "").strip()
+        if p:
+            cnt[p] = cnt.get(p, 0) + 1
+    if not cnt:
+        return ""
+    return max(cnt.items(), key=lambda kv: kv[1])[0]
 
 
 def compute_focus(directive, snap):
-    """计算本轮镜头焦点（被指令点名/引用的在场子集）。
+    """计算本轮镜头焦点（被指令点名/引用的角色子集）。
 
     返回 {"subjects": [...], "place": "...", "sticky": bool} 或 None。
     - 指令点名一个真子集 -> 镜头跟随该子集（sticky=False）。
     - 指令无点名但含指代代词（两人/他们/...）且上轮有焦点 -> 延续上轮焦点（sticky=True），
       避免"2人逐渐深入"这类后续指令丢失焦点、镜头跳回初始位置。
-    - 指令点名全体或无人 -> None，表示自然推演、全员在场皆可写。
-    place 取快照当前场景地点（scene.apply 已更新为新地点）。
+    - 指令点名全体或无人 -> None，表示自然推演，交由 [本轮场面] 的默认主镜头决定。
+    place 取焦点角色在 locations 里的实际所在地（v2.1.0，不再用 scene.place）。
 
     导演体验优先（v0.18.3 裁定）：镜头只由导演指令驱动，秘密发酵压力（pressure）不再
     对镜头施加任何强制——不强制并入、不强制锁定、不兜底撑镜头。引擎定位是小空间群像，
@@ -387,15 +408,11 @@ def compute_focus(directive, snap):
     named = [n for n in present if n in directive]
     prev = snap.get("focus") or {}
 
-    # 群体点名：导演指令显式把镜头交给全体在场者 -> 自然推演。
-    if any(w in directive for w in _GROUP_WORDS):
-        return None
-
     # 导演指令点名具体子集 -> 镜头跟随该子集。
     if 0 < len(named) < len(present):
-        return {"subjects": named, "place": snap["scene"].get("place", ""), "sticky": False}
+        return {"subjects": named, "place": _focus_place(snap, named), "sticky": False}
 
-    # 导演指令点名全体（列出所有在场者名）-> 自然推演。
+    # 导演指令点名全体（列出所有角色名）-> 自然推演。
     if named:
         return None
 
@@ -403,7 +420,7 @@ def compute_focus(directive, snap):
     if prev and any(w in directive for w in _FOLLOW_WORDS):
         subs = prev.get("subjects", [])
         if subs and all(s in present for s in subs):
-            return {"subjects": subs, "place": snap["scene"].get("place", ""), "sticky": True}
+            return {"subjects": subs, "place": _focus_place(snap, subs), "sticky": True}
     return None
 
 
@@ -555,12 +572,15 @@ def _as_dict_list(val):
 
 
 def validate_present(reply, present, known_names, allowed=None):
-    """后处理：剥离非在场角色的台词块，修掉模型偶发写出已离场角色的出戏问题。
+    """后处理：剥离不在保留集合内的角色台词块。
 
-    reply 是"角色名："分段的多说话人叙事。出现在其中的、已知但不在保留集合（默认为
-    在场名单 present，或显式传入的 allowed 焦点子集）内的角色台词块（含其续行）会被移除；
-    无说话人的叙述行与保留集合内角色台词保留。
+    reply 是"角色名："分段的多说话人叙事。出现在其中的、已知但不在保留集合内的
+    角色台词块（含其续行）会被移除；无说话人的叙述行与保留集合内角色台词保留。
     返回 (清洗后文本, 是否发生违例)。
+
+    v2.1.0：`present` 已是「角色名册」（建局 cast，永不收缩），不再表示在场——
+    默认 keep=名册，等于只剥「有名有姓但不是本局角色」的台词（串剧本/幽灵角色）；
+    传 `allowed`（焦点子集）时按焦点裁剪，那是导演显式指定「本轮只看这几个人」。
     """
     keep = set(allowed) if allowed else set(present)
     if not reply or not known_names or not keep:
@@ -870,11 +890,26 @@ def _update_secret_pressure(snap, touches):
             s["pressure"] = min(PRESSURE_MAX, s.get("pressure", 0) + 1)
 
 
+def _same_place(snap, a, b):
+    """两人此刻是否同处一地（locations 为唯一真相源）。
+
+    v2.1.0：present 已改为「角色名册」（建局 cast，全员），拿它判「眼前有没有人逼近」
+    等于恒真——千里之外的起疑者也会被当成当场对峙。同场判断改由 locations 承担；
+    任一方位置未记录时不做否定（宁可不夺其资格），避免首轮或支线漏报。
+    """
+    locs = snap.get("locations") or {}
+    pa = ((locs.get(a) or {}).get("place") or "").strip()
+    pb = ((locs.get(b) or {}).get("place") or "").strip()
+    if pa and pb:
+        return pa == pb
+    return True
+
+
 def pressure_targets(snap, present=None):
     """本轮处在高压档（必须碰撞）的秘密及其在场对手：[(owner, rival|None), ...]。
 
     只取未揭开的秘密（已曝光者压力恒为 0，不存在发酵问题）。
-    对手优先取已起疑者（最可能撞出戏），其次握把柄/知情者；须在场且非归属者。
+    对手优先取已起疑者（最可能撞出戏），其次握把柄/知情者；须与归属者同处一地且非归属者。
     每条秘密最多配一个对手——对手给多了镜头会被撑成全员，等于取消镜头。
     """
     present = list(present if present is not None else (snap.get("present") or []))
@@ -891,12 +926,14 @@ def pressure_targets(snap, present=None):
         rival = None
         for x in s.get("suspicions") or []:
             b = (x or {}).get("by")
-            if b and b != owner and b != ENV_PUSHER and b in present:
+            if (b and b != owner and b != ENV_PUSHER and b in present
+                    and _same_place(snap, owner, b)):
                 rival = b
                 break
         if rival is None:
             for k in (s.get("holders") or s.get("known_by") or []):
-                if k != owner and k != ENV_PUSHER and k in present:
+                if (k != owner and k != ENV_PUSHER and k in present
+                        and _same_place(snap, owner, k)):
                     rival = k
                     break
         out.append(((s.get("pressure") or 0), owner, rival))
@@ -1158,7 +1195,7 @@ def reflect(sid, reply, directive=""):
             '  "handle_releases": [{"owner": "秘密归属者", "from": "失去把柄的人", "to": "接过把柄的人（彻底失去则填空字符串）", "evidence": "本轮叙事原文片段"}],\n'
             '  "secret_touches": [{"owner": "秘密归属者", "touched": true}],\n'
             '  "location_updates": [{"who": "角色名", "place": "该角色本轮结束时所在的具体地点"}],\n'
-            '  "scene_shift": {"changed": false, "place": "本轮叙事末尾所处的地点", "time": "本轮叙事末尾的时间", "weather": "本轮叙事末尾的天气"},\n'
+            '  "scene_shift": {"changed": false, "place": "本轮主镜头落点的地点（不是全篇末尾换场处）", "time": "主镜头落点时的时间", "weather": "当时的天气"},\n'
             '  "relations": { "源 → 目标": "关系定性（只写稳定的人物关系定位，如\'妈妈，独占欲\'，不要包含本轮具体动作描写）" },\n'
             '  "actions": { "角色名": "本轮该角色做的一句具体行为（不含关系定性，只写这回合发生了什么）" },\n'
             '  "goals": { "角色名": "新的短期目标" },\n'
@@ -1208,12 +1245,9 @@ def reflect(sid, reply, directive=""):
             "- scene_shift：本轮叙事里**地点／时间／天气有没有实际发生变化**（如从客厅走到楼道、"
             "天黑了、下起雨）。changed 填 true 时同时给出变化后的 place/time/weather，"
             "引擎据此把场景状态追上叙事（避免场景停在「清晨」而正文早已入夜）。"
+            "place 取**本轮主镜头落点**（这一轮的主线停在哪里），不要取全篇最后一个换场段——"
+            "多线并行时末尾常切到支线，取末尾会把场景钉在空屋子里。"
             "没有变化就填 {\"changed\": false}。\n"
-            "- present_change：本轮叙事里**有正式登场角色离开了当前镜头、或有角色进入了当前镜头**时填。"
-            "离开/进入的判断标准是「该角色不再与镜头内其余人处于同一现场/场景」——如某角色\"上朝去了\""
-            "而其余人留在原地、\"逃往别处\"离开了队伍、\"回房歇下\"不再与众人同场、或一个此前不在场的角色"
-            "\"赶到/现身/加入\"了当前场景。单纯的地点移动（众人一起转移到新地点）不算离场，leave 与 arrive"
-            "都留空。只在确实有人进出时才填，无人进出则 {\"leave\": [], \"arrive\": []}。\n"
         )},
     ]
     # 额度必须留足：纪官要吐关系/行动/目标/秘密三类/事实两层，900 会被截断在半句话上，
@@ -1426,35 +1460,12 @@ def reflect(sid, reply, directive=""):
     else:
         snap.pop("scene_shift", None)
 
-    # 在场名单语义兜底（双轨共存）：scene.apply 靠关键词在生成前处理导演指令明说的离场，
-    # 这里纪官从「已生成的叙事」里读谁实际离开了镜头、谁进入了镜头，补关键词枚举
-    # 不到的盲区（「上朝」「逃往别处」「赴任」等无离场词却确已离场的移动）。
-    # 时序自洽：present_change 从下一轮起生效——本轮 prompt 已按旧 present 生成，
-    # 但「离场」本就是「下一轮才生效」的状态变更，不影响本轮已写出的内容。
-    # 安全网沿用 scene.apply 同款：只认合法卡、离开者须在场、到达者须未在场、去重。
-    pc = data.get("present_change")
-    if isinstance(pc, dict):
-        all_chars = set(store.list_characters())
-        cur_present = list(snap.get("present", []))
-        orig = set(cur_present)
-        leave = [c for c in dict.fromkeys(pc.get("leave") or [])
-                 if c in all_chars and c in cur_present]
-        arrive = [c for c in dict.fromkeys(pc.get("arrive") or [])
-                  if c in all_chars and c not in cur_present]
-        # 安全网：leave 覆盖全员且无 arrive = 误判「随世界移动」，忽略；名单不得清空。
-        if leave and set(leave) >= orig and not arrive:
-            leave, arrive = [], []
-        for c in leave:
-            cur_present.remove(c)
-        for c in arrive:
-            cur_present.append(c)
-            snap.setdefault("goals", {})[c] = store.load_card(c).get("short_goal", "")
-        if cur_present:
-            snap["present"] = cur_present
-        if leave or arrive:
-            logger.info("director", "在场名单语义更新 ｜ " 
-                        + ("、".join(leave) + " 离开" if leave else "")
-                        + (" ｜ " + "、".join(arrive) + " 到场" if arrive else ""))
+    # v2.1.0 拆职责：present 不再是「在场名单」而是「角色名册」（建局 cast，永不收缩），
+    # 原 present_change 语义兜底整段移除。原因不是「模型判不准」，而是这个字段同时
+    # 承担了两件互相冲突的事——「本轮可写的人」与「物理上同处一地的人」。实测（8 轮探针
+    # + 手动插回模板复测）：模型按「本轮叙事重点」判离场，把与主角同处一室的角色踢出去、
+    # 把千里之外的人留场；arrive 又基本不填。补回它会切断支线，不补则它始终是死代码。
+    # 物理同场改由 locations 表达（[本轮场面] 段渲染），可写范围由名册表达。
 
     memory.save(sid, snap)
     return snap

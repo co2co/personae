@@ -168,6 +168,12 @@
   .panel.collapsed .panel-body{ display:none; }
 
   .chips{ display:flex; gap:8px; flex-wrap:wrap; }
+  /* 角色名册按位置分场：主场景在前，别处整组降透明度并标注地点（v2.1.0） */
+  .roster-group{ display:flex; gap:6px; flex-wrap:wrap; align-items:center; margin:4px 0; }
+  .roster-group:first-child{ margin-top:0; }
+  .roster-place{ font-size:11.5px; color:var(--muted); margin-right:2px; }
+  .roster-place::after{ content:"："; }
+  .roster-group.off .chip{ opacity:.55; }
   .scene-line{ font-size:14px; color:var(--ink-2); margin-top:8px; line-height:1.6; }
   .rel-row,.sec-row{ font-size:13.5px; padding:7px 0; border-bottom:1px dashed var(--line-2); color:var(--ink-2); }
   .rel-row:last-child,.sec-row:last-child{ border-bottom:none; }
@@ -905,7 +911,7 @@
     </div>
     <div class="rail-body side">
       <div class="panel">
-        <div class="panel-head"><h3>在场角色 / 场景</h3><span class="panel-toggle">▾</span></div>
+        <div class="panel-head"><h3>角色名册 / 场景</h3><span class="panel-toggle">▾</span></div>
         <div class="panel-body">
           <div class="chips" id="present"></div>
           <div class="scene-line" id="scene-line"></div>
@@ -1122,7 +1128,7 @@ function bubbleSystem(text) {
 function renderSnapshot(snap) {
   roundTag.textContent = '回合 ' + (snap.scene ? snap.scene.round : 0);
 
-  // 在场角色：chip 右上角标数字 = 该角色连续静默轮数（引擎在防「角色被遗忘」）。
+  // 角色名册：chip 右上角标数字 = 该角色连续静默轮数（引擎在防「角色被遗忘」）。
   // 只给轻量提示，不单开面板——这是引擎内部节奏，不是玩法信息。
   const silent = snap.silent_rounds || {};
   const chipOf = (n) => {
@@ -1131,8 +1137,7 @@ function renderSnapshot(snap) {
       ? `<sup class="chip-warn" title="连续 ${s} 轮没有行为，引擎已在关注">·${s}</sup>` : '';
     return `<span class="chip">${n}${warn}</span>`;
   };
-  const castHtml = (snap.present || []).map(n => chipOf(n)).join('');
-  document.getElementById('present').innerHTML = castHtml;
+  document.getElementById('present').innerHTML = rosterHtml(snap, chipOf);
   const sc = snap.scene || {};
   let line = '场景：' + (sc.place || '');
   if (sc.time) line += '（' + sc.time + '）';
@@ -1796,6 +1801,29 @@ async function loadWorld(name) {
 function escHtml(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 function escAttr(s){ return escHtml(s).replace(/"/g,'&quot;'); }
 
+// 角色名册按位置分场展示（v2.1.0）：present 已改为「建局 cast 名册」，不再随进出收缩，
+// 所以面板不能再把它画成一排「在场的人」——那会与「有人已离开」的事实打架。
+// 分组规则与后端 [本轮场面] 段一致：人数最多的一处为主镜头，其余各处整组降透明度。
+// 只在不止一处时分组；全员同场时刻意不分块，避免每回合多出一层与场景行重复的框。
+function rosterHtml(snap, chipOf) {
+  const names = snap.present || [];
+  if (!names.length) return '';
+  const locs = snap.locations || {};
+  const place = ((snap.scene || {}).place || '').trim();
+  const groups = new Map();
+  names.forEach(n => {
+    const p = ((locs[n] || {}).place || '').trim();
+    if (!groups.has(p)) groups.set(p, []);
+    groups.get(p).push(n);
+  });
+  const ordered = [...groups.entries()].sort((a, b) =>
+    b[1].length - a[1].length || ((b[0] === place) ? 1 : 0) - ((a[0] === place) ? 1 : 0));
+  if (ordered.length <= 1) return names.map(chipOf).join('');
+  return ordered.map(([p, ns], i) =>
+    '<div class="roster-group' + (i ? ' off' : '') + '">'
+    + '<span class="roster-place">' + escHtml(p || '位置未记录') + (i ? '' : '·主镜头') + '</span>'
+    + ns.map(chipOf).join('') + '</div>').join('');
+}
 function entryCard(e, i, expanded) {
   const keys = (e.keys||[]).join('、');
   const on = e.enabled!==false ? 'checked' : '';
