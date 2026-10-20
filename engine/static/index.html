@@ -1140,11 +1140,13 @@ function renderSnapshot(snap) {
 
   // 角色名册：chip 右上角标数字 = 该角色连续静默轮数（引擎在防「角色被遗忘」）。
   // 只给轻量提示，不单开面板——这是引擎内部节奏，不是玩法信息。
+  // v2.1.2 起这个数字真的会被消费：达到 STALE_ROUNDS 后，下一轮提示词里会出现
+  // [可选提醒·久未登场]，所以提示语可以照实写「已提醒」，不再是一句空承诺。
   const silent = snap.silent_rounds || {};
   const chipOf = (n) => {
     const s = silent[n] || 0;
     const warn = s >= 2
-      ? `<sup class="chip-warn" title="连续 ${s} 轮没有行为，引擎已在关注">·${s}</sup>` : '';
+      ? `<sup class="chip-warn" title="连续 ${s} 轮没有行为，下一轮会提醒叙事给他一处交代">·${s}</sup>` : '';
     return `<span class="chip">${n}${warn}</span>`;
   };
   document.getElementById('present').innerHTML = rosterHtml(snap, chipOf);

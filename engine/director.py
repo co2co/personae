@@ -845,21 +845,32 @@ PRESSURE_FORCE_LIMIT = 1
 REFLECT_MAX_TOKENS = 2800
 
 
-def _update_silent_rounds(snap, present):
-    """按纪官的行为摘要累加各角色的连续静默轮数（仅作前端在场 chip 的轻量展示信号）。
+def _update_silent_rounds(snap, present, reply=""):
+    """按纪官的行为摘要累加各角色的连续静默轮数。
 
-    v0.30.1 起不再驱动任何强制焦点/提示——「在场即须留痕」硬性焦点已废除，
-    静默数字只是引擎「已注意到该角色」的透明提示，不干预叙事走向。判定依据是纪官
-    抽取的 snap["actions"]（每角色本轮一句行为摘要），而非名字是否出现在正文里；
-    躲避、负气不语、被压制这类有意的沉默，纪官同样会写成行为摘要，不会误判为遗忘。
+    消费方有两个（v2.1.2）：前端在场 chip 的轻量展示信号，以及 prompter 的
+    `[可选提醒·久未登场]`（只读数字、只作可选提醒，不抢镜头）。v0.30.1 废除
+    「在场即须留痕」硬性焦点后，它确实不再驱动任何强制焦点——但也不再是纯装饰：
+    数字涨起来，下一轮提示词里就会出现「这个人很久没戏了」的可选提醒。
+
+    判定依据是纪官抽取的 snap["actions"]（每角色本轮一句行为摘要），而非名字是否
+    出现在正文里：躲避、负气不语、被压制这类有意的沉默，纪官同样会写成行为摘要，
+    不会误判为遗忘。
+
+    v2.1.2 改动：焦点轮不再豁免镜头外角色。原「镜头外的人本轮就不该被写，计沉默
+    会误伤」是纯展示时代的顾虑；现在数字要驱动提醒，豁免等于让最该被提醒的人免罚——
+    实测（会话 8823e5f7）导演连续用指令点名同一批人时，镜头外角色的数字长期停在 0，
+    提醒永不触发，提示词里那一段等于不存在。
+
+    另一处 v2.1.2 实证（_probe_stale d827692f）：R9 正文写了高天，纪官漏抽他的
+    actions，静默照涨到 8——下一轮又把提醒位浪费在刚写过的人身上，真正被冷落的
+    反而轮不到。故加一层正文兜底：名字出现在正文里，本轮就算有戏。
     """
     acts = snap.get("actions") or {}
-    focus_subjects = set((snap.get("focus") or {}).get("subjects") or [])
     silent = snap.setdefault("silent_rounds", {})
+    text = reply or ""
     for c in present:
-        if focus_subjects and c not in focus_subjects:
-            continue
-        if (acts.get(c) or "").strip():
+        if (acts.get(c) or "").strip() or (c and c in text):
             silent[c] = 0
         else:
             silent[c] = silent.get(c, 0) + 1
@@ -1205,7 +1216,10 @@ def reflect(sid, reply, directive=""):
             "- relations 只写跨回合稳定的关系定性，严禁把本轮动作（如\'靠肩头\'\'护送\'\'命令其回房\'）写进关系描述；关系键保持\"源 → 目标\"格式；只更新确实变化的条目，不要删除未提及的关系。\n"
             "- relations 与 goals 的每条 value **必须 ≤ 30 字**（一句话、一个短语），严禁写成长段小作文——写长会挤占 token 额度，导致排在后面的字段被截断丢弃（这是硬性要求，超长即不合格）。\n"
             "- 亲属身份是固定事实：父子/母子/夫妻/兄弟姐妹等血缘与姻亲身份由作者设定，只能演化其情感状态（如加「关系紧张」「疏离」），绝对不得改写为另一种亲属身份（例如不得把「父亲」写成「姐夫」、把「母亲」写成「嫂子」）。\n"
-            "- actions 覆盖本轮所有在场角色的一句行为摘要，用于展示\'这回合谁做了什么\'；这是回合级信息，可每轮整体覆盖。\n"
+            "- actions 只写本轮正文里**真正做出动作或开口**的角色，一人一句具体行为。"
+            "名册是建局全员，不等于本轮在场：本轮没有出场、只是被提到的角色**不要写进 actions**，"
+            "更**不要写「维持现状」「按兵不动」「静观其变」「暗中盘算」这类占位摘要**——"
+            "引擎用 actions 的空缺判断「这个人已经连续几轮没戏」，虚报会让该判断永久失效。\n"
             "- secret_exposures 只填本轮叙事里**确实发生**了「某人得知了某秘密」的条目；仅凭角色起了疑心、或只是提到相关物品，都不算。\n"
             "- secret_exposures 的「得知」必须是**信息实际发生了跨角色传递**：该角色本轮**亲眼看见**秘密事实（如看见伤痕、物证、现场）、**亲耳听见**对方自述或他人转述、**被当面告知**、或**亲手发现**了能坐实秘密的物证。除此之外一律不算暴露。\n"
             "- secret_exposures 的 via 若填 **「自述」或「承认」**，专指**秘密归属者本人**当众说出/承认了秘密（而非他人打听到）：此时把「听到的在场者」逐条填进 by（同一秘密可有多条），via 填「自述」或「承认」。这类曝光的后果是秘密**转为公开事实、他人再也拿它要挟不了归属者**（引擎据此置为「已公开」），故只用于本人真的说开的轮次，不要拿他人转述来填。\n"
@@ -1292,19 +1306,28 @@ def reflect(sid, reply, directive=""):
                 # 初始表无此键则丢弃该越权关系，不引入新条目。
                 if k in base:
                     snap["relations"][k] = base[k]
-    actions_ok = isinstance(data.get("actions"), dict)
+    # 举证窗口：纪官的一切「谁做了什么、谁在哪里」都只认正文（与 secret_exposures 的
+    # evidence 核验同一原则——引擎不猜，只核验出处）。
+    # v2.1.2 实证：present 改成名册后，纪官把「名册」当「本轮在场」，给正文里根本没出现
+    # 的角色编出 actions（「维持现状」「保持北境稳定」）和 locations（把高昌报成本轮场景）。
+    # 前者让 silent_rounds 永久归零、[可选提醒·久未登场] 形同不存在；后者把不在场的人
+    # 钉进当前场景，下一轮 [本轮场面] 照着错记录分场。
+    _spoken = (reply or "") + "\n" + (directive or "")
+    acts_in = data.get("actions")
+    actions_ok = isinstance(acts_in, dict)
     if actions_ok:
-        snap["actions"] = {k: v for k, v in data["actions"].items() if v}
+        # 只留正文里出现过的名字：人在正文里都没露过面，就不可能有「本轮行为摘要」。
+        snap["actions"] = {k: v for k, v in acts_in.items() if v and k in _spoken}
     else:
         # 纪官把 actions 写成字符串/数组时，本轮行为摘要不可用。
         # 此时绝不能按「全员无行为」去累加静默轮数——那会把所有在场角色误记成
-        # 被遗忘、误触发硬性焦点，一次格式漂移污染后续多轮。故本轮跳过静默判定。
+        # 被遗忘、一次格式漂移污染后续多轮。故本轮跳过静默判定。
         snap["actions"] = {}
-    # 静默计数（仅前端展示信号）：用纪官的行为摘要判定谁本轮真的在戏里（替代 app.py
-    # 里按名字是否出现在正文的字符串判断——那个判不出「被提到名字但没有任何行为」）。
-    # 镜头跟随时只统计镜头内角色：镜头外的人本轮就不该被写，计沉默会误伤。
+    # 静默计数：纪官的行为摘要判定谁本轮真的在戏里（按名字是否出现在正文的字符串判断
+    # 判不出「被提到名字但没有任何行为」，故以纪官摘要为准，再用正文名做举证过滤）。
+    # v2.1.2 起焦点轮不再豁免镜头外角色——豁免会让人数长期停在 0，提醒永不触发。
     if actions_ok:
-        _update_silent_rounds(snap, present)
+        _update_silent_rounds(snap, present, reply)
     if isinstance(data.get("goals"), dict):
         for k, v in data["goals"].items():
             if v:
@@ -1419,14 +1442,16 @@ def reflect(sid, reply, directive=""):
     rd = (snap.get("scene") or {}).get("round", 0)
     update_states(snap, _as_dict_list(data.get("state_updates")), rd)
     # 人物位置：独立唯一真相源，与状态键分离（见 update_locations 说明）。
-    update_locations(snap, _as_dict_list(data.get("location_updates")), rd)
+    # 同样按正文举证：纪官会把没出场的名册成员报进 location_updates（v2.1.2 实证，
+    # 高昌被报成本轮场景），那种记录会把下一轮的分场带偏。
+    update_locations(snap, [x for x in _as_dict_list(data.get("location_updates"))
+                            if (x.get("who") or "").strip() in _spoken], rd)
     # 兜底（v0.31.1，v2.1.1 收窄到「正文写到的人」）：对仍无位置记录的角色，用 scene.place
     # 填最小正确值。位置是物理事实而非猜测——但 v2.1.0 起 present 是**名册**（全员），
     # 对全名册兜底等于把正文没写的人也搬进这一场：寝殿独处那一轮，六个人全被记在寝殿，
-    # 下一轮 [本轮场面] 就照着错的记录分场。故判据改为「本轮正文或指令点到过这个名字」，
+    # 下一轮 [本轮场面] 就照着错的记录分场。故判据为「本轮正文或指令点到过这个名字」，
     # 没点到的人留空，由 [本轮场面] 的「位置未更新」如实交代。
     _scene_place = ((snap.get("scene") or {}).get("place") or "").strip()
-    _spoken = (reply or "") + "\n" + (directive or "")
     if _scene_place:
         _loc = snap.setdefault("locations", {})
         for _who in present:

@@ -898,3 +898,151 @@ def test_reflect_feeds_secret_content_and_keys_to_clerk(monkeypatch):
     prompt = captured.get("user", "")
     assert "秘密真相：角色甲的秘密真相" in prompt
     assert "事实锚点词：旧队、覆灭" in prompt
+
+
+# ---- 静默计数口径（v2.1.2）----
+# 数字从「纯展示」变成「提示词里 [可选提醒·久未登场] 的触发依据」后，焦点豁免
+# 就不能再留：导演连续点名同一批人时，镜头外角色的数字长期停在 0，提醒永不触发。
+
+def test_silent_rounds_count_offscreen_in_focus_rounds():
+    """焦点轮里镜头外的角色也要累加——否则最该被提醒的人恰好被免罚。"""
+    snap = {"actions": {A: "说话"}, "silent_rounds": {A: 0, B: 0},
+            "focus": {"subjects": [A]}}
+    director._update_silent_rounds(snap, [A, B])
+    assert snap["silent_rounds"][A] == 0     # 有行为摘要即归零
+    assert snap["silent_rounds"][B] == 1     # 镜头外但确实没有行为：累加
+
+
+def test_silent_rounds_reset_on_action():
+    """纪官给了行为摘要就归零，包括「有意的沉默」（纪官会写成摘要）。"""
+    snap = {"actions": {A: "闭口不语，背过身去"}, "silent_rounds": {A: 4}}
+    director._update_silent_rounds(snap, [A])
+    assert snap["silent_rounds"][A] == 0
+
+
+def test_reflect_prompt_forbids_placeholder_actions(monkeypatch):
+    """actions 只记真出场的角色：占位摘要会让静默计数永久失效（v2.1.2）。
+
+    v2.1.1 把 present 改成名册后，reflect prompt 里「actions 覆盖本轮所有在场角色」
+    等于要求纪官给六个人各编一句——实测（_probe_stale R7）正文只写了两人，
+    actions 却报满六人，其中四条是「维持现状」「保持北境稳定」这类空话，
+    于是 silent_rounds 全员归零，[可选提醒·久未登场] 永远不会触发。
+    """
+    import json as _json
+    snap = {"scene": {"round": 3}, "present": [A, B], "relations": {},
+            "actions": {}, "silent_rounds": {}, "secrets": [], "facts": [],
+            "states": {}, "goals": {}, "ledger": []}
+    captured = {}
+
+    def _capture(*a, **k):
+        for m in (a[0] if a else []):
+            if m.get("role") == "user":
+                captured["user"] = m.get("content", "")
+        return _json.dumps({}, ensure_ascii=False)
+
+    monkeypatch.setattr(director.llm, "complete", _capture)
+    monkeypatch.setattr(director.memory, "load", lambda sid: snap)
+    monkeypatch.setattr(director.memory, "save", lambda sid, s: None)
+    director.reflect("sid", f"{A}翻看卷宗。")
+
+    prompt = captured.get("user", "")
+    assert "占位摘要" in prompt
+    assert "只写本轮正文里" in prompt
+
+
+def _reflect_payload(monkeypatch, snap, reply, payload):
+    import json as _json
+    monkeypatch.setattr(director.llm, "complete",
+                        lambda *a, **k: _json.dumps(payload, ensure_ascii=False))
+    monkeypatch.setattr(director.memory, "load", lambda sid: snap)
+    monkeypatch.setattr(director.memory, "save", lambda sid, s: None)
+    director.reflect("sid", reply)
+    return snap
+
+
+def _bare_snap(round_no=5, present=None):
+    return {"scene": {"round": round_no, "place": "某处甲", "time": "", "weather": ""},
+            "present": present or [A, B], "relations": {}, "actions": {},
+            "silent_rounds": {}, "secrets": [], "facts": [], "states": {},
+            "goals": {}, "ledger": []}
+
+
+def test_actions_drop_names_absent_from_reply(monkeypatch):
+    """纪官给正文未出现的名册成员编「维持现状」式摘要时，引擎按正文举证丢弃。
+
+    v2.1.2 实测（_probe_stale R7）：正文只写两人，actions 报满六人，四条是
+    「维持现状」「保持北境稳定」——silent_rounds 因此全员归零，久未登场提醒
+    永远不会触发。举证过滤后，被编的 B 正常累加静默。
+    """
+    snap = _bare_snap()
+    payload = {"actions": {A: "翻看卷宗", B: "维持现状，按兵不动"}}
+    out = _reflect_payload(monkeypatch, snap, f"{A}翻看卷宗。", payload)
+    assert out["actions"] == {A: "翻看卷宗"}
+    assert out["silent_rounds"][B] == 1
+
+
+def test_locations_drop_names_absent_from_reply(monkeypatch):
+    """同理，没出场的角色不得被写进 locations（虚报会把下一轮分场带偏）。"""
+    snap = _bare_snap()
+    payload = {"location_updates": [{"who": A, "place": "库房"},
+                                    {"who": B, "place": "某处甲"}]}
+    out = _reflect_payload(monkeypatch, snap, f"{A}进了库房。", payload)
+    assert A in out["locations"]
+    assert B not in out["locations"]      # 正文没提到 B，不许替他占位
+
+
+def _reflect_payload(monkeypatch, snap, reply, payload):
+    import json as _json
+    monkeypatch.setattr(director.llm, "complete",
+                        lambda *a, **k: _json.dumps(payload, ensure_ascii=False))
+    monkeypatch.setattr(director.memory, "load", lambda sid: snap)
+    monkeypatch.setattr(director.memory, "save", lambda sid, s: None)
+    director.reflect("sid", reply)
+    return snap
+
+
+def _bare_snap(round_no=5, present=None):
+    return {"scene": {"round": round_no, "place": "某处甲", "time": "", "weather": ""},
+            "present": present or [A, B], "relations": {}, "actions": {},
+            "silent_rounds": {}, "secrets": [], "facts": [], "states": {},
+            "goals": {}, "ledger": []}
+
+
+def test_actions_drop_names_absent_from_reply(monkeypatch):
+    """纪官给正文未出现的名册成员编「维持现状」式摘要时，引擎按正文举证丢弃。
+
+    v2.1.2 实测（_probe_stale R7）：正文只写两人，actions 报满六人，四条是
+    「维持现状」「保持北境稳定」——silent_rounds 因此全员归零，久未登场提醒
+    永远不会触发。举证过滤后，被编的 B 正常累加静默。
+    """
+    snap = _bare_snap()
+    payload = {"actions": {A: "翻看卷宗", B: "维持现状，按兵不动"}}
+    out = _reflect_payload(monkeypatch, snap, f"{A}翻看卷宗。", payload)
+    assert out["actions"] == {A: "翻看卷宗"}
+    assert out["silent_rounds"][B] == 1
+
+
+def test_locations_drop_names_absent_from_reply(monkeypatch):
+    """同理，没出场的角色不得被写进 locations（虚报会把下一轮分场带偏）。"""
+    snap = _bare_snap()
+    payload = {"location_updates": [{"who": A, "place": "库房"},
+                                    {"who": B, "place": "某处甲"}]}
+    out = _reflect_payload(monkeypatch, snap, f"{A}进了库房。", payload)
+    assert A in out["locations"]
+    assert B not in out["locations"]      # 正文没提到 B，不许替他占位
+
+
+def test_silent_rounds_fall_back_to_reply_mention():
+    """纪官漏抽某人时用正文兜底：名字在正文里出现过，就不算「这一轮没戏」。
+
+    v2.1.2 实证（_probe_stale d827692f R9）：正文写了高天，actions 里没有他，
+    静默照涨到 8 → 下一轮提醒位又被刚写过的人占掉，真正被冷落的轮不到。
+    """
+    snap = {"actions": {A: "翻看卷宗"}, "silent_rounds": {A: 5, B: 7}}
+    director._update_silent_rounds(snap, [A, B], reply=f"{A}翻看卷宗，提到{B}在城外。")
+    assert snap["silent_rounds"][A] == 0
+    assert snap["silent_rounds"][B] == 0     # 正文提到 → 归零
+    # 正文完全没提的角色照常累加
+    snap2 = {"actions": {}, "silent_rounds": {B: 3}}
+    director._update_silent_rounds(snap2, [B], reply=f"{A}独自翻看卷宗。")
+    assert snap2["silent_rounds"][B] == 4

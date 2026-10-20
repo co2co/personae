@@ -282,6 +282,89 @@ def _global_pressure_block(snap, cards_present):
               "若本轮叙事不需要、或时机不对，可完全略过。")
 
 
+# 久未登场提醒（v2.1.2）：silent_rounds 由 director 按纪官行为摘要累加，原本只有前端 chip
+# 一个消费方（面板写「引擎已在关注」），提示词里一个字都没有——面板在承诺，引擎什么也不做。
+# 实测（会话 8823e5f7）：导演连续 6 轮只推一条线，另一条线的四名角色全程零出场，
+# 高天的静默数字涨到 5，叙事却没有任何回流。
+#
+# 这里把数字接回提示词，但只作「可选提醒」：最多点名两人、必须留在各自位置、不给整段对白、
+# 不打断主镜头。触发条件是整数阈值，不做任何语义判断——语义检测终成穷举（v2.1.0 删
+# _GROUP_WORDS 的教训），谁该有戏由导演指令与叙事决定，引擎只负责让「被冷落」这件事可见。
+STALE_ROUNDS = 2        # 与前端 chip 阈值一致：连续 2 轮无行为即提示
+STALE_MAX_NAMES = 2     # 一轮最多点名两人，防止又变成「人人有份」
+
+
+def stale_cast_block(snap, cards_present, focus=None):
+    """渲染「久未登场」可选提醒段：谁已经连续多轮没有任何行为。
+
+    分两类，措辞不同：
+    - 别处（位置与当前场景不同）：给一两句交代，留在自己位置上；
+    - 就在当前这一场：不是「不在场」而是「被写成背景」，让他对眼前的事有个具体反应。
+    后者才是面板数字最难解释的情形——人明明在屋里，却连续几轮一句不吭。
+    """
+    silent = snap.get("silent_rounds") or {}
+    if not silent:
+        return ""
+    sc = snap.get("scene") or {}
+    cur = sc.get("round") or 0
+    place = (sc.get("place") or "").strip()
+    locs = snap.get("locations") or {}
+    hot = [(n, int(s)) for n, s in silent.items()
+           if n in cards_present and isinstance(s, int) and s >= STALE_ROUNDS]
+    if not hot:
+        return ""
+    # 静默最久的优先（数字相同按名字定序，保证提示词可复现）。
+    hot.sort(key=lambda x: (-x[1], x[0]))
+    here, away = [], []
+    for n, s in hot[:STALE_MAX_NAMES]:
+        rec = locs.get(n) or {}
+        p = (rec.get("place") or "").strip()
+        rnd = rec.get("round")
+        stale_loc = (isinstance(rnd, int) and isinstance(cur, int)
+                     and cur - rnd >= _ROSTER_STALE_ROUNDS)
+        # 位置陈旧时不能断言「他就这一场」——陈旧位置本来就不可信。
+        if p and place and p == place and not stale_loc:
+            here.append("- " + n + "：连续 " + str(s) + " 轮没有任何动作。")
+            continue
+        # 位置陈旧或未记录时给「落位自由」而不是「位置不确定」：前者是授权，后者是犹疑。
+        # v2.1.2 第三次实机：写成「上次在 X，位置已多轮未更新」时，被点名的两人连续
+        # 三轮一个字都没写——模型不知道该把人放在哪，于是干脆不碰。提示要求「留在
+        # 自己的位置上」却不给确定位置，是自相矛盾的指令。
+        if p and stale_loc:
+            where = "原先在 " + p + "，可按他的身份与处境自行落定一处，写清在哪"
+        elif p:
+            where = "在 " + p
+        else:
+            where = "位置未记录，可按他的身份与处境自行落定一处，写清在哪"
+        away.append("- " + n + "：连续 " + str(s) + " 轮没有戏（" + where + "）。")
+    if not here and not away:
+        return ""
+    # 有镜头跟随时，镜头外的额度本来就只有「一句无说话人的旁白」，提醒不得越过它。
+    quota = ("本轮有【镜头跟随】，镜头外只能用一句无说话人的旁白带过"
+             if (focus or {}).get("subjects")
+             else "给一两句话交代即可——他做了什么、收到什么、做了个什么决定"
+                  "（可以像切镜头一样另起一小段，如「与此同时，某处。」）")
+    lines = ["[可选提醒·久未登场]"]
+    if away:
+        lines.append("以下角色已经连续多轮没有戏。别让一条线把整部戏占满：")
+        lines += away
+        # v2.1.2 措辞实证：写成「若叙事允许，从中挑一处」时，模型在 R8 整轮无视——
+        # 空指令轮它会自己挑一条线写完就收，压根不再回头。改成「请给出至少一处」后
+        # 仍保留「实在腾不出篇幅」的豁免，但不再主动提供「可以完全略过」的台阶。
+        lines.append("本轮请给出其中至少一处的交代（不必都写）：" + quota + "。"
+                     "留在他们自己的位置上——不搬进当前场景、不打断主镜头、"
+                     "不给整段「角色名：」对白，一轮最多一处；"
+                     "除非导演指令要求写完一整场冲突、实在腾不出篇幅。")
+    if here:
+        lines.append("以下角色就在当前这一场里，却连续多轮没有任何动作"
+                     "（不是不在场，而是被写成了背景）：")
+        lines += here
+        lines.append("本轮若场景仍在此处，让其中一人对眼前发生的事有个具体反应——"
+                     "一个动作、一句应答或一次拒绝，不要只让他站在那儿。")
+    lines.append("以上优先级仍低于导演指令：若导演指令与它相抵，听导演的。")
+    return "\n".join(lines)
+
+
 _LAWS_PREFIX = (
     "你在写一场多人角色扮演的戏，是在场的多个角色之间的实时互动。你是叙事者，"
     "写的是「此刻正在发生的事」，不是复述规则、不是解说、不是预告。\n"
@@ -617,10 +700,16 @@ def build_session(cards_present, directive, world_hits, snap,
     )
     if focus_block:
         blocks.append(focus_block)
-    # 高压秘密的全局提醒段（置最后，近因最强；软提醒，导演指令优先）
+    # 高压秘密的全局提醒段（软提醒，导演指令优先）
     pressure_block = _global_pressure_block(snap, cards_present)
     if pressure_block:
         blocks.append(pressure_block)
+    # 久未登场提醒（v2.1.2）：置**最后**，近因最强。它管的是「本轮怎么写」的执行约束，
+    # 与上面那条「本轮可以撞出什么」的内容机会不同——R7 实证模型只接住了这一段的
+    # 「北境」切场，因此把它放在全块最末，避免被秘密发酵段挤掉近因权重。
+    stale_block = stale_cast_block(snap, cards_present, focus=focus)
+    if stale_block:
+        blocks.append(stale_block)
 
     fixed = "\n\n".join(blocks)
     messages = [{"role": "system", "content": fixed}]
