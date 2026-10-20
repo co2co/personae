@@ -6,6 +6,43 @@
 
 ---
 
+## 2026-10-20 铁律⑧（亲密描写）恢复（semver PATCH→v1.2.7）
+
+**性质**：simon 裁决的行为变更。2026-10-18「铁律瘦身」把铁律⑧ 尺度措辞下沉世界书后，NSFW 支持度不足——裁决恢复铁律⑧（亲密描写）机制，仅保留未成年人红线。
+
+**根因（为什么下沉不够）**：世界书「亲密描写标准」条目只是轻量提醒，随世界书命中注入、长上下文下被稀释；引擎系统层（`_LAW8_DEFAULT` 槽位）才是每回合恒定注入的约束位。槽位与 `_build_laws` 拼接、`_law8_override` 句柄一直保留（只是文案被置空），恢复即填回。
+
+**改动**
+- `engine/prompter.py`：`_LAW8_DEFAULT` 按历史版本（v0.15.0 中性折衷，见 `backup/backup_20261014_nsfw-offline/`）原文恢复：亲密场景「身临其境、有实感、正面写实，禁止隐喻/环境侧写/文学化一带而过」「不预设上限，也不强制克制」，含时机层（未推进到亲密时刻前不得提前/硬写）。历史⑧ 末尾的硬红线句不再重复——红线现由 `_LAWS_PREFIX`「己、法律底线」单点承载（与 store.py「世界书条目不含红线、由铁律⑧/引擎兜底」的既有分工对齐）。
+- `tests/test_intimacy_scale.py`：尺度断言由「已下沉、不得出现」反转为「已恢复、必须出现」；新增时机层断言与「⑧ 内不重复红线」断言；未成年红线三测原样保留。
+- `tests/test_narrative_discipline.py`：`test_law8_intimacy_removed_from_engine` 改为 `test_law8_intimacy_restored_in_engine`（⑧ 措辞 + 红线均在 laws 中）。
+
+**验证**：全量 `pytest`：346 passed + 1 skipped + 1 deselected（基线 344 + 新增 2）。备份 `backup/backup_20261020_restore_law8/`。
+
+**保留不变**：世界书「亲密描写标准」条目照常播种（写法技法层，各剧本可停用/改写）；未成年红线引擎级恒定、不可由世界书覆盖；`_law8_override` 生产恒为 None，⑧ 措辞不构成对外可配置项。
+
+---
+
+## 2026-10-20 玩家卡浏览重建丢档修复（semver PATCH→v1.2.6）
+
+**性质**：无争议 Bug 修复。剧本中【玩家】角色卡每次重启引擎后丢失上轮已保存内容（2026-10-20 simon 报障）。
+
+**根因链**：
+1. 只读列表接口 `GET /api/characters/by-world`（`engine/app.py`）误调了破坏性 `store.ensure_player_card(world)`：该函数在已有玩家卡的 `world` 字段与请求世界不匹配时删卡并新建空白卡。
+2. 前端左栏（`static/index.html`）页面加载时对每个世界各调一次 by-world。运行态并存两个剧本（高氏王朝、客服战争）时，每次重启后页面加载必然把已填写的玩家卡抹空——只剩最后一轮世界对应的空白卡。
+
+**改动**
+- `engine/store.py`：新增 `ensure_player_card_if_absent(world_name)`（浏览安全版）：已有玩家卡（无论挂在哪个世界）原样返回；无任何玩家卡才新建空白卡归属请求世界；无卡且世界名为空返回 None。
+- `engine/app.py`：by-world 路由改调浏览安全版，附根因注释。
+- `tests/test_setup_world_picker.py`：client fixture 补 mock；端点测试改为断言真实世界只调浏览版、未知世界两版都不调。
+- `tests/test_player_card.py`：新增 5a–5e 回归用例，含 5e 路由级复现原报障（双世界各 GET 一次 by-world，断言已填写玩家卡不变）。
+
+**验证**：全量 `pytest`：344 passed + 1 skipped + 1 deselected（基线 339 + 新增 5）。备份 `backup/backup_20261020_playercard_browse_reset/`。
+
+**设计保留**：换剧本给空白卡槽的破坏性语义未动，仍只存在于文档化的三处——`session_new`、`import_drama`、`save_world` 首次创建（见 `ensure_player_card` docstring 与 `tests/test_player_card.py` 测试 5）。
+
+---
+
 ## 2026-10-20 DeepSeek 400 修复：参数协商四级化 + 错误透明化（semver PATCH→v1.2.5）
 
 **性质**：云网关兼容性修复。叙事后端切到 DeepSeek（OpenAI 兼容云网关）后每回合 400，本地 llama.cpp 路径不受影响。
