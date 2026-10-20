@@ -27,7 +27,8 @@ engine/
 ├── data/
 │   ├── characters/ 角色卡（开放格式 JSON，含核心渴望/恐惧/关系种子等）
 │   ├── worlds/     世界书（条目数组：keys/content/constant/position/depth/name/secret）
-│   └── config.json 系统配置（出厂为空连接）；分发包不含示例剧本，首次运行需自行导入角色卡/世界书，玩家设定（player-cast）不随分发提供
+│   ├── examples/   随包 demo 剧本（官方示例：世界书 + 角色卡，首次运行时播种到 data/）
+│   └── config.json 系统配置（出厂为空连接）；用户自创的角色卡/世界书不进分发包
 ├── static/index.html  单页前端
 ├── static/worldbook-guide.html  世界书用户手册（由 `/docs/worldbook` 提供）
 ├── run.bat         启动（默认端口 5051；先 install.bat）
