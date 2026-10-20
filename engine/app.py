@@ -283,6 +283,22 @@ def save_world_route(name):
     return jsonify({"ok": True, "name": name})
 
 
+@app.post("/api/world/<name>/restore-defaults")
+def restore_world_defaults(name):
+    """补回被删除的引擎默认条目（亲密描写标准 / 写法示范·常驻）。
+
+    只补缺失、不覆盖已有：作者改过的默认条目内容不动，需要重置某条时先删再恢复。
+    返回 {"added": [...], "present": [...]}，前端据 added 提示恢复了哪几条。
+    """
+    try:
+        result = store.restore_default_entries(name)
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 400
+    if result is None:
+        return jsonify({"error": f"世界不存在: {name}"}), 404
+    return jsonify({"ok": True, "name": name, **result})
+
+
 @app.post("/api/import/from-script")
 def import_from_script():
     """剧本→设定 提炼预览（S3 大工程）。

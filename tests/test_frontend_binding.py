@@ -43,6 +43,18 @@ MAIN_FLOW_PROBES = [
     # v0.28.5 删除剧本走剧本级端点（世界书 + 全部角色卡一并删除），不再走旧的 /api/world DELETE
     ("getElementById('w-del').onclick = async", "「删除剧本」按钮绑定"),
     ("'/api/drama/'+encodeURIComponent(name)+'/delete'", "删除剧本调用剧本级删除端点"),
+    # 引擎默认条目来源可见化：分组展示 + 恢复入口 + 折叠开关 + 渲染携带来源标记
+    ("class=\"wb-group engine\"", "世界书页「引擎默认条目」独立分组"),
+    ("id=\"w-entries-engine\"", "引擎条目独立容器（与剧本条目物理隔离）"),
+    ("id=\"w-entries-author\"", "剧本条目独立容器"),
+    ("engineCollapsed = true", "引擎组默认折叠"),
+    ("getElementById('w-engine-restore').onclick = async", "「恢复默认条目」按钮绑定"),
+    ("'/restore-defaults'", "恢复按钮调用恢复端点"),
+    ("getElementById('w-engine-toggle').onclick", "引擎默认条目收起/展开绑定"),
+    ("data-origin=", "世界书条目渲染携带来源标记"),
+    # 分组后的两条排序约束：跨组拖拽无效、常量段恒定置顶（否则保存重载后位置弹回）
+    ("dragSrc.parentElement !== box", "拖拽禁止跨组"),
+    ("Math.min(k, constCount) : Math.max(k, constCount)", "常量段恒定置顶：拖拽插入点钳制"),
 ]
 
 
@@ -74,6 +86,28 @@ class TestFrontendMainFlowBound(unittest.TestCase):
             self.assertEqual(
                 js.count(left), js.count(right),
                 "内联脚本 %s/%s 不配平，疑似编辑截断" % (left, right),
+            )
+
+    def test_world_entry_ui_preserves_hidden_flags(self):
+        """世界书条目卡片必须回传 origin / demo / first_round。
+
+        起因：旧版 entryCard 不渲染、collectWorldEntries 也不回传 demo 与
+        first_round，任何一次「保存整份」都会把 demo=true 静默抹掉——条目从
+        few-shot 通道退回普通设定注入，无报错、无提示，只能靠对比提示词才发现。
+        这三个字段在界面上没有输入控件，因此必须靠 dataset 原样往返。
+        """
+        html = _read_index()
+        m = re.search(r"function collectWorldEntries\(\)\s*\{(.*?)\n\}", html, re.S)
+        self.assertIsNotNone(m, "collectWorldEntries() 缺失")
+        body = m.group(1)
+        for probe, desc in (
+            ("el.dataset.demo", "demo 示范标志"),
+            ("el.dataset.firstRound", "first_round 首轮标志"),
+            ("el.dataset.origin", "origin 来源标记"),
+        ):
+            self.assertIn(
+                probe, body,
+                "世界书保存链路丢失%s——界面上没有对应控件，一旦不回传就被永久抹掉" % desc,
             )
 
     def test_no_dangling_dom_ids(self):

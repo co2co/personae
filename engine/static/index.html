@@ -374,6 +374,26 @@
   .entry.secret{ border-color:#e0b4b0; background:#fdf5f4; }
   .badge-secret{ font-size:11px; font-weight:600; color:#fff; background:#d6453e; border-radius:6px; padding:1px 7px; letter-spacing:.5px; }
   .badge-order{ font-size:11px; color:var(--muted); margin-left:6px; }
+  /* 引擎默认条目（origin=engine）：来源可见化——灰边灰底 + 「引擎默认」徽标，
+     与作者自写的设定条区分开。可改可关，删除后不会自动补回，故另有恢复入口。 */
+  .entry.engine{ border-left:3px solid var(--muted); background:var(--surface-2); }
+  .badge-engine{ font-size:11px; color:var(--ink-2); background:var(--surface);
+                 border:1px solid var(--muted); border-radius:6px; padding:0 6px; letter-spacing:.5px; }
+  /* 世界书条目分组：引擎默认条目（置顶、默认折叠）/ 剧本条目（在下、默认展开）。
+     两组物理隔离（各有独立容器），拖拽不得跨组——来源不同的条目混排没有语义。 */
+  .wb-group + .wb-group{ margin-top:16px; padding-top:12px; border-top:1px solid var(--line); }
+  .wb-group-head{ display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-bottom:9px;
+                  padding:7px 10px; border-radius:9px; background:var(--surface-2);
+                  font-size:12px; color:var(--ink-2); line-height:1.55; }
+  .wb-group.engine .wb-group-head{ border-left:3px solid var(--muted); }
+  .wb-group-title{ font-size:13px; font-weight:600; color:var(--ink); }
+  .wb-group-count{ font-size:11.5px; color:var(--muted); }
+  .wb-group-note{ flex:1 1 220px; min-width:160px; }
+  .wb-group-body[hidden]{ display:none; }
+  .wb-group-body .entry:last-child{ margin-bottom:2px; }
+  /* 常量条目恒定置顶：与 world.scan 的输出次序一致（常量先于关键词条目注入） */
+  .badge-const{ font-size:11px; color:#8a6a1f; background:#fdf6e3; border:1px solid #e8d9a8;
+                border-radius:6px; padding:0 6px; }
   .secret-fields{ margin-top:8px; padding-top:8px; border-top:1px dashed var(--line); }
   .secret-fields[hidden]{ display:none; }
   /* 命中预览 */
@@ -732,13 +752,35 @@
             <div style="font-size:12px;color:var(--muted);margin:4px 0;line-height:1.6;">
               两类条目：<b style="color:var(--ink-2);">设定</b>（默认，触发词命中场景/对话才注入 prompt）；
               <b style="color:#d6453e;">秘密</b>（勾选后<b>不</b>注入 prompt，仅在开局 seed 进该角色的秘密表，按曝光逻辑推进）。
-              顺序自上而下即注入优先级（顶部最高），拖 ⠿ 调整。保存即整份覆盖写入 data/worlds/&lt;剧本名&gt;.json。
+              保存即整份覆盖写入 data/worlds/&lt;剧本名&gt;.json。
             </div>
-            <div class="row" style="margin:8px 0;gap:10px;flex-wrap:wrap;">
-              <button id="w-add" class="btn btn-sm">+ 新增条目</button>
+            <div class="row" style="margin:8px 0 10px;gap:10px;flex-wrap:wrap;">
+              <span style="font-size:12px;color:var(--muted);">改动只在点「保存整份」后写入；切换剧本会丢弃未保存的改动。</span>
               <button id="w-save" class="btn btn-primary" style="margin-left:auto;">保存整份</button>
             </div>
-            <div id="w-entries" style="max-height:40vh;overflow:auto;"></div>
+            <div id="w-entries" style="max-height:42vh;overflow:auto;">
+              <!-- 组 1：引擎默认条目（origin=engine）。系统层内容，正常不需要改，故默认折叠。 -->
+              <div class="wb-group engine">
+                <div class="wb-group-head">
+                  <button type="button" id="w-engine-toggle" class="e-toggle btn btn-sm" title="只切换显示，条目本身仍会随整份保存">▸</button>
+                  <span class="wb-group-title">引擎默认条目</span>
+                  <span class="wb-group-count" id="w-engine-count"></span>
+                  <span class="wb-group-note" id="w-engine-note"></span>
+                  <button id="w-engine-restore" class="btn btn-sm" title="补回被删掉的引擎默认条目；已存在的条目不覆盖">恢复默认</button>
+                </div>
+                <div class="wb-group-body" id="w-entries-engine" hidden></div>
+              </div>
+              <!-- 组 2：剧本条目（作者自写）。顺序自上而下即注入优先级，常量条目恒定置顶。 -->
+              <div class="wb-group author">
+                <div class="wb-group-head">
+                  <span class="wb-group-title">剧本条目</span>
+                  <span class="wb-group-count" id="w-author-count"></span>
+                  <span class="wb-group-note">本剧本自己的设定与秘密。顺序自上而下即注入优先级（顶部最高），拖 ⠿ 调整；常量条目恒定在最上方。</span>
+                  <button id="w-add" class="btn btn-sm" style="margin-left:auto;">+ 新增条目</button>
+                </div>
+                <div class="wb-group-body" id="w-entries-author"></div>
+              </div>
+            </div>
             <div style="margin-top:14px;padding-top:12px;border-top:1px solid var(--line);">
               <div class="row" style="gap:8px;align-items:flex-end;">
                 <div style="flex:1;">
@@ -1753,6 +1795,7 @@ async function loadWorld(name) {
 }
 function escHtml(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 function escAttr(s){ return escHtml(s).replace(/"/g,'&quot;'); }
+
 function entryCard(e, i, expanded) {
   const keys = (e.keys||[]).join('、');
   const on = e.enabled!==false ? 'checked' : '';
@@ -1762,11 +1805,18 @@ function entryCard(e, i, expanded) {
   const nm = e.name||'';
   const raw = (e.content||'').replace(/\s+/g,' ').trim();
   const summary = (raw ? raw.slice(0,46) : '') + (keys ? '　〔' + keys + '〕' : '');
-  return `<div class="entry${e.secret?' secret':''}" data-i="${i}">
+  // 引擎默认条目（origin=engine）：来自 save_world / import_drama 的出厂播种，
+  // 与作者自写条目分开标识。demo / first_round / origin 必须落到 dataset 上，
+  // 否则 collectWorldEntries 回写时会把它们丢掉（旧版就是因此静默抹掉了示范标志）。
+  const isEngine = e.origin === 'engine';
+  return `<div class="entry${e.secret?' secret':''}${isEngine?' engine':''}${e.constant?' constant':''}" data-i="${i}"
+       data-origin="${escAttr(e.origin||'')}" data-demo="${e.demo?'1':'0'}" data-first-round="${e.first_round?'1':'0'}">
     <div class="row">
       <span class="e-grip" draggable="true" title="拖拽排序">⠿</span>
       <button type="button" class="e-toggle btn btn-sm" title="展开/收起">${expanded?'▾':'▸'}</button>
       <span class="badge-order">顺序 ${i+1}</span>
+      <span class="badge-engine"${isEngine?'':' hidden'}>引擎默认</span>
+      <span class="badge-const"${e.constant?'':' hidden'}>常量</span>
       <span class="badge-secret"${e.secret?'':' hidden'}>秘密</span>
       <span class="e-summary">${summary ? escHtml(summary) : '<span style="color:var(--muted)">（空白条目，点击 ▸ 展开编辑）</span>'}</span>
       <label style="margin:0;display:flex;gap:5px;align-items:center;font-size:13px;color:var(--ink-2);font-weight:400;"><input type="checkbox" class="e-enabled" ${on}> 启用</label>
@@ -1802,10 +1852,28 @@ function entryCard(e, i, expanded) {
 // ---- 世界书条目拖拽排序 ----
 let dragSrc = null;
 function updateOrderBadges() {
-  document.querySelectorAll('#w-entries .entry').forEach((el, idx) => {
-    const b = el.querySelector('.badge-order');
-    if (b) b.textContent = '顺序 ' + (idx + 1);
+  // 序号按组内编号：两组是彼此独立的注入池，跨组比较先后没有意义
+  document.querySelectorAll('#w-entries .wb-group-body').forEach(box => {
+    [...box.querySelectorAll('.entry')].forEach((el, idx) => {
+      const b = el.querySelector('.badge-order');
+      if (b) b.textContent = '顺序 ' + (idx + 1);
+    });
   });
+}
+function applyConstant(el) {
+  const con = el.querySelector('.e-constant').checked;
+  el.classList.toggle('constant', con);
+  const badge = el.querySelector('.badge-const');
+  if (badge) badge.hidden = !con;
+  // 常量段恒定置顶：勾上 / 取消都落在「常量段与非常量段的分界处」，
+  // 与 renderWorldEntries 的重排规则一致，否则保存后重新加载位置会弹回。
+  const box = el.parentElement;
+  if (!box) return;
+  const others = [...box.querySelectorAll('.entry')].filter(n => n !== el);
+  const constCount = others.filter(n => n.classList.contains('constant')).length;
+  const after = others[constCount] || null;
+  if (after) box.insertBefore(el, after); else box.appendChild(el);
+  updateOrderBadges();
 }
 function applySecret(el) {
   const sec = el.querySelector('.e-secret').checked;
@@ -1826,15 +1894,14 @@ function toggleEntry(el) {
   detail.hidden = !open;
   el.querySelector('.e-toggle').textContent = open ? '▾' : '▸';
 }
-function getDragAfterElement(container, y) {
+function getDragIndex(container, y) {
+  // 返回鼠标落在组内的插入下标（插到该下标的元素之前）；越界即追加到末尾
   const els = [...container.querySelectorAll('.entry:not(.dragging)')];
-  let closest = { offset: -Infinity, element: null };
-  for (const child of els) {
-    const box = child.getBoundingClientRect();
-    const offset = y - box.top - box.height / 2;
-    if (offset < 0 && offset > closest.offset) closest = { offset, element: child };
+  for (let i = 0; i < els.length; i++) {
+    const r = els[i].getBoundingClientRect();
+    if (y - r.top - r.height / 2 < 0) return i;
   }
-  return closest.element;
+  return els.length;
 }
 function clearDropMarks() {
   document.querySelectorAll('#w-entries .entry').forEach(el =>
@@ -1860,38 +1927,96 @@ function makeEntryNode(e, i, expanded) {
   const tmp = document.createElement('div');
   tmp.innerHTML = entryCard(e, i, expanded);
   const node = tmp.firstElementChild;
-  node.querySelector('.e-del').onclick = () => node.remove();
+  node.querySelector('.e-del').onclick = () => { node.remove(); updateGroupMeta(); };
   node.querySelector('.e-secret').onchange = () => applySecret(node);
+  node.querySelector('.e-constant').onchange = () => applyConstant(node);
   node.querySelector('.e-toggle').onclick = () => toggleEntry(node);
   bindGrip(node.querySelector('.e-grip'));
   return node;
 }
 function renderWorldEntries(entries) {
-  const box = document.getElementById('w-entries');
-  box.innerHTML = '';
-  (entries || []).forEach((e, i) => box.appendChild(makeEntryNode(e, i, false)));  // 已存条目默认收起
+  const engBox = document.getElementById('w-entries-engine');
+  const authorBox = document.getElementById('w-entries-author');
+  engBox.innerHTML = '';
+  authorBox.innerHTML = '';
+  const list = entries || [];
+  // 组内恒定置顶：常量条目每轮必注入，且在 world.scan 的输出里先于关键词条目，
+  // 列表次序必须与注入次序一致，否则作者对「谁先被注入」的判断会被界面误导。
+  const byConst = arr => arr.filter(e => e.constant).concat(arr.filter(e => !e.constant));
+  byConst(list.filter(e => e.origin === 'engine')).forEach((e, i) => engBox.appendChild(makeEntryNode(e, i, false)));
+  byConst(list.filter(e => e.origin !== 'engine')).forEach((e, i) => authorBox.appendChild(makeEntryNode(e, i, false)));
+  updateGroupMeta();
 }
+// 引擎组默认折叠：它是系统层内容，正常不需要作者日常维护，收起即是一种「别动它」的暗示。
+// 折叠只控制显示，条目仍在 DOM 里，collectWorldEntries 照常收集并整份保存。
+let engineCollapsed = true;
+function updateGroupMeta() {
+  const eng = [...document.querySelectorAll('#w-entries-engine .entry')];
+  const author = [...document.querySelectorAll('#w-entries-author .entry')];
+  document.getElementById('w-engine-count').textContent = '(' + eng.length + ')';
+  document.getElementById('w-author-count').textContent = '(' + author.length + ')';
+  document.getElementById('w-engine-note').innerHTML = eng.length
+    ? '由引擎在新建 / 导入剧本时播种，提供亲密叙事技法基线与每轮写法范例。'
+      + '<b>不了解它是干什么的就别动它</b>——保持原样即可正常工作。可改可关，删除后不会自动补回。'
+    : '本剧本<b>没有</b>引擎默认条目（已删除或未播种），可点「恢复默认」找回；已有条目不会被覆盖。';
+  document.getElementById('w-entries-engine').hidden = engineCollapsed;
+  document.getElementById('w-engine-toggle').textContent = engineCollapsed ? '▸' : '▾';
+  updateOrderBadges();
+}
+document.getElementById('w-engine-toggle').onclick = () => {
+  engineCollapsed = !engineCollapsed;
+  updateGroupMeta();
+};
+document.getElementById('w-engine-restore').onclick = async () => {
+  const name = DRAFT_WORLD;
+  if (!name) { worldMsg.style.color='var(--danger)'; worldMsg.textContent='请先在左侧选择剧本'; return; }
+  if (!confirm('恢复后会重新读取世界书，界面上尚未保存的修改将丢失。\n已存在的默认条目不会被覆盖（要重置某条内容，请先删除它再点恢复）。\n\n继续？')) return;
+  const r = await fetch('/api/world/'+encodeURIComponent(name)+'/restore-defaults', {method:'POST'}).then(res=>res.json());
+  if (!r.ok) { worldMsg.style.color='var(--danger)'; worldMsg.textContent='恢复失败：'+(r.error||'未知错误'); return; }
+  if (r.added && r.added.length) {
+    worldMsg.style.color='var(--pos)';
+    worldMsg.textContent='已补回引擎默认条目：'+r.added.join('、')+'（已有条目不覆盖）';
+    engineCollapsed = false;   // 补回后展开，否则用户看不到刚加回来的条目
+    await loadWorld(name);
+  } else {
+    worldMsg.style.color='var(--ink-2)';
+    worldMsg.textContent='引擎默认条目都在，无需恢复（已有内容不会被覆盖；要重置内容请先删除该条再恢复）';
+  }
+};
 (function bindWorldDnd(){
-  const box = document.getElementById('w-entries');
-  box.addEventListener('dragover', e => {
-    e.preventDefault();
-    if (!dragSrc) return;
-    clearDropMarks();
-    const after = getDragAfterElement(box, e.clientY);
-    if (after == null) {
-      box.appendChild(dragSrc);
-      dragSrc.classList.add('drop-after');
-    } else {
-      box.insertBefore(dragSrc, after);
-      after.classList.add('drop-before');
-    }
+  // 两组各自独立接收拖拽：跨组拖放不生效（引擎条目与剧本条目来源不同，混排没有语义，
+  // 而且保存后 origin 仍按各自字段走，只会让「哪些是引擎给的」更难分辨）。
+  ['w-entries-engine', 'w-entries-author'].forEach(id => {
+    const box = document.getElementById(id);
+    box.addEventListener('dragover', e => {
+      e.preventDefault();
+      if (!dragSrc) return;
+      if (dragSrc.parentElement !== box) { e.dataTransfer.dropEffect = 'none'; return; }
+      clearDropMarks();
+      const els = [...box.querySelectorAll('.entry:not(.dragging)')];
+      const constCount = els.filter(el => el.classList.contains('constant')).length;
+      let k = getDragIndex(box, e.clientY);
+      // 常量段恒定置顶：拖拽不得跨过该段，否则保存后重排会把刚拖好的位置弹回去
+      // （渲染规则见 renderWorldEntries，勾选常量时的落位见 applyConstant）。
+      k = dragSrc.classList.contains('constant') ? Math.min(k, constCount) : Math.max(k, constCount);
+      const after = els[k] || null;
+      if (after) {
+        box.insertBefore(dragSrc, after);
+        after.classList.add('drop-before');
+      } else {
+        box.appendChild(dragSrc);
+        dragSrc.classList.add('drop-after');
+      }
+    });
+    box.addEventListener('drop', e => { e.preventDefault(); });
   });
-  box.addEventListener('drop', e => { e.preventDefault(); });
 })();
 document.getElementById('w-add').onclick = () => {
-  const box = document.getElementById('w-entries');
-  box.appendChild(makeEntryNode({}, box.children.length, true));  // 新增空白条目默认展开
-  box.scrollTop = box.scrollHeight;
+  const box = document.getElementById('w-entries-author');
+  const node = makeEntryNode({}, 0, true);  // 新增空白条目默认展开
+  box.appendChild(node);
+  updateGroupMeta();
+  if (node.scrollIntoView) node.scrollIntoView({ block: 'nearest' });
 };
 document.getElementById('w-del').onclick = async () => {
   const name = DRAFT_WORLD;
@@ -1920,6 +2045,12 @@ function collectWorldEntries() {
       depth: (() => { const v = el.querySelector('.e-depth').value.trim(); return v === '' ? null : (parseInt(v, 10) || null); })(),
       name: nm || null,
       secret,
+      // 来源与示范标志必须原样回写：UI 只负责编辑可见字段，
+      // 未在界面上暴露的字段一旦丢失，等于静默改了引擎行为
+      // （demo=true 决定该条走 few-shot 通道而非普通设定注入）。
+      demo: el.dataset.demo === '1',
+      first_round: el.dataset.firstRound === '1',
+      origin: el.dataset.origin || undefined,
     };
     if (secret) {
       o.character = el.querySelector('.e-char').value.trim();

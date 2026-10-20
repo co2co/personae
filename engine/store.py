@@ -189,6 +189,18 @@ def load_world(name=""):
 
 STANDARD_ENTRY_NAME = "亲密描写标准"
 
+# 条目来源标记：引擎默认供给 vs 作者自写。
+#
+# 为什么需要它：世界书同时承载「剧本设定」与「注入调度」（position/depth/priority/
+# constant/enabled 五维控制），而两条引擎默认条目（亲密描写标准、写法示范·常驻）由
+# save_world / import_drama 播种进用户数据文件，在 UI 里与作者自写条目长得一模一样——
+# 用户无法判断「这条是系统的还是我写的」「删了会不会被补回来」。origin 让来源在数据层
+# 可见，前端据此分区、标注、提供恢复入口。
+#
+# 语义边界：origin 记的是**播种来源**，不是「内容是否原文」。作者改写默认条目内容后
+# 仍是 origin="engine"（可改可关），只有删除后由作者重写的同名条目才退回无标记。
+ORIGIN_ENGINE = "engine"
+
 # 出厂随每个新世界播种的世界书条目：亲密/性描写的**叙事技法标准**。
 #
 # 为什么放在世界书而不是引擎铁律：
@@ -318,6 +330,7 @@ def _standard_entry():
         "position": "after",
         "depth": None,
         "secret": False,
+        "origin": ORIGIN_ENGINE,
     }
 
 
@@ -335,6 +348,7 @@ def _standard_example_entry():
         "secret": False,
         "demo": True,
         "first_round": False,
+        "origin": ORIGIN_ENGINE,
     }
 
 
@@ -344,6 +358,54 @@ def _has_standard_entry(entries):
 
 def _has_standard_example(entries):
     return any((e or {}).get("name") == STANDARD_EXAMPLE_NAME for e in (entries or []))
+
+
+def restore_default_entries(name):
+    """补回被删除的引擎默认条目（只补缺失，不覆盖已存在的同名条目）。
+
+    为什么只补不覆盖：用户可能按自己的口味改过「亲密描写标准」或把「写法示范·常驻」
+    换成本剧角色（高氏王朝就是这么用的）。一键重置为出厂内容等于静默销毁作者的修改，
+    与「可改可关」的设计相悖。需要重置某条时，先删除它再点恢复，路径显式可控。
+
+    返回 {"added": [...], "present": [...]}；剧本不存在返回 None。
+    """
+    name = (name or "").strip()
+    if not name:
+        raise ValueError("剧本名不能为空")
+    p = DATA_DIR / "worlds" / f"{name}.json"
+    raw = load_world_raw(name)
+    if raw is None:
+        return None
+
+    entries = list(raw.get("entries") or [])
+    added, present = [], []
+
+    if _has_standard_entry(entries):
+        present.append(STANDARD_ENTRY_NAME)
+    else:
+        entries.insert(0, _standard_entry())
+        added.append(STANDARD_ENTRY_NAME)
+
+    if _has_standard_example(entries):
+        present.append(STANDARD_EXAMPLE_NAME)
+    else:
+        # 紧跟标准条目（与 save_world 首次播种的顺序一致，保持文件可读性；
+        # 展示顺序最终由 priority 决定，位置不影响注入）。
+        pos = 0
+        for i, e in enumerate(entries):
+            if (e or {}).get("name") == STANDARD_ENTRY_NAME:
+                pos = i + 1
+                break
+        entries.insert(pos, _standard_example_entry())
+        added.append(STANDARD_EXAMPLE_NAME)
+
+    if added:
+        out = dict(raw)
+        out["entries"] = entries
+        p.write_text(json.dumps(out, ensure_ascii=False, indent=2), encoding="utf-8")
+        _invalidate(p)
+
+    return {"added": added, "present": present}
 
 
 def save_world(name, entries):
@@ -515,11 +577,17 @@ def import_drama(name, template):
 
     # 1) 世界书：整份覆盖写，name 对齐目标剧本名（save_world 内部会把 name 落进文件）。
     store_entries = list(world_entries)
-    # 导入时补种常驻写法示范（若模板未自带）：与「亲密描写标准」不同，常驻示范是
-    # 引擎通用默认、每轮注入，导入一个没有示范的剧本也该有范例可循。save_world 只在
-    # 首次创建时播种，导入覆盖写已存在的剧本不会触发，故在此显式补。
+    # 导入时补种两条引擎默认条目（若模板未自带）：亲密描写标准是叙事技法基线，
+    # 写法示范·常驻是每轮范例——导入一个没带它们的剧本包，也该拿到与新建剧本
+    # 同样的出厂供给。save_world 只在「首次创建」时播种，导入覆盖写已存在的剧本
+    # 不会触发，故在此显式补，且两条待遇一致（旧版只补示范，导致导入的剧本包
+    # 可能永远没有亲密描写标准）。
+    if not _has_standard_entry(store_entries):
+        store_entries.insert(0, _standard_entry())
     if not _has_standard_example(store_entries):
-        store_entries.insert(0, _standard_example_entry())
+        pos = next((i + 1 for i, e in enumerate(store_entries)
+                    if (e or {}).get("name") == STANDARD_ENTRY_NAME), 0)
+        store_entries.insert(pos, _standard_example_entry())
     save_world(name, store_entries)
 
     # 2) 角色卡：模板内名单整份重建，world 强制对齐 name。
