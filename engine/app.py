@@ -211,7 +211,11 @@ def characters_by_world():
     # 且用户只是浏览、还没点开始建局」的场景——否则玩家卡只在点开始时才出现。
     # 仅当 world 指向真实存在的世界书才 ensure：避免把玩家卡 world 重指到已删/不存在世界。
     if world and world in store.list_worlds():
-        store.ensure_player_card(world)
+        # 浏览安全版补建（2026-10-20 修复）：本接口是只读列表 API，前端页面加载时左栏
+        # 会对**每个**剧本各调一次；破坏性 ensure_player_card 在玩家卡 world 与请求世界
+        # 不匹配时删卡重建，多剧本并存下等于每次重启 / 刷新都把玩家已填内容抹空。
+        # 残留卡（world 挂在别的剧本名下）的重指只留给建局 / 导入等有意切换路径。
+        store.ensure_player_card_if_absent(world)
     return jsonify({
         "names": store.list_characters_by_world(world),
         "unassigned": store.unassigned_characters(),

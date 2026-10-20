@@ -283,6 +283,34 @@ def player_card_name(world_name):
     return None
 
 
+def ensure_player_card_if_absent(world_name):
+    """浏览安全版玩家卡补建（供 by-world 等只读列表接口用），返回玩家卡名。
+
+    场景：前端页面加载时左栏对每个剧本各调一次 by-world，而运行态可同时持有
+    多个剧本（sync_drama 铺入 / 历史遗留）。若此处用破坏性 ensure_player_card，
+    只要已有玩家卡的 world 与请求的世界不匹配就立刻删卡重建——玩家在某剧本里
+    填的内容会在每次页面加载 / 引擎重启后被抹空（2026-10-20 报障：多剧本并存时
+    重启引擎玩家卡内容丢失，根因即此）。本函数语义严格弱于 ensure_player_card：
+      - 已有玩家卡（无论 world 挂在哪个剧本名下）→ 原样不动，返回其名字；
+      - 无任何玩家卡 → 新建一张字段全空的卡（world=world_name），覆盖「剧本已铺入
+        但用户只是浏览、还没点开始建局」的场景（保留 v1.0.0 浏览兜底的初衷）；
+      - world_name 为空且无玩家卡 → 返回 None，不建无归属的卡。
+    归属其它剧本的残留卡的重指，仍只发生在有意切换场景（session_new 建局 /
+    import_drama 导入 / save_world 新建世界），那些路径继续走 ensure_player_card。
+    """
+    world_name = (world_name or "").strip()
+    players = _all_player_cards()
+    if players:
+        for name in players:
+            if (load_card(name).get("world", "") or "").strip() == world_name:
+                return name
+        return players[0]
+    if not world_name:
+        return None
+    save_card(PLAYER_NAME, empty_player_card(world_name))
+    return PLAYER_NAME
+
+
 def list_worlds():
     _seed_examples()
     return _cached_listing(DATA_DIR / "worlds")

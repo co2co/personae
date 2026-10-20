@@ -10,9 +10,14 @@
      不被重置为空白。
   4. 普适性（核心）：新建 / 导入 / 切换剧本（world 变化）时，上个剧本残留的玩家卡
      不被携带过来，新剧本拿到一张**空白**玩家卡——上个剧本的填写不污染新剧本。
+  5. 浏览安全（2026-10-20 修复）：只读列表路径（by-world）用 ensure_player_card_if_absent，
+     多剧本并存时页面加载 / 引擎重启不得抹空玩家已填内容；删卡重建只留给
+     建局 / 导入 / 新建世界等有意切换路径（ensure_player_card）。
 
 全部走隔离的 store.DATA_DIR（临时目录），不碰真实 data/、不调任何 LLM。
 """
+import json
+import urllib.parse
 import sys
 from pathlib import Path
 
@@ -143,3 +148,83 @@ def test_ensure_creates_empty_when_no_player(data):
     assert name == store.PLAYER_NAME
     card = store.load_card(name)
     assert card["world"] == "王朝" and card["is_player"] is True
+
+
+# ---------------------------------------------------------------------------
+# 5. 浏览安全补建（ensure_player_card_if_absent）：重启丢档 bug 回归
+# ---------------------------------------------------------------------------
+
+
+def _two_worlds_with_filled_player(data, card_name="玩家"):
+    """铺出报障时的运行态：两本世界书 + 一张已填内容、归属甲朝的玩家卡。
+
+    第二本世界书直接落盘（模拟 sync_drama 文件拷贝铺入，不走 save_world——
+    其首次创建会触发破坏性 ensure，恰好会把玩家卡抹掉，铺不出目标状态）。
+    """
+    store.save_world("甲朝", [])  # first_create → 玩家卡@甲朝（空卡）
+    card = store.load_card("玩家")
+    card["description"] = "来自未来的穿越者，修为深厚。"
+    if card_name != "玩家":
+        store.save_card(card_name, card)  # 玩家卡改名（is_player 保留、world 不变）
+    else:
+        store.save_card("玩家", card)
+    (data / "worlds" / "乙朝.json").write_text(
+        json.dumps({"name": "乙朝", "entries": []}, ensure_ascii=False), encoding="utf-8")
+    store._cache.clear()
+
+
+def test_browse_ensure_creates_empty_when_no_player(data):
+    """5a) 无任何玩家卡时浏览补建：新建空白卡并归属请求的世界（保留 v1.0.0 浏览兜底）。"""
+    (data / "worlds" / "甲朝.json").write_text(
+        json.dumps({"name": "甲朝", "entries": []}, ensure_ascii=False), encoding="utf-8")
+    store._cache.clear()
+    name = store.ensure_player_card_if_absent("甲朝")
+    assert name == store.PLAYER_NAME
+    card = store.load_card(name)
+    assert card["world"] == "甲朝" and card["is_player"] is True
+
+
+def test_browse_ensure_same_world_keeps_filled(data):
+    """5b) 玩家卡已归属请求的世界：命中返回、内容原样不动。"""
+    _two_worlds_with_filled_player(data)
+    name = store.ensure_player_card_if_absent("甲朝")
+    assert name == "玩家"
+    kept = store.load_card("玩家")
+    assert kept["description"] == "来自未来的穿越者，修为深厚。"
+    assert kept["world"] == "甲朝"
+
+
+def test_browse_ensure_cross_world_keeps_filled_renamed(data):
+    """5c) 核心回归：玩家卡（已改名 + 已填内容）挂在甲朝，浏览乙朝不得删卡重建。"""
+    _two_worlds_with_filled_player(data, card_name="苏定城")
+    # 页面加载左栏按世界列表逐个调用 by-world 的 store 侧动作（顺序任意）
+    store.ensure_player_card_if_absent("乙朝")
+    store.ensure_player_card_if_absent("甲朝")
+    players = [n for n in store.list_characters() if store.load_card(n).get("is_player")]
+    assert players == ["苏定城"]
+    kept = store.load_card("苏定城")
+    assert kept["description"] == "来自未来的穿越者，修为深厚。"
+    assert kept["world"] == "甲朝"
+
+
+def test_browse_ensure_empty_world_no_players_returns_none(data):
+    """5d) 防御分支：无玩家卡且 world 为空 → 返回 None，不建无归属的卡。"""
+    assert store.ensure_player_card_if_absent("") is None
+    assert [n for n in store.list_characters() if store.load_card(n).get("is_player")] == []
+
+
+def test_by_world_page_load_keeps_filled_player_card(data):
+    """5e) 路由级复现（报障原场景）：多剧本并存，页面加载对每个剧本各调一次
+    by-world——玩家已填内容不得丢失（修复前：每次重启后必现）。"""
+    import app as engine_app
+
+    _two_worlds_with_filled_player(data)
+    c = engine_app.app.test_client()
+    for w in ("乙朝", "甲朝"):
+        r = c.get("/api/characters/by-world?world=" + urllib.parse.quote(w))
+        assert r.status_code == 200
+    players = [n for n in store.list_characters() if store.load_card(n).get("is_player")]
+    assert players == ["玩家"]
+    kept = store.load_card("玩家")
+    assert kept["world"] == "甲朝"
+    assert kept["description"] == "来自未来的穿越者，修为深厚。"
