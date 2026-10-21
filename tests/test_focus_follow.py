@@ -185,7 +185,7 @@ def client_focus(monkeypatch):
     def fake_setting(name):
         defaults = {
             "base_url": "http://127.0.0.1:1234/v1", "api_key": "sk-test",
-            "model": "test-model", "budget": 4096, "max_tokens": 512,
+            "model": "test-model", "max_tokens": 512,
             "temperature": 0.8, "top_p": 0.95, "enable_thinking": False,
         }
         return defaults.get(name)

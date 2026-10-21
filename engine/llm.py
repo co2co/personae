@@ -18,7 +18,6 @@ DEFAULTS = {
     "base_url": "http://127.0.0.1:1234/v1",
     "api_key": "sk-local",
     "model": "local",
-    "budget": 4096,
     "max_tokens": 4096,
     # 出厂默认温度：由 0.85 上调至 1.0（实测对长输出创意/多样性更友好）。
     # 「恢复默认」按钮回填的就是这里，故出厂值以本表为唯一真相源。
@@ -136,7 +135,7 @@ def config_view():
 # 用户可通过 UI 改动的字段；其余内部字段不暴露。
 # repeat_penalty / repeat_last_n 刻意不在其中：它们是 llama.cpp 特化的内部后备
 # （标准字段被 4xx 时降级启用），用户只需面对一个「重复度惩罚」（映射 frequency_penalty）。
-_WRITABLE = {"base_url", "api_key", "model", "budget", "max_tokens", "top_k",
+_WRITABLE = {"base_url", "api_key", "model", "max_tokens", "top_k",
              "temperature", "top_p", "min_p", "frequency_penalty", "presence_penalty",
              "enable_thinking", "saved_models", "providers"}
 
@@ -150,7 +149,7 @@ def save_config(partial):
             continue
         if k == "enable_thinking":
             v = bool(v)
-        elif k in ("budget", "max_tokens", "top_k"):
+        elif k in ("max_tokens", "top_k"):
             v = _num(v, k, int)
         elif k in ("temperature", "top_p", "min_p", "frequency_penalty",
                    "presence_penalty"):
