@@ -4,7 +4,7 @@
 低于导演指令与镜头约束；压测实证 pressure 连续 7 轮封顶（=5）却毫无碰撞——
 当事人常常根本不在镜头里（镜头外不许被写），写了也出不来。
 
-补丁：① 高压档提级为全局提醒段 [可选提醒·秘密发酵]（软提醒、置提示词末尾、玩家指令优先）；
+补丁：① 高压档提级为全局提醒段 [提醒·秘密发酵]（软提醒、置提示词末尾、玩家指令优先）；
       ② 高压秘密的双方不再由镜头层强制（v0.18.3 已删除 _merge_pressure_into_focus，
          v0.18.4 起提醒段同步软化为「可选」，碰撞交由小空间群像叙事自然命中）。
 
@@ -149,19 +149,19 @@ def test_prompt_has_global_pressure_block():
              for n in snap["present"]}
     msgs = prompter.build_session(cards, "继续搜物资", [], snap)
     system = msgs[0]["content"]
-    assert "[可选提醒·秘密发酵]" in system
+    assert "[提醒·秘密发酵]" in system
     # 取最后一次出现：角色块内的分档提示会先引用一次该标题作为指引
-    tail = system.split("[可选提醒·秘密发酵]")[-1]
+    tail = system.split("[提醒·秘密发酵]")[-1]
     assert "角色丙" in tail and "角色丁" in tail
     # 真正的全局段须位于输出格式之后（近因最强），否则会被前段指令压掉
-    assert system.rindex("[可选提醒·秘密发酵]") > system.index("[输出格式]")
+    assert system.rindex("[提醒·秘密发酵]") > system.index("[输出格式]")
 
 
 def test_prompt_has_no_block_when_pressure_low():
     snap = _snap(["角色甲", "角色丙", "角色丁"], [_secret("角色丙", pressure=2)])
     cards = {n: {"description": "描述"} for n in snap["present"]}
     msgs = prompter.build_session(cards, "继续搜物资", [], snap)
-    assert "[可选提醒·秘密发酵]" not in msgs[0]["content"]
+    assert "[提醒·秘密发酵]" not in msgs[0]["content"]
 
 
 if __name__ == "__main__":

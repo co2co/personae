@@ -49,7 +49,7 @@ def test_empty_when_field_missing():
 def test_threshold_is_two_rounds():
     snap = _snap(silent={A: 2, B: 0, C: 0, D: 0})
     out = prompter.stale_cast_block(snap, _cards(A, B, C, D))
-    assert "[可选提醒·久未登场]" in out
+    assert "[提醒·久未登场]" in out
     assert A + "：连续 2 轮没有戏" in out
     assert B not in out
 
@@ -127,11 +127,28 @@ def test_only_names_in_roster_are_mentioned():
     assert "名册外角色" not in out
 
 
-def test_advisory_is_subordinate_to_directive():
+def test_advisory_does_not_self_demote():
+    """优先级声明只在铁律丁出现一次（2026-10-21 提示词审计）。
+
+    旧版段末写「以上优先级仍低于导演指令：若导演指令与它相抵，听导演的」，
+    与铁律丁、与角色块指引、与秘密发酵段末重复四遍——同一约束重复声明只会互相稀释，
+    且段末自我降级等于给模型台阶（v2.1.2 实测「可完全略过」→ 整轮无视）。故段内不再降级。
+    """
     snap = _snap(silent={A: 3})
     out = prompter.stale_cast_block(snap, _cards(A))
-    assert "优先级仍低于导演指令" in out
-    assert "听导演的" in out
+    assert "优先级仍低于导演指令" not in out
+    assert "听导演的" not in out
+
+
+def test_directive_precedence_declared_once_in_laws():
+    """优先级声明的唯一出处是铁律丁（build_session 组装后可见）。"""
+    snap = _snap(place="某处甲", silent={A: 3})
+    msgs = prompter.build_session(
+        _cards(A), "继续", [], snap)
+    system = msgs[0]["content"]
+    assert "导演指令优先：本轮的所有提醒、建议与背景设定" in system
+    assert system.count("优先级低于导演指令") == 0
+    assert system.count("优先级仍低于导演指令") == 0
 
 
 def test_asks_for_one_place_but_keeps_escape_hatch():
@@ -154,7 +171,7 @@ def test_silent_rounds_reach_the_built_prompt():
                  silent={A: 3})
     msgs = prompter.build_session(_cards(A, B), "随便写点", [], snap, history=[])
     text = "\n".join(m["content"] for m in msgs)
-    assert "[可选提醒·久未登场]" in text
+    assert "[提醒·久未登场]" in text
     assert A + "：连续 3 轮没有任何动作" in text
 
 
@@ -177,19 +194,8 @@ def test_stale_block_is_last_system_block():
     snap["secrets"] = []
     msgs = prompter.build_session(_cards(A, B), "随便写点", [], snap, history=[])
     text = msgs[0]["content"]
-    assert "[可选提醒·久未登场]" in text
-    assert text.rstrip().endswith("听导演的。")
-
-
-def test_stale_block_is_last_system_block():
-    """顺序守护：必须压在全块最末（近因最强），重构时最容易被排到中间去。
-
-    v2.1.2 首轮实机：R7 只有模型在段尾读到这一处才给出「北境」切场，
-    因此它必须排在秘密发酵段之后。
-    """
-    snap = _snap(silent={A: 3})
-    snap["secrets"] = []
-    msgs = prompter.build_session(_cards(A, B), "随便写点", [], snap, history=[])
-    text = msgs[0]["content"]
-    assert "[可选提醒·久未登场]" in text
-    assert text.rstrip().endswith("听导演的。")
+    assert "[提醒·久未登场]" in text
+    # 旧判据是「正文以『听导演的。』结尾」——段末降级句已删（优先级统一由铁律丁承载），
+    # 改用块头序守护：本段之后不得再出现任何「[xxx]」块头，即它恒为 system 最后一块。
+    assert text.rindex("[提醒·久未登场]") > text.rindex("[输出格式]")
+    assert "\n[" not in text[text.rindex("[提醒·久未登场]"):]

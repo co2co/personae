@@ -187,13 +187,11 @@ def load_world(name=""):
     return (data or {}).get("entries", [])
 
 
-STANDARD_ENTRY_NAME = "亲密描写标准"
-
 # 条目来源标记：引擎默认供给 vs 作者自写。
 #
 # 为什么需要它：世界书同时承载「剧本设定」与「注入调度」（position/depth/priority/
-# constant/enabled 五维控制），而两条引擎默认条目（亲密描写标准、写法示范·常驻）由
-# save_world / import_drama 播种进用户数据文件，在 UI 里与作者自写条目长得一模一样——
+# constant/enabled 五维控制），而引擎默认条目（写法示范·常驻）由 save_world /
+# import_drama 播种进用户数据文件，在 UI 里与作者自写条目长得一模一样——
 # 用户无法判断「这条是系统的还是我写的」「删了会不会被补回来」。origin 让来源在数据层
 # 可见，前端据此分区、标注、提供恢复入口。
 #
@@ -201,90 +199,12 @@ STANDARD_ENTRY_NAME = "亲密描写标准"
 # 仍是 origin="engine"（可改可关），只有删除后由作者重写的同名条目才退回无标记。
 ORIGIN_ENGINE = "engine"
 
-# 出厂随每个新世界播种的世界书条目：亲密/性描写的**叙事技法标准**。
-#
-# 为什么放在世界书而不是引擎铁律：
-#   引擎铁律⑧ 恒定在 system 块约 39% 处，其后压着数百字才到生成点，长上下文下
-#   权重被稀释；而 position=after 的常量条目落在**末尾 user 消息**（生成点前最后一瞥），
-#   近因权重最强。同样的文本换个位置，实测效果差别显著。
-#
-# 为什么是「技法标准」而不是「尺度档位」：
-#   本条不含任何具体尺度预设（不规定器官词、不规定字数、不规定必须到哪一步），
-#   只约束「到了亲密时刻该怎么写」，何时生效完全交给剧情判断——因此对任意剧本
-#   都成立，不会把某个剧本的走向锁死。措辞全中性，不含专名与题材词（普适性红线）。
-#   作者想要更露骨时的正路是在**本剧本自己的世界书里另加一条**，不是改引擎（零代码）。
-#
-# 为什么用「一/二/三…」分层而不是散文串接：
-#   指令型长文本分条后模型更容易逐条对照执行，且不易漏掉末尾几条（处境锚点、如何收束）
-#   ——长 prompt 的常见失效点就是把末尾的要求丢掉。当前为**六分层**（写多实 /
-#   怎么落笔 / 心理怎么带 / 节奏 / 处境锚点 / 如何收束）。第二层落笔处带器官词
-#   **正反措辞示例**（禁「探到底」「贯穿」式概括，示范直呼其名），第四层带抽插
-#   **防复读**反面示例。器官词与「抽插/高潮」在此都是**反面/示范用法**（禁概括、
-#   防重复充数），不是正向配额或阶段达成表——不重犯 v0.14.x「字数/频率/阶段表」的硬指标坍缩。
-#
-# 时机层职责（何时写 / 未到位不硬写）已**移交铁律⑧**（prompter._LAW8_DEFAULT 的
-#   「当叙事推进到亲密场景时…」正向门槛 + 「叙事尚未推进到亲密时刻前，不得…硬写」
-#   反向约束，v0.24.2 补齐）。本条只保留**写法技法**，标题首行「非亲密戏时直接跳过」
-#   是轻量提醒，不承担触发判定——避免本条与铁律⑧ 在时机层重复约束。
-#
-# 实机依据（本地 27B，四组对照 × 临界场景）：
-#   本条在场 vs 铁律⑧ 单独 → 处境锚定词 4→11、在场第三方提及 4→10（群像未被吃掉）；
-#   vs 把技法硬编进铁律 → 后者仅在「指令明写性」的窄区间生效，另两轮为 0，
-#   且抽象词翻 4 倍、正文暴涨 40%（挤占群像）。
-#   跨题材（古代宫廷权谋 / 深空殖民站科幻 / 当代小镇伦理 / 末世生存）四类剧本各跑
-#   2组×3 场景：零整段复读、零器官词，非亲密轮不硬写。
-#   注：复读（描写/台词句被写两遍）在「仅本条、零其他条」的配置下也出现过两次，
-#   属模型长输出末尾的句式回卷，**不是冗余指令互相强化**——故此处不做去冗余化处理，
-#   保留全部有效要求。
-_STANDARD_ENTRY_CONTENT = (
-    "【本剧亲密与性行为描写标准，须逐条遵守，非亲密戏时直接跳过】\n"
-    "以下各条不是建议，写到亲密戏时必须逐条执行。\n"
-    "一、写多实\n"
-    "既不回避也不跳过，用足该写的那一段。若已越界，须把该发生的写完——"
-    "衣物如何解、谁先伸手、哪一步是谁主动、身体在什么位置被怎样对待，都写出来，"
-    "不靠一句「继而」带过，不在将入未入之际收束。\n"
-    "二、怎么落笔\n"
-    "落笔必须落在身体上，具体到部位和动作。"
-    "禁止概括收尾（「两人衣衫尽褪」「他进入了她」），"
-    "禁止代称遮挡（「那根东西」「下身」「私密处」「那处」等）。直呼其名。\n"
-    "示例：\n"
-    "- 不是「他的手终于探到了底，掌心抵住了那片湿润的热度」，"
-    "而是「他的手指分开她的阴唇，指腹直接按上她已经湿透的阴蒂」。\n"
-    "- 不是「他猛地挺腰，彻底贯穿了她」，"
-    "而是「他抓住她的腰往下一按，整根阴茎一下插到底，龟头顶到了她子宫口」。\n"
-    "同时：身体写得再具体，也不能让整段只剩下身体。"
-    "每推进一个明确的性动作，必须同步带出至少一项非性信息"
-    "（处境风险、人物情绪通过身体的泄露、关系里的主动/被动/犹豫、时间压力等）。\n"
-    "三、心理怎么带\n"
-    "心理一律通过身体反应写出，不直接下结论。"
-    "不写「她很爽」「他不情愿」「她爱他」，写她如何僵住、呼吸如何乱、"
-    "他如何躲开视线、事后谁先移开眼睛。\n"
-    "情话与内心独白只在身体已经说过之后补一句，且只补一句。"
-    "禁止用大段情色内心独白或「感觉像……」的比喻堆砌来填充篇幅。"
-    "身体已经表达过的，嘴和脑子不必再说第二遍。\n"
-    "四、节奏\n"
-    "必须有层次：试探 → 越界 → 失控 → 事后。\n"
-    "每一次推进都要带来新的具体信息，而不是同一动作的重复描述。"
-    "新信息包括但不限于：身体反应程度的变化、主动/被动的转换、说出口与咽回去的话、"
-    "处境风险的即时提醒、关系里此刻最难逾越的那道界限被触碰或暂时跨越。\n"
-    "事前犹豫、事后避开眼睛，各写一次即可。"
-    "不得靠重复同一抽插动作或同一句措辞充数。"
-    "如果一段里连续三次都在写「他用力抽插、她叫出声」，就是节奏失败。\n"
-    "五、不能丢的（处境锚点）\n"
-    "每一段亲密戏都必须始终锚定当前处境：\n"
-    "- 这个空间里能被听见/看见的具体风险\n"
-    "- 此刻还剩多少时间或余地\n"
-    "- 这层关系里此刻最难逾越的那道界限\n"
-    "- 同时在场但不在这一段里的人，必须仍然有「被写到」的可能\n"
-    "身体写得越具体，这些非性的处境张力越要保住。"
-    "如果两个人关进一间屋子后，整段就只剩他们两个人的身体，"
-    "而其他人的世界、时间压力、被发现的风险全部消失，就是失败。\n"
-    "六、如何收束\n"
-    "事后必须回到人物与处境，而不是停在高潮余韵里。"
-    "写清楚：谁先动、谁先穿衣服/整理、谁先说话或故意不说话、"
-    "这一刻关系有没有发生不可逆的改变、外部世界的压力有没有重新压回来。"
-    "高潮不是终点，人物带着这场性回到原来的世界才是终点。"
-)
+# 亲密/性内容的尺度**不由引擎出厂预设**（2026-10-21 下架，simon 裁决，对齐 v0.29.0）。
+# 引擎不再随新建 / 导入剧本播种「亲密描写标准」世界书条目——尺度完全交回各剧本的
+# 世界书与剧情推进决定。既有磁盘剧本里的同名条目原样保留（引擎改动只影响今后的播种，
+# 不回填、不清理旧条目）；作者想给某剧本加亲密写法标准，正路是在本剧世界书里自建一条。
+# 回滚蓝本：v0.29.0 同款下架；_STANDARD_ENTRY_CONTENT（六分层 + 器官词正反示例）见
+# git tag / _backup_offshelf_nsfw_20261021/store.py。
 
 
 # ---- 写法示范（few-shot，对标酒馆 first message / example messages）----
@@ -319,21 +239,6 @@ _STANDARD_EXAMPLE_CONTENT = (
 )
 
 
-def _standard_entry():
-    return {
-        "name": STANDARD_ENTRY_NAME,
-        "keys": [],
-        "content": _STANDARD_ENTRY_CONTENT,
-        "priority": 100,
-        "enabled": True,
-        "constant": True,
-        "position": "after",
-        "depth": None,
-        "secret": False,
-        "origin": ORIGIN_ENGINE,
-    }
-
-
 def _standard_example_entry():
     """常驻写法示范条目（酒馆 example messages）：demo 标志 + 非 first_round，每轮注入。"""
     return {
@@ -352,10 +257,6 @@ def _standard_example_entry():
     }
 
 
-def _has_standard_entry(entries):
-    return any((e or {}).get("name") == STANDARD_ENTRY_NAME for e in (entries or []))
-
-
 def _has_standard_example(entries):
     return any((e or {}).get("name") == STANDARD_EXAMPLE_NAME for e in (entries or []))
 
@@ -363,9 +264,12 @@ def _has_standard_example(entries):
 def restore_default_entries(name):
     """补回被删除的引擎默认条目（只补缺失，不覆盖已存在的同名条目）。
 
-    为什么只补不覆盖：用户可能按自己的口味改过「亲密描写标准」或把「写法示范·常驻」
-    换成本剧角色（高氏王朝就是这么用的）。一键重置为出厂内容等于静默销毁作者的修改，
-    与「可改可关」的设计相悖。需要重置某条时，先删除它再点恢复，路径显式可控。
+    2026-10-21 下架亲密尺度后，引擎出厂条目只剩「写法示范·常驻」一条
+    （「亲密描写标准」不再由引擎播种，见上方注释）。
+
+    为什么只补不覆盖：用户可能把「写法示范·常驻」换成本剧角色（高氏王朝就是这么用
+    的）。一键重置为出厂内容等于静默销毁作者的修改，与「可改可关」的设计相悖。
+    需要重置某条时，先删除它再点恢复，路径显式可控。
 
     返回 {"added": [...], "present": [...]}；剧本不存在返回 None。
     """
@@ -380,23 +284,12 @@ def restore_default_entries(name):
     entries = list(raw.get("entries") or [])
     added, present = [], []
 
-    if _has_standard_entry(entries):
-        present.append(STANDARD_ENTRY_NAME)
-    else:
-        entries.insert(0, _standard_entry())
-        added.append(STANDARD_ENTRY_NAME)
-
     if _has_standard_example(entries):
         present.append(STANDARD_EXAMPLE_NAME)
     else:
-        # 紧跟标准条目（与 save_world 首次播种的顺序一致，保持文件可读性；
-        # 展示顺序最终由 priority 决定，位置不影响注入）。
-        pos = 0
-        for i, e in enumerate(entries):
-            if (e or {}).get("name") == STANDARD_ENTRY_NAME:
-                pos = i + 1
-                break
-        entries.insert(pos, _standard_example_entry())
+        # 置于首位：前端 collectWorldEntries 按列表序重算 priority，
+        # 展示顺序最终由 priority 决定，位置不影响注入。
+        entries.insert(0, _standard_example_entry())
         added.append(STANDARD_EXAMPLE_NAME)
 
     if added:
@@ -411,14 +304,13 @@ def restore_default_entries(name):
 def save_world(name, entries):
     """整份保存世界书（覆盖式）。entries 为条目数组。
 
-    新建世界时（该世界此前不存在）自动播种两条默认条目：
-      - _STANDARD_ENTRY「亲密描写标准」：叙事技法标准，措辞全中性、不含任何剧本
-        专名与题材词，对任意剧本都成立，故随每个新世界出厂即激活。用户可整条删除
-        或改写，删除后本函数不会再补（只对「首次创建」播种，不做每次保存的强制回填），
-        也可 enabled=false 停用。详见 _STANDARD_ENTRY 注释。
+    新建世界时（该世界此前不存在）自动播种一条默认条目：
       - _standard_example_entry「写法示范·常驻」：中性 few-shot 示范（酒馆 example
-        messages），让「玩家不写示范也能每轮有范例可循」。同样只对首次创建播种，
+        messages），让「玩家不写示范也能每轮有范例可循」。只对首次创建播种，
         删除后不强制回填。
+
+    亲密/性内容的尺度**不由引擎播种**（2026-10-21 下架，对齐 v0.29.0）：此前随新世界
+    播种的「亲密描写标准」条目已移除，尺度完全交回各剧本的世界书与剧情推进决定。
     """
     name = (name or "").strip()
     if not name:
@@ -430,13 +322,9 @@ def save_world(name, entries):
     first_create = not p.exists()
     if first_create:
         # 置于首位：前端 collectWorldEntries 按列表序重算 priority（index 0 → 100），
-        # 而 world.scan 是按 priority 降序截断 max_entries——放首位才能保证
-        # 「每世界多一条 constant」不会把该世界的其它设定挤出配额。
-        if not _has_standard_entry(entries):
-            entries.insert(0, _standard_entry())
-        # 常驻写法示范紧随其后（demo 条目不占 max_entries 配额，但保持靠前利于渲染顺序）
+        # 保持靠前利于渲染顺序。demo 条目不占 max_entries 配额。
         if not _has_standard_example(entries):
-            entries.insert(1, _standard_example_entry())
+            entries.insert(0, _standard_example_entry())
     data = {"name": name, "entries": entries}
     p.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
     _invalidate(p)
@@ -577,17 +465,11 @@ def import_drama(name, template):
 
     # 1) 世界书：整份覆盖写，name 对齐目标剧本名（save_world 内部会把 name 落进文件）。
     store_entries = list(world_entries)
-    # 导入时补种两条引擎默认条目（若模板未自带）：亲密描写标准是叙事技法基线，
-    # 写法示范·常驻是每轮范例——导入一个没带它们的剧本包，也该拿到与新建剧本
-    # 同样的出厂供给。save_world 只在「首次创建」时播种，导入覆盖写已存在的剧本
-    # 不会触发，故在此显式补，且两条待遇一致（旧版只补示范，导致导入的剧本包
-    # 可能永远没有亲密描写标准）。
-    if not _has_standard_entry(store_entries):
-        store_entries.insert(0, _standard_entry())
+    # 导入时补种引擎默认条目（若模板未自带）：写法示范·常驻是每轮范例。
+    # save_world 只在「首次创建」时播种，导入覆盖写已存在的剧本不会触发，故在此显式补。
+    # 亲密尺度不由引擎播种（2026-10-21 下架，对齐 v0.29.0），故不再补「亲密描写标准」。
     if not _has_standard_example(store_entries):
-        pos = next((i + 1 for i, e in enumerate(store_entries)
-                    if (e or {}).get("name") == STANDARD_ENTRY_NAME), 0)
-        store_entries.insert(pos, _standard_example_entry())
+        store_entries.insert(0, _standard_example_entry())
     save_world(name, store_entries)
 
     # 2) 角色卡：模板内名单整份重建，world 强制对齐 name。

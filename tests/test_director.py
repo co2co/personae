@@ -901,7 +901,7 @@ def test_reflect_feeds_secret_content_and_keys_to_clerk(monkeypatch):
 
 
 # ---- 静默计数口径（v2.1.2）----
-# 数字从「纯展示」变成「提示词里 [可选提醒·久未登场] 的触发依据」后，焦点豁免
+# 数字从「纯展示」变成「提示词里 [提醒·久未登场] 的触发依据」后，焦点豁免
 # 就不能再留：导演连续点名同一批人时，镜头外角色的数字长期停在 0，提醒永不触发。
 
 def test_silent_rounds_count_offscreen_in_focus_rounds():
@@ -926,7 +926,7 @@ def test_reflect_prompt_forbids_placeholder_actions(monkeypatch):
     v2.1.1 把 present 改成名册后，reflect prompt 里「actions 覆盖本轮所有在场角色」
     等于要求纪官给六个人各编一句——实测（_probe_stale R7）正文只写了两人，
     actions 却报满六人，其中四条是「维持现状」「保持北境稳定」这类空话，
-    于是 silent_rounds 全员归零，[可选提醒·久未登场] 永远不会触发。
+    于是 silent_rounds 全员归零，[提醒·久未登场] 永远不会触发。
     """
     import json as _json
     snap = {"scene": {"round": 3}, "present": [A, B], "relations": {},

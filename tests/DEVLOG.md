@@ -4,7 +4,93 @@
 
 记录架构决策。待办与搁置项已统一收口至 [TODO.md](./TODO.md)（各版本「下版本待办」外链至此，避免日志臃肿），非任务日志，按主题追加。
 
-> **tag 记录（2026-10-21 补）**：`v2.0.0` 发版当日漏打 tag，已补至 `d726911`。`v2.0.1` / `v2.0.2` 是同日连续 PATCH 迭代，改动交织在 `index.html` 同一批行里（v2.0.2 重构掉了 v2.0.1 的说明条与按钮，反推不出真实的 v2.0.1 界面），故合并为提交 `c8b2db0` 且无独立 tag。当前 tag 序列：`v1.2.3` → `v2.0.0` → `v2.1.0`。
+> **tag 记录（2026-10-21 补）**：`v2.0.0` 发版当日漏打 tag，已补至 `d726911`。`v2.0.1` / `v2.0.2` 是同日连续 PATCH 迭代，改动交织在 `index.html` 同一批行里（v2.0.2 重构掉了 v2.0.1 的说明条与按钮，反推不出真实的 v2.0.1 界面），故合并为提交 `c8b2db0` 且无独立 tag。当前 tag 序列：`v1.2.3` → `v2.0.0` → `v2.1.0` → `v2.1.1` → `v2.1.2` → `v2.1.3` → `v2.1.4`（v2.0.1/v2.0.2 合并无独立 tag；v2.1.4 同一次提交含 NSFW 下架 + P0 注入审计两项，故 DEVLOG 拆成两条目共用一个版本号）。
+
+---
+
+## 2026-10-21 下架 NSFW 支持：亲密尺度约束层整体移除（v2.1.4）
+
+**起因**：simon 要求下架 NSFW 支持并作为任务记录以备回滚。拍板两个分叉：①引擎立场 = **中性不预设（对齐 v0.29.0）**——删铁律⑧尺度措辞、停「亲密描写标准」出厂播种、移除自我审查剥离正则；②剧本数据 = **保留磁盘，仅停引擎播种**——高氏王朝既有条目原样留在磁盘，引擎改动只影响今后新建/导入不再自动补亲密条。机制层 `nsfw.py`/机会等级/内容尺度早在 v0.8.0 已废弃；本次下架的是 v1.2.7 恢复的「亲密内容写法约束层」（v0.29.0 曾下架过同款，现再下架一次）。
+
+**改动清单**
+
+| 文件 | 内容 |
+|---|---|
+| `engine/prompter.py` | `_build_laws()` = `_LAWS_PREFIX + "\n" + _NARRATIVE_DISCIPLINE`；`_LAWS_PREFIX` 保留「己、法律底线（不可破）：未成年角色的性化描写、以及任何真实未成年人的相关内容，一律禁止」；删除铁律⑧尺度措辞（`_LAW8_DEFAULT`/`_law8_override`）。394-399 补下架说明注释 |
+| `engine/store.py` | 删 `_STANDARD_ENTRY_CONTENT`（六分层 + 器官词正反示例）+ `_standard_entry()` + `_has_standard_entry()`；`restore_default_entries()`/`save_world()`/`import_drama()` 只补「写法示范·常驻」不再补亲密条；既有磁盘剧本同名条目不清理 |
+| `engine/narrative_clean.py` | 删 `_WILL_EVADE_RE`/`_GIVEN_EVADE_RE` 及 `clean_narrative()` 里两行替换；保留 `_DIRECTOR_ENGINE_RE`（导演自居句剥离仍生效） |
+| `engine/static/worldbook-guide.html` | 九·五节由「亲密叙事尺度（出厂自带，可停用）」改写为「亲密叙事尺度（引擎不内置）」；未成年硬红线 note 保留 |
+| `engine/static/index.html` | 行 2087 文案删「提供亲密叙事技法基线」只留「提供每轮写法范例」 |
+| `engine/app.py` | `restore_world_defaults()` docstring 去掉「亲密描写标准」，加注 2026-10-21 下架 |
+
+**设计决定**
+
+- 未成年法律硬红线引擎级保留（`_LAWS_PREFIX`「己、法律底线」），不可由世界书覆盖——尺度中性化 ≠ 解除未成年人保护。
+- 「写法示范·常驻」（`STANDARD_EXAMPLE`）是中性 few-shot 示范，与亲密尺度无关，保留不动。
+- 剧本数据磁盘保留、引擎只停播种：避免回填/清理旧条目造成数据风险；作者想加亲密写法标准正路是本剧世界书自建一条。
+- 自我审查剥离正则下架：尺度中性化后「规避具体生理」不再是引擎立场问题，剥离会误伤正当叙事（对齐 v0.29.0 立场）。
+
+**验证**
+
+| 项 | 数据 |
+|---|---|
+| 全量测试 | 378 passed + 1 skipped + 1 deselected（基线 377 passed + 1 failed + 1 skipped + 1 deselected，反转 1 例后转全绿） |
+| 引擎符号 | 全库 Grep 无 `_LAW8_DEFAULT`/`_standard_entry`/`_has_standard_entry`/`_STANDARD_ENTRY_CONTENT`/`_WILL_EVADE_RE`/`_GIVEN_EVADE_RE` 活引用 |
+| 未成年红线 | `test_intimacy_scale.py::test_minor_redline_kept_in_engine` 仍通过 |
+
+**测试反转**（守护跟着语义走）
+
+- `test_intimacy_scale.py` 由「铁律⑧恢复版」改为「不预设尺度回归」：断言「亲密与性描写/身临其境/正面写实/不预设上限/不强制克制/提前引入/硬写」不在 sys_p、`not hasattr(prompter, "_LAW8_DEFAULT")`；未成年红线断言保留。
+- `test_standard_entry.py` 由「出厂播种测试」改为「不播种回归」：`test_new_world_does_not_seed_standard_entry`/`test_existing_world_legacy_entry_preserved`（旧条保留）/`test_store_exposes_no_standard_entry_symbols`。
+- `test_standard_entries.py` 保留写法示范断言，亲密条断言移除或反转为「不再播种」。
+- `test_narrative_discipline.py::test_law8_intimacy_restored_in_engine` → `test_law8_intimacy_not_in_engine`。
+- `test_drama_io.py` 行 77-78 `assert "亲密描写标准" in [...]` → `not in`。
+- `test_narrative_clean.py::test_v2_director_voice_and_evasion_stripped` → `test_v2_director_voice_stripped_evasion_kept`：导演自居/铁律/分隔线仍剥离，自我审查式规避声明（「鉴于…规避具体的生理…我将以…」）改为 `in out`（不再剥离）。
+
+**回滚蓝本**：`git tag` + `_backup_offshelf_nsfw_20261021/`（11 个改动前文件副本）+ 本条目。回滚时按本条目改动清单逐文件还原即可。
+
+---
+
+## 2026-10-21 提示词注入审计落地 P0：指令收尾 + 去重 + 情境条目合并（v2.1.4）
+
+**起因**：对 `act()` → `build_session` 全链路做注入审计（离线组装实测 + 逐段量字数），定位到三处结构性错配与一处世界书重复投料。simon 选「P0 全做 + 世界书第 3 条」，P1/P2 留待实机数据。
+
+**P0 改动**（`engine/prompter.py`）
+
+| # | 项 | 内容 |
+|---|---|---|
+| 1 | 末尾 user 拼接顺序 | `【导演指令】+directive+"\n\n"+env_block` → `env_block+"\n\n【导演指令】"+directive`。after 命中里压着 1128 字技法标准，旧序把导演指令推到倒数第二位，与「导演指令优先」自相矛盾；现在整条 prompt 的最后一个 token 区域恒为本轮指令。标签沿用 `【导演指令】`（与 `app.py:871` 落盘标签一致） |
+| 2 | 「点名角色必须出场」四处 → 一处 | 只保留 `[导演指令]` 段的 `focus_note`（紧邻指令文本）。删除 `[输出格式]` 里三句（含「点名角色必须作为本轮叙事焦点之一出场」「严禁无声略过」「必须呈现对应段落」）、`focus_block` 的「必须作为本轮叙事主视角出场并推进剧情」、`present_clause` 的「（必须重点描写并推动其剧情）」。`[输出格式]` 首句「角色名：」锚点原样保留（v2.1.0 踩过） |
+| 3 | 提醒段去自我降级 | 两段标题 `[可选提醒·X]` → `[提醒·X]`（`_ferment_hint` 的跨段指针同步）；删 `_global_pressure_block` 段末「仅为可选提醒…可完全略过」、`stale_cast_block` 段末「优先级仍低于导演指令…听导演的」、pressure 行内两处「若不合叙事，不强求」。优先级声明统一收到铁律丁一句：「导演指令优先：本轮的所有提醒、建议与背景设定，与导演指令相抵时一律听导演的」 |
+
+**世界书改动**（`dramas/高氏王朝/world.json`，经 `sync_drama.py install` 铺三态）
+
+- 「采选启动」+「册后倒计时」合并为「采选与倒计时」：两条 keys 高度重叠、内容把「半年·四步·矮一寸」讲了两遍，命中时会同时注入两段近似环境描述（after 同时命中 4 条 → 3 条）。合并条 185 字，keys 取并集。
+- 「铁鞍军报」删掉与常量「虎符·合符调兵」逐字重复的那句（左符/右符/合符，44 字），保留「南下是四笔账」的判据。
+- 20 条 → 19 条；`opening.txt` 两行情境清单同步为一行。
+
+**验证**
+
+| 项 | 数据 |
+|---|---|
+| 全量测试 | 381 passed + 1 skipped + 1 deselected（基线 380，新增 1 例：优先级声明唯一出处） |
+| 同快照新旧 prompter 对照 | system 9765 → 9611（-154），总 prompt 12028 → 11874 |
+| 末条 user | 旧收尾「…满朝没人知道。」（世界书条目正文）→ 新收尾「…问宗室的态度。」（本轮指令） |
+| 重复约束计数 | 点名角色必须 0 / 必须作为本轮叙事焦点 0 / 优先级低于导演指令 0 / 可完全略过 0 |
+| 世界书注入 | before 7 条 / after 3 条（原 4）/ demo 1 条；合并后情境段省 68 字并消除一次重复注入 |
+| 三态 | `sync_drama.py check` 三方一致 |
+
+**测试反转**（守护跟着语义走，不是障碍）
+
+- `test_stale_cast.py::test_advisory_is_subordinate_to_directive` → `test_advisory_does_not_self_demote`（断言段内不再出现降级句）+ 新增 `test_directive_precedence_declared_once_in_laws`。
+- `test_stale_block_is_last_system_block` 的判据由「正文以『听导演的。』结尾」改为块头序（该段之后不得再出现任何 `[xxx]` 块头）——段末降级句已删，原文判据失效。
+- 顺带修掉该文件里重复定义两次的同名测试函数。
+
+**设计决定**
+
+- 优先级声明「只出现一次」而非「每次都强调」：v2.1.2 实证段末给台阶会让模型整轮无视，而同一声明重复四遍只会互相稀释。声明位置选铁律丁——它是唯一与导演指令直接挂钩的条款。
+- 世界书合并只做去重、不做删减：三条的情境职能（采选/倒计时/军报）仍需在各自触发时出现，故保留两条独立条目，仅消除重叠措辞。
+- 未做 P1/P2（角色块秘密分层、名册改名、状态段合并、纪官 prompt 重排、铁律⑧与世界书技法分工）——这些要实机数据支撑，先拿到本轮对照再定。
 
 ---
 

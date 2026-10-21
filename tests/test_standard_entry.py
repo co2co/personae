@@ -1,11 +1,17 @@
-"""出厂「亲密描写标准」播种测试（NSFW 支持版，不碰磁盘真实 data/）。
+"""亲密尺度「不播种」回归测试（2026-10-21 下架，对齐 v0.29.0，不碰磁盘真实 data/）。
 
-契约（NSFW 支持恢复，对齐 v0.28.8 出厂单元）：
-  1. 新建世界自动前置插入「亲密描写标准」——save_world([]) → load 返回 1 条标准。
-  2. 标准恒定 constant=True / position=after / priority=100，置于 entries 首位。
-  3. 不重复播种：传入 entries 已含「亲密描写标准」时不再额外插入。
-  4. 玩家主权：玩家可对标准条停用/删除，引擎尊重（不复活、不强制回填）。
-  5. 既有世界旧版标准条原样保留——save/load 只做覆盖式读写，不主动清理。
+契约（下架后，simon 裁决）：
+  1. 新建世界**不再播种**「亲密描写标准」——save_world([]) → 只剩「写法示范·常驻」。
+  2. 传入用户条目时，**不前置**亲密条；「写法示范·常驻」置于首位，用户条目保持原顺序。
+  3. 既有磁盘世界（旧版引擎播种过）的「亲密描写标准」条**原样保留**——save/load
+     只做覆盖式读写，不主动清理、不重复（引擎改动只影响今后的播种，不回填旧条）。
+  4. 引擎不预设亲密尺度：store 不再暴露 _standard_entry / _has_standard_entry /
+     STANDARD_ENTRY_NAME 符号。
+
+回滚蓝本：v0.29.0 同款下架；NSFW 播种版（六分层 + 器官词正反示例）见
+git tag / _backup_offshelf_nsfw_20261021/test_standard_entry.py。
+
+普适性红线：全文件只用中性占位，不绑定任何具体剧本角色名或题材词。
 """
 import sys
 from pathlib import Path
@@ -33,77 +39,30 @@ def _isolated_store(tmp_path, monkeypatch):
     store._cache.clear()
 
 
-def test_new_world_seeds_standard_entry():
-    """新建世界 save_world("W", []) → load 首条为「亲密描写标准」（另有常驻示范条）。"""
+def test_new_world_does_not_seed_standard_entry():
+    """新建世界 save_world("W", []) → 不再含「亲密描写标准」，只剩写法示范。"""
     store.save_world("新世界", [])
-    ents = store.load_world("新世界")
-    names = [e["name"] for e in ents]
-    assert names[0] == STD_NAME
-    # 常驻写法示范（引擎通用默认）也一并播种，见 test_standard_example.py
+    names = [e["name"] for e in store.load_world("新世界")]
+    assert STD_NAME not in names, "下架后引擎不得再播种「亲密描写标准」"
     assert "写法示范·常驻" in names
 
 
-def test_seeded_entry_attributes():
-    """播种的标准条恒定 constant=True / position=after / priority=100。"""
-    store.save_world("新世界", [])
-    std = next(e for e in store.load_world("新世界") if e["name"] == STD_NAME)
-    assert std["constant"] is True
-    assert std["position"] == "after"
-    assert std["priority"] == 100
-
-
-def test_standard_prepended_at_front():
-    """传入用户条目时，标准条被前置到首位，用户条目保持原顺序。"""
+def test_user_entries_not_prepended_by_standard():
+    """传入用户条目时不前置亲密条；写法示范首位，用户条目保持原顺序。"""
     entries = [
         {"name": "自定义", "keys": ["x"], "content": "内容A"},
         {"name": "其它", "keys": ["y"], "content": "内容B"},
     ]
     store.save_world("新世界", entries)
-    loaded = store.load_world("新世界")
-    names = [e["name"] for e in loaded]
-    assert names[0] == STD_NAME
-    # 常驻示范条在标准条之后、用户条目之前
-    assert names[1] == "写法示范·常驻"
-    assert names[2] == "自定义"
-    assert names[3] == "其它"
-
-
-def test_no_double_seed_when_standard_present():
-    """传入 entries 已含标准条时，不再额外插入（不重复播种）。"""
-    existing_std = {
-        "name": STD_NAME, "keys": [], "content": "旧内容",
-        "constant": True, "position": "after", "priority": 100,
-        "enabled": True, "depth": None, "secret": False,
-    }
-    store.save_world("新世界", [existing_std, {"name": "u", "keys": [], "content": "c"}])
-    loaded = store.load_world("新世界")
-    names = [e["name"] for e in loaded]
-    assert names[0] == STD_NAME
-    assert loaded[0]["content"] == "旧内容"
-    assert "u" in names
-
-
-def test_user_can_disable_seeded_entry():
-    """玩家可对播种的标准条停用（enabled=False），引擎尊重。"""
-    store.save_world("新世界", [])
-    ents = store.load_world("新世界")
-    std = next(e for e in ents if e["name"] == STD_NAME)
-    std["enabled"] = False
-    store.save_world("新世界", ents)
-    loaded = store.load_world("新世界")
-    assert next(e for e in loaded if e["name"] == STD_NAME)["enabled"] is False
-
-
-def test_user_can_delete_seeded_entry():
-    """玩家可整条删除标准条，再次保存不会复活（仅首建播种）。"""
-    store.save_world("新世界", [])
-    # 删除标准条后再次保存（首建已过，不会回填）
-    store.save_world("新世界", [e for e in store.load_world("新世界") if e["name"] != STD_NAME])
-    assert all(e["name"] != STD_NAME for e in store.load_world("新世界"))
+    names = [e["name"] for e in store.load_world("新世界")]
+    assert STD_NAME not in names
+    assert names[0] == "写法示范·常驻"
+    assert names[1] == "自定义"
+    assert names[2] == "其它"
 
 
 def test_existing_world_legacy_entry_preserved():
-    """既有世界（旧版引擎播种过的）标准条原样保留，不被清理或重复。"""
+    """既有世界（旧版引擎播种过）的亲密条原样保留，不被清理或重复。"""
     legacy = {
         "name": STD_NAME, "keys": [], "content": "【本剧亲密与性行为描写标准……（旧版出厂条内容）",
         "priority": 100, "enabled": True, "constant": True,
@@ -113,9 +72,18 @@ def test_existing_world_legacy_entry_preserved():
     store.save_world("旧世界", [legacy, user_entry])
     loaded = store.load_world("旧世界")
     names = [e["name"] for e in loaded]
-    assert names[0] == STD_NAME
-    assert loaded[0]["content"] == legacy["content"]
+    # 首建时引擎不再补亲密条，但玩家传入的旧条（覆盖式写入）原样保留
+    assert STD_NAME in names
+    assert loaded[names.index(STD_NAME)]["content"] == legacy["content"]
     assert "本剧设定" in names
     # 再次保存（如玩家只改了另一条）不会删除或重复旧条
     store.save_world("旧世界", loaded)
     assert "本剧设定" in [e["name"] for e in store.load_world("旧世界")]
+
+
+def test_store_exposes_no_standard_entry_symbols():
+    """下架后 store 不再暴露亲密条播种符号（引擎不预设尺度）。"""
+    assert not hasattr(store, "STANDARD_ENTRY_NAME")
+    assert not hasattr(store, "_STANDARD_ENTRY_CONTENT")
+    assert not hasattr(store, "_standard_entry")
+    assert not hasattr(store, "_has_standard_entry")
