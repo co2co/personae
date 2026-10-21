@@ -8,6 +8,72 @@
 
 ---
 
+## 2026-10-22 思考链预算挤占根因修复：关思考送达 + REFLECT_MAX_TOKENS 2800→4096
+
+**问题**（DeepSeek deepseek-flash 实测取证）：纪官 reflect 轮 2-4/8 unparseable，`finish_reason=length`，
+reasoning_tokens 2557/2800（91%）吃光预算，content 只剩残句。根因链路：
+
+```
+config.enable_thinking=False → _base_payload 发 chat_template_kwargs/enable_thinking
+  → DeepSeek 网关对未知字段 400 → _VENDOR_FIELDS 整组剥离（关思考信号一并丢）
+  → DeepSeek 默认 thinking ON → max_tokens=reasoning+content 总预算被 reasoning 吃光 → 截断
+```
+
+连带伤害：DeepSeek thinking 模式下 temperature 被静默忽略，reflect 的 0.3 / 导演官 0.4/0.3/0.7 全部未生效。
+
+**改动**（simon 拍板方案 A + 提额双保险）：
+
+| 项 | 内容 |
+|---|---|
+| llm.py `_base_payload` | `enable_thinking=False` 时加发 `reasoning_effort: "none"`（实测 DeepSeek 现行 API 该拼写真正关闭思考：reasoning_tokens 归零；`thinking:{"type":"disabled"}` 亦有效但非标准拼写，弃用） |
+| llm.py 降级链 | **拆两级剥离**：新增 `_REASONING_FIELDS=("reasoning_effort",)`，4xx 时先剥 `_VENDOR_FIELDS`（Qwen 组）**保留** reasoning_effort，仍 4xx 才末级剥除。原整组剥离会把关思考信号再次误杀（本 bug 的翻版）；流式/非流式两条链同步 |
+| director.py | `REFLECT_MAX_TOKENS` 2800→4096 双保险（纯 content 模型不触顶零成本；实测满负荷 content 仅 ~663 token） |
+| test_llm_repeat_penalty.py | 契约四→五级降级、新增 reasoning_effort 存活断言（厂商剥除后仍在 = DeepSeek 场景关键断言） |
+
+**验证**：
+
+- 全量 378 passed + 1 skipped（与基线一致）
+- 双栈实测（`_diag_plan_a_verify.py`）：DeepSeek 走真实 `llm.complete` 路径 reasoning_tokens=None/无 reasoning_content/finish=stop；reflect 单轮真实 4096 额度下 completion 663 token、content 1343 字完整解析、无失败留痕；本地 llama.cpp 接受 reasoning_effort 不 400（流式/非流式均过）
+- DeepSeek 重放 8 轮两样本：**rounds_ok 8/8**（修复前 2-4/8 unparseable），echo=0、state_merge=0、ev_drop=0、self_disc=0
+
+**已知行为位移（非回归，防线在加班）**：思考关闭后 DeepSeek 在 R6 单人场景倾向给名册全员填 location（loc_drop=5，两样本系统性复现；全部 25 个历史 run 该轮为 0-1）——`_spoken` 举证过滤把没写到的 5 条全拦下，**末端状态零污染**。这正是「治病靠正文举证过滤」防线的设计工况；思考开启时模型先在 reasoning 里「过名单」再输出所以更收敛。若后续认为该倾向代价高，再议是否调 R17 措辞，本次不动。
+
+**回归判读口径沿用**：同 tag ≥2/3 样本系统性越出基线带才判回归。
+
+## 2026-10-22 纪官 prompt 规则段压缩 B 层第二条（R05+R08「得知」判据链 363→205，-44%）
+
+**性质**：提示词文本压缩（B 层第二条兼收口；R07 微压与 R04/handle_releases/secret_touches 三条经 simon 拍板跳过结案，理由：无矛盾/无过时/文本即防线）。合并视角压 R05+R08——删两处之间的重复判据（「从一个人传到另一个人」只留一处）。备份 `backup/_reflect_rules_r05r08_20261022/`。
+
+**逐条记录（删了哪句 / 历史 case / 兜底代码行）**
+
+| 规则 | 删了哪句 | 历史 case | 兜底代码行 |
+|---|---|---|---|
+| R05 「得知」判据 133→78 | ①括号 gloss「（如看见伤痕、物证、现场）」②「该角色本轮」③「对方自述或他人转述」（自述通道由 via 条专管，转述即听见）④「了能坐实秘密的」——四途径压成并列短语「亲眼看见、亲耳听见、被当面告知、亲手发现物证」，与 schema via 枚举（1224 行）和 `EXPOSURE_VIA_WHITELIST` 对齐 | v0.17.6 会话 467f1e4c：纪官乱截正文当证据误翻暴露 → 语义护栏双门（DEVLOG v0.17.6 条目） | `EXPOSURE_VIA_WHITELIST`(38) 白名单强制 via 六类；`_evidence_related`(305) 事实锚点双字重合；`_evidence_transfer`(326) 证据须含 by/owner 名（docstring 明写「旁白心理独白…不构成实际传递」）。核心判据「信息实际发生了跨角色传递」与收口「除此之外一律不算暴露」保留 |
+| R08 内心活动不算得知 230→127 | ①四连引例「某人心想他早就知道/暗自看穿/早已心知肚明/在心里确认了」转反例触发词②「也不是实际的信息传递」（与「不算得知」「心证」三重重复）③**末句「判断的唯一标准是……有没有从一个人传到另一个人；没有传递动作就没有暴露」整句删除——与 R05 首句同一判据说第二遍，判据归 R05 一处**④「不得翻成暴露」并入「绝不填/至多填」对句 | v0.17.3 会话 256d924c：纪官把「角色内心想到他早就知道」心理描写误报成「实际得知」，潜伏秘密开场即翻暴露 → `EXPOSURE_VIA_WHITELIST` 由来（director.py:28-33 注释留档） | via 白名单拒「猜透/心知肚明」类值 + `_evidence_transfer` 拦无名旁白。**不兜之处：具名心证**（「甲心想乙早就知道秘密X」名字+事实词齐全，双护栏都放行）——「即使明写『知道』也不算」语义判据是唯一防线，完整保留；心证→suspicions 边界保留 |
+
+**验证**：①定向判别探针 `_probe_expo_disc.py` 12/12 全过（S4 具名心证 / S5 回忆猜透 → 新旧文本均不填 exposures、正确落 suspicions=1；S6 实际传递正面控制 → 两边均填「被告知」正路径没坏），零回声——**语料对内心活动场面零覆盖（仅 r04 一处「在心里」），4 指标 A/B 对 R08 零触达，定向探针是本条的主证据**（via 条教训固化）；②重放 3 样本（本地 Qwen）：loc_miss 3/3/3 与基线同、filter_drop {0,1,0}（单样本单点 ev_drop，未达 ≥2/3 系统性门槛，且 R05/R08 不管辖举证照抄纪律）、轨迹 ±1-3 步在噪声带内、echo 全 0；③全量 378 passed + 1 skipped。判读沿用噪声带口径（同 tag ≥2/3 样本系统性越出基线带才判回归）。
+
+**估数修正**：方案期估「省 ~300 字」乐观；语义判据本体+反例触发词占大头，实测省 158 字（363→205，-44%）。
+
+## 2026-10-22 纪官 prompt 规则段压缩 B 层第一条（via 自述/承认特判 195→90，-54%）
+
+**性质**：提示词文本压缩（B 层启动，逐条推进）。语义判据全保留，仅删重复句与引擎自动做的后果叙述。备份 `backup/_reflect_rules_b_20261022/`。
+
+**逐条记录（删了哪句 / 历史 case / 兜底代码行）**
+
+| 规则 | 删了哪句 | 历史 case | 兜底代码行 |
+|---|---|---|---|
+| via 自述/承认 195→90 | ①重复判据「（而非他人打听到）」与「不要拿他人转述来填」（同一判据说两遍）②「via 填『自述』或『承认』」（与分支条件重复）③后果叙述「转为公开事实、他人再也拿它要挟不了归属者（引擎据此置为已公开）」——状态机是 `_record_exposure` 自动做的，模型不需要知道 ④「专指本人当众说开」与「只用于本人真的说开的轮次」合并为一句 | v0.26.0 探针 R2：第三方当众指控、归属者矢口否认，被错填 via=自述类 → 提前置「已公开」（违反「宁可漏记不可误记」）；R6：归属者当众亲口承认被旧二态显示为「潜伏」→ 引入四态 + 自述 via | **不对称兜底，故少压**：白名单过滤（`EXPOSURE_VIA_WHITELIST` director.py:38）+「已公开=public 且众人皆知」双条件（v0.26.0，防误填提前公开）有兜底；**但自述/承认是全引擎唯一绕过三道防线的通道**（director.py:1370-1390）：holders 短路跳过、语义护栏 `_evidence_related`+`_evidence_transfer` 整体跳过（注释「不做语义护栏，直接采信」）、`_record_exposure` 清 holders+置 public——误填「他人转述→自述」会把把柄账本清空且不可逆，双条件只兜状态显示不兜账本。故「本人说开 vs 他人转述」语义判据完整保留，反例触发词三个正对 R2 形态 |
+
+**验证数据**：
+1. **重放 3 样本**（本地 llama.cpp，`after_viaL_a/b/c` vs 基线带 `after_r13L_a/b/c`）：rounds_ok 8/8、loc_missed 3、filter_drop 0、ev_drop 0、via_downgrade 0、echo 0 全部与基线一致；secret 轨迹 ±1-3 步差异在已校准噪声带内（同代码两遍固有），判读口径「同 tag ≥2/3 样本系统性越出才判回归」→ 无回归。
+2. **定向判别探针**（`tests/_probe_via_disc.py`，新发现）：固化重放语料 8 轮正文**没有任何「本人说开/第三方指控」场面**（self_disc_total=0 是语料沉默不是判别正确），via 规则没被测到——补三场景定向测试：S1 本人当众亲口承认→期望自述类；S2 第三方指控+归属者矢口否认（R2 事故复现）→期望非自述；S3 他人转述→期望非自述。同代码消息层替换规则文本做新旧 A/B，每场景×2 采样：**12/12 全过，三场景 BOTH_PASS**（新文本 S1 填「自述」×2 条 by=听到的在场者、S2 填「听见」、S3 填「被告知」，判别形状正确；零回声）。
+3. 探针 measure 新增 `self_disc_n` / `holders_clear`（自述条目触发的 holders 清空计数，观测误填风险）。
+
+**踩坑**：A/B 重放的 4 指标只覆盖簿记正确性，对「本轮语料没出现的场面」零覆盖——压缩语义判据类规则（尤其带历史事故 case 的）必须补定向场景探针，否则「全绿」是假阴性。
+
+**遗留待议**（与 A 层同）：`REFLECT_MAX_TOKENS=2800` 对思考链模型不足；B 层剩余（secret_exposures 链 R05/R08、suspicions R07、relations R04、handle_releases/secret_touches）待逐条端方案。
+
 ## 2026-10-21 纪官 prompt 规则段压缩 A 层收口（R16/R17/R18/R03/R13+R14，共 -995 字）
 
 **缘起**：reflect 规则段 18 条平铺约 3045 字，R17(594)/R16(533)/R18(224) 三巨条占 44%。规则段在 user 消息尾部（动态数据在前），不命中前缀缓存，压缩收益实打实（缓存闸门已确认）。simon 拍板：只做 A 层（R16/R17/R18/R03/R13+R14，约 -1020 字），B 层第二批。压缩写法：**判据句 + 一句反例触发词**，不写「压测实证/曾导致」事后叙述，恐吓式禁令换正向祈使句。**核心判据：被压掉的失败模式必须有代码兜底**；无兜底的语义判据必须保留（R16/R17 的代码兜底只覆盖一半，兜不住「出场人物位置报错、state 值本身写错」）。压缩前全文备份 `backup/_reflect_rules_20261021/director.py`。
