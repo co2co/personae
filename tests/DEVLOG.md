@@ -26,6 +26,8 @@
 
 **踩坑**：无。jsdom 下 `setTimeout` 需替换成同步执行，否则 toast 断言抢在自动隐藏之前跑不完。
 
+**提交打包**（simon「提交、打包」）：全量测试 380 passed / 1 skipped；提交 `98d3d87` feat(ui)（index.html + test_frontend_binding + DEVLOG）；纯前端 PATCH 不碰引擎机制，版本维持 v2.1.3、不重复打 tag；打包覆盖 `dist/personae-v2.1.3.zip`（32 条目 / 231.5 KB），三方一致守卫通过，config 洗白核对（base_url/api_key/model 空、providers=[]、fallback 空），包内无 key/绝对路径/运行时态泄漏，toast 已随包。
+
 ---
 
 
