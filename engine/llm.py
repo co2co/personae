@@ -257,6 +257,10 @@ def _base_payload(messages, temperature, top_p, max_tokens, top_k, base_model,
     if not setting("enable_thinking"):
         payload["chat_template_kwargs"] = {"enable_thinking": False}
         payload["enable_thinking"] = False  # 部分 OpenAI 兼容网关认顶层字段
+        # OpenAI/DeepSeek 系思考开关：不发则思考默认开启，reasoning 吃掉
+        # max_tokens 预算（实测 2557/2800）导致 content 截断。实测该拼写被
+        # DeepSeek 现行 API 接受且真正关闭思考（reasoning_tokens 归零）。
+        payload["reasoning_effort"] = "none"
     return payload
 
 
@@ -268,6 +272,10 @@ _EXT_FIELDS = ("repeat_penalty", "repeat_last_n", "min_p")
 # 云网关（如 DeepSeek）对 top_k / chat_template_kwargs / enable_thinking 等
 # 未知参数一律 400；惩罚字段降级仍 4xx 时剥离这些再试。
 _VENDOR_FIELDS = ("top_k", "chat_template_kwargs", "enable_thinking")
+# OpenAI/DeepSeek 系思考开关。刻意与 _VENDOR_FIELDS 分组：DeepSeek 认它但不认
+# Qwen 组（400 后先剥 Qwen 组、保留它，思考才真关掉）；反向兼容不认它的后端时
+# 最后一级再剥（剥了思考行为退回后端缺省，但请求能通）。
+_REASONING_FIELDS = ("reasoning_effort",)
 
 
 def _strip_penalty(payload):
@@ -324,13 +332,15 @@ def _stream_once(messages, temperature, top_p, max_tokens, top_k, timeout, base_
         return requests.post(url, json=p, headers=headers, stream=True, timeout=timeout)
 
     resp = _post(payload)
-    # ★ 参数协商（v0.22.x，泛用性）：四级降级，逐级探测后端能力。
+    # ★ 参数协商（v0.22.x，泛用性）：五级降级，逐级探测后端能力。
     #   1) 默认已发标准字段 frequency/presence（见 _base_payload）。
     #   2) 若 4xx（后端不认标准字段，罕见）→ 换 llama.cpp 的 repeat_penalty 重试。
     #   3) 若仍 4xx → 剥离全部惩罚字段，退回该后端缺省行为。
     #   4) 若仍 4xx → 剥离 top_k / chat_template_kwargs / enable_thinking 等厂商
     #      扩展再试（严格校验的云网关如 DeepSeek 对未知参数一律 400；
     #      本地 llama.cpp 全认，正常不会走到这一级）。
+    #   5) 若仍 4xx → 最后剥离 reasoning_effort（OpenAI/DeepSeek 系思考开关；
+    #      刻意放最后一级：DeepSeek 认它，剥早了思考会默认开启吃掉预算）。
     #   注：「静默吞未知字段」的后端对标准字段是认的（frequency 实测生效），
     #   故不会走到 1-3 级降级；此链路整体只兜底严格校验参数的网关。
     #   getattr 兜底：测试桩/非常规响应对象可能没有 status_code，此时不重试。
@@ -350,6 +360,12 @@ def _stream_once(messages, temperature, top_p, max_tokens, top_k, timeout, base_
                 and any(k in payload for k in _VENDOR_FIELDS):
             resp.close()
             payload = {k: v for k, v in payload.items() if k not in _VENDOR_FIELDS}
+            payload["stream"] = True
+            resp = _post(payload)
+        if getattr(resp, "status_code", 200) in (400, 404, 422) \
+                and any(k in payload for k in _REASONING_FIELDS):
+            resp.close()
+            payload = {k: v for k, v in payload.items() if k not in _REASONING_FIELDS}
             payload["stream"] = True
             resp = _post(payload)
     with resp:
@@ -419,6 +435,12 @@ def _complete_once(messages, temperature, top_p, max_tokens, top_k, timeout, bas
             and any(k in payload for k in _VENDOR_FIELDS)):
         resp.close()
         payload = {k: v for k, v in payload.items() if k not in _VENDOR_FIELDS}
+        payload["stream"] = False
+        resp = requests.post(url, json=payload, headers=headers, timeout=timeout)
+    if (getattr(resp, "status_code", 200) in (400, 404, 422)
+            and any(k in payload for k in _REASONING_FIELDS)):
+        resp.close()
+        payload = {k: v for k, v in payload.items() if k not in _REASONING_FIELDS}
         payload["stream"] = False
         resp = requests.post(url, json=payload, headers=headers, timeout=timeout)
     _raise_with_body(resp)
