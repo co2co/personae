@@ -285,6 +285,13 @@
   .modal-box .acc-check{ display:flex; gap:10px; align-items:center; margin:14px 0 0;
                          font-size:14px; color:var(--ink-2); font-weight:500; cursor:pointer; }
   .modal-box .acc-check input{ width:18px; height:18px; accent-color:var(--accent); }
+  /* 轻量提示框：不打断操作流，覆盖在当前界面之上（z-index 高于 .modal），自动消失 */
+  .toast{ position:fixed; top:18px; left:50%; transform:translateX(-50%); z-index:80;
+          background:var(--surface); border:1px solid var(--line); border-radius:12px;
+          padding:11px 18px; font-size:13.5px; font-weight:550; color:var(--ink);
+          box-shadow:0 12px 36px rgba(20,20,20,.18); max-width:min(560px, 92vw); }
+  .toast.pos{ border-color:var(--pos); color:var(--pos); }
+  .toast.danger{ border-color:var(--danger); color:var(--danger); }
   /* 已保存的 LLM 提供商清单（可展开编辑 / 删除 / 新增） */
   .providers{ display:flex; flex-direction:column; gap:8px; }
   .prov-empty{ font-size:12.5px; color:var(--muted); padding:6px 2px; }
@@ -933,6 +940,9 @@
     </div>
   </div>
 </div>
+
+<!-- 轻量提示框：操作成功/失败的即时反馈，自动消失，不打断当前页面 -->
+<div id="app-toast" class="toast hide"></div>
 
 <!-- 开场：开启一个世界 -->
 <div id="setup">
@@ -2085,20 +2095,45 @@ document.getElementById('w-engine-toggle').onclick = () => {
   engineCollapsed = !engineCollapsed;
   updateGroupMeta();
 };
+// 轻量提示框：即时反馈，自动消失。提示层不打断操作流（区别于需要确认的 confirm）。
+// type: '' | 'pos'（成功） | 'danger'（失败）；ms 为展示时长。
+function showToast(text, type, ms) {
+  const el = document.getElementById('app-toast');
+  el.className = 'toast' + (type ? ' ' + type : '');
+  el.textContent = text;
+  el.classList.remove('hide');
+  clearTimeout(showToast._t);
+  showToast._t = setTimeout(() => el.classList.add('hide'), ms || 1800);
+}
+
 document.getElementById('w-engine-restore').onclick = async () => {
   const name = DRAFT_WORLD;
   if (!name) { worldMsg.style.color='var(--danger)'; worldMsg.textContent='请先在左侧选择剧本'; return; }
   if (!confirm('恢复后会重新读取世界书，界面上尚未保存的修改将丢失。\n已存在的默认条目不会被覆盖（要重置某条内容，请先删除它再点恢复）。\n\n继续？')) return;
-  const r = await fetch('/api/world/'+encodeURIComponent(name)+'/restore-defaults', {method:'POST'}).then(res=>res.json());
-  if (!r.ok) { worldMsg.style.color='var(--danger)'; worldMsg.textContent='恢复失败：'+(r.error||'未知错误'); return; }
+  let r = null;
+  try {
+    r = await fetch('/api/world/'+encodeURIComponent(name)+'/restore-defaults', {method:'POST'}).then(res=>res.json());
+  } catch (e) {
+    r = {ok:false, error:'网络错误'};
+  }
+  if (!r || !r.ok) {
+    worldMsg.style.color='var(--danger)';
+    worldMsg.textContent='恢复失败：'+((r && r.error)||'未知错误');
+    showToast('恢复失败', 'danger');
+    return;
+  }
+  // 成功后立即原地刷新世界书列表，用户无需退出重进即可看到恢复效果
+  await loadWorld(name);
   if (r.added && r.added.length) {
     worldMsg.style.color='var(--pos)';
     worldMsg.textContent='已补回引擎默认条目：'+r.added.join('、')+'（已有条目不覆盖）';
+    showToast('恢复成功', 'pos');
     engineCollapsed = false;   // 补回后展开，否则用户看不到刚加回来的条目
-    await loadWorld(name);
+    updateGroupMeta();
   } else {
     worldMsg.style.color='var(--ink-2)';
     worldMsg.textContent='引擎默认条目都在，无需恢复（已有内容不会被覆盖；要重置内容请先删除该条再恢复）';
+    showToast('无需恢复', '', 1600);
   }
 };
 (function bindWorldDnd(){

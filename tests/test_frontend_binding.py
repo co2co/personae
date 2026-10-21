@@ -50,6 +50,10 @@ MAIN_FLOW_PROBES = [
     ("engineCollapsed = true", "引擎组默认折叠"),
     ("getElementById('w-engine-restore').onclick = async", "「恢复默认条目」按钮绑定"),
     ("'/restore-defaults'", "恢复按钮调用恢复端点"),
+    # 恢复默认条目后原地刷新 + 提示框（用户原需退出重进才能看到恢复效果，易误判系统无响应）
+    ("function showToast", "轻量提示框工具函数"),
+    ("showToast('恢复成功'", "恢复成功弹出提示框"),
+    ("await loadWorld(name)", "恢复后原地刷新世界书，无需退出重进"),
     ("getElementById('w-engine-toggle').onclick", "引擎默认条目收起/展开绑定"),
     ("data-origin=", "世界书条目渲染携带来源标记"),
     # 分组后的两条排序约束：跨组拖拽无效、常量段恒定置顶（否则保存重载后位置弹回）

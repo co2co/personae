@@ -8,7 +8,26 @@
 
 ---
 
-## 2026-10-21 前端 UI 改造落地：导航分组 + 管理面板层级 + 响应式收口（semver PATCH→v2.1.3）
+## 2026-10-21 恢复默认条目后原地刷新 +「恢复成功」提示框（PATCH 档，未升版本）
+
+**起因**：simon 反馈——引擎默认条目点「恢复默认」后，要退出剧本库再重进才能看到恢复效果，用户容易误判系统无响应。
+
+**改动**（集中 `engine/static/index.html`）
+
+| 项 | 内容 |
+|---|---|
+| 提示框 | 新增轻量 toast（`#app-toast` + `showToast()`，CSS `.toast/.pos/.danger`），浮层 z-index 高于 modal，自动消失（成功 1.8s / 失败同），不打断操作流 |
+| 恢复流程 | `w-engine-restore` 回调改为：调 `/restore-defaults` → **先 `loadWorld(name)` 原地重渲染世界书**（成功与否都刷新）→ toast「恢复成功 / 无需恢复 / 恢复失败」→ 展开引擎组；`fetch` 套 try/catch 网络异常也走失败提示 |
+| 护栏 | `test_frontend_binding.py` MAIN_FLOW_PROBES 增 3 条：`function showToast`、`showToast('恢复成功'`、`await loadWorld(name)`（防止后续误删「原地刷新」回退成旧行为） |
+
+**验证**：`test_frontend_binding.py` + `test_standard_entries.py` 19 passed；`_frontend_binding_check.js` ALL PASS；`test_universality.py` 5 passed；jsdom 探针 `tests/_probe_restore_toast.js`（脚手架，不入库）9 项 PASS——恢复前引擎组空 → 点恢复 → 断言 POST 端点、随后 GET 世界书、toast 文案/样式、引擎组渲染出补回条目且自动展开、取消 confirm 不发请求。
+
+**设计决定**：提示框用 toast 而非 modal——恢复是低风险补救动作（只补缺失不覆盖），弹窗确认会比原 confirm 更重；确认框保留（丢未保存修改的风险仍需确认），成功反馈降为非阻断 toast。
+
+**踩坑**：无。jsdom 下 `setTimeout` 需替换成同步执行，否则 toast 断言抢在自动隐藏之前跑不完。
+
+---
+
 
 **起因**：simon 要求先做前端 UI 评估（桌面端 + 移动端，美观/简洁/大方），随后要求「按你的建议落地前端 UI 改造优化方案任务，逐一进行落地迭代」。纯前端迭代，不碰引擎机制。
 
