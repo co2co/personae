@@ -8,6 +8,40 @@
 
 ---
 
+## 2026-10-21 前端 UI 改造落地：导航分组 + 管理面板层级 + 响应式收口（semver PATCH→v2.1.3）
+
+**起因**：simon 要求先做前端 UI 评估（桌面端 + 移动端，美观/简洁/大方），随后要求「按你的建议落地前端 UI 改造优化方案任务，逐一进行落地迭代」。纯前端迭代，不碰引擎机制。
+
+**改动**（集中 `engine/static/index.html`，+136/−58；测试脚本 `_frontend_binding_check.js` 同步升级）
+
+| 任务 | 内容 |
+|---|---|
+| 1 响应式与导航骨架 | 顶栏按「创作/运行/系统」三组收口（`.topnav-group` + `.nav-group-label`），按钮 ID 与主流程绑定零改动；`#open-menu` 补 `aria-label/aria-expanded/aria-controls`；720px 抽屉宽度修正（`.rail-*.collapsed` → `min(86vw,360px)`）；新增 480px 小屏断点（弹窗/底栏/动作行纵向布局，触控最小 42px） |
+| 2 管理面板层级 | 世界书条目改「摘要行 + 展开详情」（`.e-meta` 徽章（顺序/引擎默认/常量/秘密）+ `.e-summary` 46 字摘要 + `.e-actions`）；剧本库详情工具栏 `.modal-tools` 分「剧本内容/备份」两组；角色表可选字段 `details.opt-group` 折叠；全局 `:focus-visible`；radius token（sm/md/lg）；胶带/纹理装饰减法，手账质感只留开场卡与主按钮 |
+| 3 回归与实机验证 | 见下 |
+
+**红线守住**：世界书隐藏字段 `origin/demo/first_round` 仍经 `data-*` 原样往返（`entryCard` → dataset → `collectWorldEntries`），`test_frontend_binding.py` + `test_standard_entries.py` 不破。按钮 ID 与 `send()` / `#start.onclick` / `cfgProviders` 等主流程禁区零触碰。
+
+**验证**
+
+- 全量 `pytest tests/`：**380 passed + 1 skipped + 1 deselected**（与 v2.1.2 基线一致）。
+- Node 沙箱 `tests/_frontend_binding_check.js`：20 项 ALL PASS，新增「隐藏字段原样回传」「抽屉打开时遮罩同步」断言。
+- 浏览器 smoke（puppeteer-core + 系统 Chrome，产物 `tests/runs/_probe_frontend_smoke/`）：桌面 1440 顶栏三组标签清晰、菜单按钮隐藏；820/720/390 菜单按钮 42px、开局卡全宽、开始按钮触控达标。
+
+**设计决定**
+
+- 顶栏收敛为三组而不是继续平铺：创作（剧本库/从剧本生成）、运行（世界状态/会话/结束剧本）、系统（系统设置/运行时日志）。七个入口不变，变的只是分组与标签，符合「按职责归类」的 UI 偏好。
+- 世界书条目摘要行固定展示顺序徽章、来源（引擎默认）、常量、秘密四个状态，长正文只在展开后编辑——列表可扫描性优先于编辑便利。
+- 装饰减法：手账风只留开场卡与主按钮作为品牌记忆点，左栏面板、弹窗、日志行去掉胶带/纸纤维叠加，长文本区改干净底色。
+
+**踩坑**
+
+- Node mock 里 `classList` 若用无状态 stub，抽屉开合断言恒假——必须用真实 Set 状态模拟。
+- `new Function(code)` 内声明的函数不会挂到 `globalThis`，沙箱需显式 `return` API（前两次 FAIL 是判据问题，非产品代码问题）。
+- smoke 截图里的灰色斜线是手账拟物笔杆装饰，不是布局破损。
+
+---
+
 ## 2026-10-21 静默数字接回提示词：[可选提醒·久未登场]（semver PATCH→v2.1.2）
 
 **起因**：simon 跑会话 `8823e5f7`（13 轮）反馈——「部分角色当玩家不手动指定到提示词注入的时候，即使面板里提示【xx 回合没有行动，引擎正在关注】但依然没有任何行动」。

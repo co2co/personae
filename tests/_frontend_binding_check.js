@@ -12,15 +12,24 @@ const code = html.match(/<script>([\s\S]*?)<\/script>/)[1];
 const listeners = {};           // 元素 id -> {onclick, keydown:[], click:[]}
 const els = new Map();
 let fetchCalls = [];
-const stubCls = { add(){}, remove(){}, toggle(){}, contains(){return false} };
 
 function mkEl(id, tag) {
+  const classes = new Set();
   const el = {
     id, tagName: (tag || 'DIV').toUpperCase(),
     className: '', innerHTML: '', textContent: '', value: '', placeholder: '',
     disabled: false, hidden: false, style: new Proxy({}, {set(){return true}}),
     dataset: {}, files: [],
-    classList: stubCls,
+    classList: {
+      add(...xs){ xs.forEach(x => classes.add(x)); },
+      remove(...xs){ xs.forEach(x => classes.delete(x)); },
+      toggle(x, force){
+        const next = force === undefined ? !classes.has(x) : !!force;
+        next ? classes.add(x) : classes.delete(x);
+        return next;
+      },
+      contains(x){ return classes.has(x); },
+    },
     children: [], childNodes: [],
     scrollTop: 0, scrollHeight: 0, clientWidth: 0, clientHeight: 0,
     closest(){ return null }, contains(){ return false },
@@ -44,7 +53,7 @@ function get(id) {
 global.document = {
   getElementById: get,
   querySelector: () => mkEl('__q', 'div'),
-  querySelectorAll: () => [],
+  querySelectorAll: (sel) => sel === '#w-entries .entry' ? (globalThis.__worldEntries || []) : [],
   createElement: (t) => mkEl('__c', t),
   createDocumentFragment: () => mkEl('__frag', 'div'),
   addEventListener(){},
@@ -55,7 +64,7 @@ global.window = { innerWidth: 1400, addEventListener(){}, scrollTo(){}, getCompu
 global.localStorage = { getItem: () => null, setItem(){}, removeItem(){} };
 global.navigator = { userAgent: 'node' };
 global.FileReader = class { readAsDataURL(){} addEventListener(){} };
-global.EventSource = class { constructor(){} close(){} addEventListener(){} };
+global.EventSource = class { constructor(){ this.close = () => {}; } close(){} addEventListener(){} };
 
 // fetch mock：把 /api/act 返回一条最小 SSE 流
 global.fetch = function (url, opts) {
@@ -81,9 +90,10 @@ global.fetch = function (url, opts) {
   });
 };
 
-// ---- 执行内联脚本 ----
-const fn = new Function(code);
-fn();
+// ---- 执行内联脚本（返回关键函数，避免依赖全局导出） ----
+const fn = new Function('document', 'window',
+  code + '\nreturn { collectWorldEntries, openLog, closeLog };');
+const api = fn(global.document, global.window);
 
 const L = listeners['start'] || {};
 const fails = [];
@@ -112,6 +122,32 @@ globalThis.__stage2 = async () => {
   check('登场名册渲染为只读 chip', /<span class="chip">/.test(npcHtml));
   check('登场名册没有勾选框', !/type="checkbox"/.test(npcHtml));
   check('开始按钮已解锁', get('start').disabled === false);
+  // 世界书隐藏字段回传：构造一张带 dataset 的条目卡，验证 collectWorldEntries 不丢字段。
+  const entry = mkEl('entry0', 'div');
+  entry.dataset = {origin: 'engine', demo: '1', firstRound: '1'};
+  const fields = {
+    '.e-secret': {checked: true},
+    '.e-enabled': {checked: true},
+    '.e-constant': {checked: false},
+    '.e-name': {value: '条目甲'},
+    '.e-keys': {value: '甲、乙'},
+    '.e-content': {value: '正文'},
+    '.e-position': {value: 'before'},
+    '.e-depth': {value: ''},
+    '.e-char': {value: '角色A'},
+    '.e-bottom': {value: '底线'},
+  };
+  entry.querySelector = (sel) => fields[sel] || mkEl('__stub', 'div');
+  globalThis.__worldEntries = [entry];
+  const collected = api.collectWorldEntries();
+  check('世界书隐藏字段原样回传', !!collected && collected[0] && collected[0].origin === 'engine'
+    && collected[0].demo === true && collected[0].first_round === true);
+  // 抽屉状态：打开日志/世界状态时遮罩与栏位状态必须同步。
+  api.openLog();
+  check('日志抽屉可打开', get('right-rail').classList.contains('collapsed') === false);
+  check('日志抽屉打开时显示遮罩', get('scrim').classList.contains('hide') === false);
+  api.closeLog();
+  check('日志抽屉可关闭', get('right-rail').classList.contains('collapsed') === true);
 };
 check('cfgProviders 已声明', typeof get('__q').closest === 'function'); // 触发一次访问，确保脚本已完整执行
 

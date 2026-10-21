@@ -24,7 +24,10 @@
     --warn-soft:#f6ecd0;
     --danger:#a8392a;           /* 深朱砂（危险，与 accent 同源更深） */
     --danger-soft:#f2ddd4;
-    --radius:14px;
+    --radius-sm:8px;
+    --radius-md:12px;
+    --radius-lg:16px;
+    --radius:var(--radius-md);
     --shadow:0 1px 2px rgba(60,50,30,.06), 0 10px 26px rgba(60,50,30,.08);
     --topbar-h:58px;
   }
@@ -78,6 +81,11 @@
   .btn-danger{ background:#fff; border-color:#e0b4b0; color:#d6453e; }
   .btn-danger:hover:not(:disabled){ background:#fdf5f4; border-color:#d6453e; }
   .btn-sm{ padding:5px 12px; font-size:13px; }
+  button:focus-visible, .btn:focus-visible, select:focus-visible,
+  input:focus-visible, textarea:focus-visible, summary:focus-visible{
+    outline:2px solid var(--accent); outline-offset:2px;
+  }
+  .btn:active:not(:disabled), button:active:not(:disabled){ transform:translateY(1px); }
 
   .tag{ font-size:12px; padding:4px 11px; border-radius:999px;
         background:var(--surface-2); color:var(--muted); border:1px solid var(--line);
@@ -97,7 +105,14 @@
     background:rgba(255,255,255,.86); -webkit-backdrop-filter:blur(8px); backdrop-filter:blur(8px);
     border-bottom:1px solid var(--line);
   }
-  .topnav{ display:flex; gap:14px; align-items:center; }
+  .topnav{ display:flex; gap:8px; align-items:center; }
+  .topnav-group{ display:flex; align-items:center; gap:8px; padding:0 4px; border-left:1px solid var(--line); }
+  .topnav-group:first-child{ border-left:0; padding-left:0; }
+  .nav-group-label{ font-size:11px; color:var(--muted); letter-spacing:.08em; white-space:nowrap; }
+  .nav-util{ display:flex; align-items:center; gap:8px; }
+  .modal-tools{ display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+  .modal-tools .nav-group-label{ margin-left:8px; }
+  .modal-tools .nav-group-label:first-child{ margin-left:0; }
   #open-menu{ display:none; }
   .scrim{ position:fixed; inset:var(--topbar-h) 0 0 0; background:rgba(20,20,20,.28); z-index:45; }
   .scrim.hide{ display:none; }
@@ -204,7 +219,8 @@
         -webkit-backdrop-filter:blur(8px); backdrop-filter:blur(8px);
         border-top:1px solid var(--line); }
   #bar-inner{ width:100%; display:flex; gap:10px; align-items:flex-end; }
-  #input{ flex:1; height:46px; max-height:160px; }
+  #input{ flex:1; height:46px; min-height:46px; max-height:160px; }
+  #bar .btn-primary{ flex:0 0 auto; min-height:46px; }
   #input:disabled{ opacity:.55; cursor:not-allowed; }
   #status{ font-size:12.5px; color:var(--muted); min-height:18px; padding:4px 2px 0; }
 
@@ -300,10 +316,17 @@
     .brand span{ display:none; }
     .tag{ display:none; }
     #open-menu{ display:inline-flex; }
-    .topnav{ display:none; position:absolute; top:100%; right:8px; flex-direction:column; gap:6px;
+    .topnav{ display:none; position:absolute; top:100%; right:8px; flex-direction:column; gap:10px;
              align-items:stretch; background:var(--surface); border:1px solid var(--line);
-             border-radius:12px; padding:8px; box-shadow:var(--shadow); z-index:55; min-width:168px; }
+             border-radius:12px; padding:10px; box-shadow:var(--shadow); z-index:55; min-width:220px; }
     .topnav.show{ display:flex; }
+    .topnav-group{ border-left:0; border-top:1px solid var(--line-2); padding:10px 0 0; }
+    .topnav-group:first-child{ border-top:0; padding-top:0; }
+    .topnav-group, .nav-util{ flex-direction:column; align-items:stretch; }
+    .nav-group-label{ padding:0 4px 2px; }
+    .modal-tools .nav-group-label{ margin-left:0; }
+    .modal-tools .row{ width:100%; }
+    .modal-tools .row .btn{ flex:1; }
     .topnav .btn{ width:100%; justify-content:flex-start; }
     .rail-right{ width:300px; flex-basis:300px; }
   }
@@ -311,7 +334,7 @@
   @media (max-width:720px){
     .rail-left, .rail-right{
       position:fixed; top:calc(var(--topbar-h) + env(safe-area-inset-top)); bottom:0; z-index:46;
-      width:86vw; max-width:360px; height:auto;
+      width:min(86vw, 360px); max-width:360px; height:auto;
     }
     .rail-left{ left:0; border-right:1px solid var(--line);
       transform:translateX(-100%); transition:transform .2s ease; }
@@ -319,29 +342,51 @@
       transform:translateX(100%); transition:transform .2s ease; }
     .rail-left.open{ transform:translateX(0); }
     .rail-right:not(.collapsed){ transform:translateX(0); }
-    /* 管理面板（剧本库 / 角色表）双列在手机上改单列 */
+    .rail-left.collapsed{ width:min(86vw, 360px); flex-basis:auto; border-right:1px solid var(--line); }
+    .rail-right.collapsed{ width:min(86vw, 360px); flex-basis:auto; border-left:1px solid var(--line); }
     .mgr{ grid-template-columns:1fr; }
     .mgr-list{ border-right:none; border-bottom:1px solid var(--line); max-height:38vh;
                margin-bottom:12px; padding-right:0; }
     .drama-cols{ grid-template-columns:1fr; }
     .drama-left{ border-right:none; border-bottom:1px solid var(--line); }
-    /* 弹窗在手机端占满且可滚动 */
     .modal{ padding:0; align-items:flex-start; }
     .modal-box{ width:100%; max-width:94vw; max-height:calc(100vh - 24px); }
-    /* 输入条与叙事区间距收紧 */
+    .modal-box.wide{ width:min(100vw, 94vw); }
+    .modal-foot{ flex-wrap:wrap; }
     #bar{ padding:10px 12px; padding-bottom:calc(10px + env(safe-area-inset-bottom)); }
-    #input{ height:48px; }
+    #bar-inner{ align-items:stretch; }
+    #input{ height:auto; min-height:48px; }
+    #bar .btn-primary{ min-height:48px; }
     #center .stage{ padding:14px 14px 8px; }
-    .msg{ font-size:15px; }
-    /* 触摸目标与防 iOS 聚焦缩放 */
+    .msg{ font-size:15px; max-width:92%; }
     button, .btn, input, select, textarea{ font-size:16px; }
     .btn{ min-height:42px; }
     input, select, textarea{ min-height:42px; }
-    /* 开场卡与结局横幅在窄屏换行 */
     .hero{ padding:calc(var(--topbar-h) + 16px) 16px 16px; }
     .card{ padding:24px 20px; }
     #ending-banner{ flex-wrap:wrap; }
     #ending-banner .eb-text{ min-width:0; }
+    #ending-banner .eb-actions{ width:100%; }
+    .lw-resize{ display:none; }
+    .e-summary{ min-width:0; }
+    .e-grip{ padding-left:0; padding-right:2px; }
+    .entry .row{ gap:8px; }
+  }
+  @media (max-width:480px){
+    .brand b{ font-size:15px; }
+    .topnav{ left:8px; right:8px; min-width:0; }
+    .modal-box{ max-width:100vw; border-radius:14px 14px 0 0; }
+    .modal-box .row, .modal-foot, .actions{ flex-direction:column; align-items:stretch; }
+    .modal-foot .btn, .actions .btn{ width:100%; }
+    .modal-foot .btn-primary, .actions .btn-primary{ order:-1; }
+    .modal-box .row .field{ max-width:none; }
+    .field.sm{ max-width:none; }
+    .drama-cols{ gap:14px; }
+    .mgr-list{ max-height:32vh; }
+    .mgr-form{ max-height:52vh; }
+    .lw-body{ padding:8px; }
+    .lw-row{ flex-wrap:wrap; }
+    .lw-msg{ flex-basis:100%; }
   }
   /* 初始化管理面板（剧本库 / 角色表） */
   .modal-box.wide{ width:min(1060px, 94vw); }
@@ -351,12 +396,15 @@
   .drama-right{ min-width:0; }
   .mgr{ display:grid; grid-template-columns:220px 1fr; gap:18px; margin-top:6px; }
   .mgr-list{ max-height:62vh; overflow:auto; border-right:1px solid var(--line); padding-right:8px; }
-  .mgr-item{ padding:9px 11px; border-radius:9px; cursor:pointer; font-size:14px; color:var(--ink-2); }
+  .mgr-item{ padding:9px 11px; border-radius:9px; cursor:pointer; font-size:14px; color:var(--ink-2); transition:background .15s ease, color .15s ease; }
   .mgr-item:hover{ background:var(--accent-soft); }
-  .mgr-item.active{ background:var(--accent-soft); font-weight:600; color:var(--ink); }
+  .mgr-item.active{ background:var(--accent-soft); border-left:3px solid var(--accent); padding-left:9px; font-weight:600; color:var(--ink); }
   .mgr-form{ max-height:62vh; overflow:auto; padding-right:6px; }
   .entry{ border:1px solid var(--line); border-radius:11px; padding:13px; margin-bottom:11px; background:var(--surface); }
   .entry .row{ display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin-bottom:8px; }
+  .entry .e-actions{ display:flex; gap:8px; align-items:center; margin-left:auto; }
+  .entry .e-meta{ display:flex; gap:6px; align-items:center; flex-wrap:wrap; }
+  .entry .e-summary{ flex:1 1 160px; }
   .field.sm{ max-width:130px; }
   textarea.field{ min-height:58px; resize:vertical; line-height:1.5; }
   .req{ color:#d6453e; font-weight:600; }
@@ -493,12 +541,12 @@
      只做「视觉质感」：纸片纹理 / 半透明胶带 / 朱砂印章 / 便签气泡。
      不改 DOM 结构、不碰 JS、不删任何既有选择器；同优先级下本块在后覆盖在前。
      ============================================================ */
-  /* 纸片通用质感：极浅竖向纸纤维 + 顶部一道受光高光，落在所有「卡片/面板/气泡」上 */
+  /* 手账装饰层：只给品牌、开场卡和关键动作保留质感，管理面板优先信息可读性。 */
   .card, .panel, .modal-box, .entry, .hit-row, .msg, .lw-row, .prov-card,
   .opt-group, #end-summary, .acc, .mgr-item.active, .mgr-list, .rail-head, .lw-head, .lw-foot{
     background-image:
-      linear-gradient(180deg, rgba(255,255,255,.42), rgba(255,255,255,0) 22%),
-      repeating-linear-gradient(0deg, rgba(120,104,72,.018) 0 1px, transparent 1px 4px);
+      linear-gradient(180deg, rgba(255,255,255,.22), rgba(255,255,255,0) 18%),
+      repeating-linear-gradient(0deg, rgba(120,104,72,.012) 0 1px, transparent 1px 5px);
   }
 
   /* 开场卡与弹窗：顶部一条半透明「和纸胶带」，略旋转贴住，手账拼贴感。
@@ -506,22 +554,22 @@
   .card, .modal-box{ position:relative; }
   .card::before, .modal-box::before{
     content:""; position:absolute; top:5px; left:50%;
-    width:120px; height:22px; transform:translateX(-50%) rotate(-2.4deg);
+    width:104px; height:18px; transform:translateX(-50%) rotate(-1.6deg);
     background:
-      repeating-linear-gradient(45deg, rgba(176,82,47,.14) 0 6px, rgba(176,82,47,.07) 6px 12px);
-    border:1px solid rgba(176,82,47,.22);
+      repeating-linear-gradient(45deg, rgba(176,82,47,.10) 0 6px, rgba(176,82,47,.05) 6px 12px);
+    border:1px solid rgba(176,82,47,.18);
     border-radius:2px;
-    box-shadow:0 2px 5px rgba(60,50,30,.10);
+    box-shadow:0 2px 5px rgba(60,50,30,.08);
     pointer-events:none; z-index:1;
   }
   /* 左栏各面板：一条更小的胶带贴在面板顶部内侧（.panel 有 overflow:hidden，
      贴外侧会被裁，故放在 padding 区内、越过上边框一点点即可）。 */
   .panel::before{
-    content:""; position:absolute; top:3px; left:18px; width:52px; height:15px;
-    transform:rotate(-3deg);
-    background:repeating-linear-gradient(45deg, rgba(95,125,84,.16) 0 5px, rgba(95,125,84,.07) 5px 10px);
-    border:1px solid rgba(95,125,84,.22); border-radius:2px;
-    box-shadow:0 1px 3px rgba(60,50,30,.08); pointer-events:none; z-index:2;
+    content:""; position:absolute; top:3px; left:18px; width:44px; height:12px;
+    transform:rotate(-2deg);
+    background:repeating-linear-gradient(45deg, rgba(95,125,84,.11) 0 5px, rgba(95,125,84,.05) 5px 10px);
+    border:1px solid rgba(95,125,84,.16); border-radius:2px;
+    box-shadow:0 1px 2px rgba(60,50,30,.05); pointer-events:none; z-index:2;
   }
   .panel{ position:relative; }
 
@@ -536,12 +584,12 @@
   .btn-primary{
     background:linear-gradient(180deg, var(--accent), var(--accent-strong));
     border:1px solid var(--accent-strong);
-    box-shadow:0 2px 0 rgba(140,61,32,.35), 0 6px 14px rgba(140,61,32,.18);
+    box-shadow:0 1px 0 rgba(140,61,32,.28), 0 4px 10px rgba(140,61,32,.12);
     border-radius:10px 12px 10px 12px;
   }
   .btn-primary:hover:not(:disabled){
     background:linear-gradient(180deg, var(--accent-strong), #7a341a);
-    box-shadow:0 2px 0 rgba(140,61,32,.4), 0 4px 10px rgba(140,61,32,.2);
+    box-shadow:0 1px 0 rgba(140,61,32,.32), 0 3px 8px rgba(140,61,32,.14);
   }
 
   /* 次级按钮：纸片描边，hover 时朱砂浅晕 */
@@ -573,8 +621,8 @@
   .rail-head, .lw-head, .lw-foot{ background:var(--surface-2); }
 
   /* 圆角统一调「手绘」：纸片容器用不对称圆角，像裁开的便签 */
-  .panel, .card, .modal-box, .entry, .opt-group, .acc{ border-radius:12px 14px 12px 14px; }
-  .msg{ border-radius:14px 16px 14px 16px; }
+  .panel, .card, .modal-box, .entry, .opt-group, .acc{ border-radius:var(--radius-md) var(--radius-lg) var(--radius-md) var(--radius-lg); }
+  .msg{ border-radius:var(--radius-md) var(--radius-lg) var(--radius-md) var(--radius-lg); }
 
   /* 表单控件：纸张内陷感 */
   select, input, textarea{ background:var(--surface); border:1px solid var(--line); }
@@ -609,15 +657,26 @@
   <div class="brand"><b>群像弈</b><span>关系沙盘</span></div>
   <span class="tag" id="round-tag">回合 –</span>
   <span class="spacer"></span>
-  <button id="open-menu" class="btn btn-sm" aria-label="打开菜单">菜单</button>
-  <nav id="topnav" class="topnav">
-    <button id="open-dramas" class="btn btn-sm">剧本库</button>
-    <button id="open-script-import" class="btn btn-sm">从剧本生成</button>
-    <button id="open-left" class="btn btn-sm">世界状态</button>
-    <button id="open-sessions" class="btn btn-sm">会话</button>
-    <button id="open-system" class="btn btn-sm">系统设置</button>
-    <button id="open-log" class="btn btn-sm">运行时日志</button>
-    <button id="open-end" class="btn btn-sm">结束剧本</button>
+  <div class="nav-util">
+    <button id="open-menu" class="btn btn-sm" aria-label="打开菜单" aria-expanded="false" aria-controls="topnav">菜单</button>
+  </div>
+  <nav id="topnav" class="topnav" aria-label="主导航">
+    <div class="topnav-group">
+      <span class="nav-group-label">创作</span>
+      <button id="open-dramas" class="btn btn-sm">剧本库</button>
+      <button id="open-script-import" class="btn btn-sm">从剧本生成</button>
+    </div>
+    <div class="topnav-group">
+      <span class="nav-group-label">运行</span>
+      <button id="open-left" class="btn btn-sm">世界状态</button>
+      <button id="open-sessions" class="btn btn-sm">会话</button>
+      <button id="open-end" class="btn btn-sm">结束剧本</button>
+    </div>
+    <div class="topnav-group">
+      <span class="nav-group-label">系统</span>
+      <button id="open-system" class="btn btn-sm">系统设置</button>
+      <button id="open-log" class="btn btn-sm">运行时日志</button>
+    </div>
   </nav>
 </header>
 <div id="scrim" class="scrim hide"></div>
@@ -740,13 +799,15 @@
           或用「从剧本生成」把剧本一键提炼成角色与设定。
         </div>
         <div id="drama-detail" class="hide">
-          <div class="row" style="margin:2px 0 8px;gap:10px;flex-wrap:wrap;align-items:center;">
+          <div class="row modal-tools" style="margin:2px 0 8px;gap:10px;flex-wrap:wrap;align-items:center;">
             <span style="font-size:14px;font-weight:600;color:var(--ink);" id="drama-title"></span>
             <div class="row" style="gap:6px;">
+              <span class="nav-group-label">剧本内容</span>
               <button id="d-tab-world" class="btn btn-sm">世界书设定</button>
               <button id="d-tab-chars" class="btn btn-sm">角色表</button>
             </div>
             <div class="row" style="gap:6px;margin-left:auto;">
+              <span class="nav-group-label">备份</span>
               <button id="d-export" class="btn btn-sm" title="把当前剧本（角色表+世界书）导出为 JSON 备份文件">导出 JSON</button>
               <button id="d-import" class="btn btn-sm" title="从 JSON 备份恢复当前剧本（覆盖角色表与世界书）">导入 JSON</button>
               <input id="drama-import" type="file" accept=".json,application/json" style="display:none">
@@ -1862,15 +1923,19 @@ function entryCard(e, i, expanded) {
        data-origin="${escAttr(e.origin||'')}" data-demo="${e.demo?'1':'0'}" data-first-round="${e.first_round?'1':'0'}">
     <div class="row">
       <span class="e-grip" draggable="true" title="拖拽排序">⠿</span>
-      <button type="button" class="e-toggle btn btn-sm" title="展开/收起">${expanded?'▾':'▸'}</button>
-      <span class="badge-order">顺序 ${i+1}</span>
-      <span class="badge-engine"${isEngine?'':' hidden'}>引擎默认</span>
-      <span class="badge-const"${e.constant?'':' hidden'}>常量</span>
-      <span class="badge-secret"${e.secret?'':' hidden'}>秘密</span>
+      <button type="button" class="e-toggle btn btn-sm" title="展开/收起" aria-expanded="${expanded?'true':'false'}">${expanded?'▾':'▸'}</button>
+      <div class="e-meta">
+        <span class="badge-order">顺序 ${i+1}</span>
+        <span class="badge-engine"${isEngine?'':' hidden'}>引擎默认</span>
+        <span class="badge-const"${e.constant?'':' hidden'}>常量</span>
+        <span class="badge-secret"${e.secret?'':' hidden'}>秘密</span>
+      </div>
       <span class="e-summary">${summary ? escHtml(summary) : '<span style="color:var(--muted)">（空白条目，点击 ▸ 展开编辑）</span>'}</span>
-      <label style="margin:0;display:flex;gap:5px;align-items:center;font-size:13px;color:var(--ink-2);font-weight:400;"><input type="checkbox" class="e-enabled" ${on}> 启用</label>
-      <label style="margin:0;display:flex;gap:5px;align-items:center;font-size:13px;color:var(--ink-2);font-weight:400;"><input type="checkbox" class="e-secret" ${sec}> 秘密条目</label>
-      <button class="btn btn-sm e-del" style="margin-left:auto;">删除条目</button>
+      <div class="e-actions">
+        <label style="margin:0;display:flex;gap:5px;align-items:center;font-size:13px;color:var(--ink-2);font-weight:400;"><input type="checkbox" class="e-enabled" ${on}> 启用</label>
+        <label style="margin:0;display:flex;gap:5px;align-items:center;font-size:13px;color:var(--ink-2);font-weight:400;"><input type="checkbox" class="e-secret" ${sec}> 秘密条目</label>
+        <button class="btn btn-sm e-del">删除条目</button>
+      </div>
     </div>
     <div class="e-detail"${expanded?'':' hidden'}>
       <label>条目名 name（可选；用于 #name# 递归引用其他条目，见下方说明）</label>
@@ -1934,14 +1999,18 @@ function applySecret(el) {
   if (badge) badge.hidden = !sec;
   if (sec) {  // 勾选秘密时自动展开，方便填写归属角色
     el.querySelector('.e-detail').hidden = false;
-    el.querySelector('.e-toggle').textContent = '▾';
+    const toggle = el.querySelector('.e-toggle');
+    toggle.textContent = '▾';
+    toggle.setAttribute('aria-expanded', 'true');
   }
 }
 function toggleEntry(el) {
   const detail = el.querySelector('.e-detail');
   const open = detail.hidden;          // 当前隐藏 -> 要展开
   detail.hidden = !open;
-  el.querySelector('.e-toggle').textContent = open ? '▾' : '▸';
+  const toggle = el.querySelector('.e-toggle');
+  toggle.textContent = open ? '▾' : '▸';
+  toggle.setAttribute('aria-expanded', open ? 'true' : 'false');
 }
 function getDragIndex(container, y) {
   // 返回鼠标落在组内的插入下标（插到该下标的元素之前）；越界即追加到末尾
@@ -2332,18 +2401,20 @@ function appendEntry(e){
 }
 
 function openLog(){
+  if (leftRail.classList.contains('open')) {
+    leftRail.classList.add('collapsed');
+    leftRail.classList.remove('open');
+  }
   rightRail.classList.remove('collapsed');
   if (!es) connectLog();
-  if (window.innerWidth <= 880){ const s = document.getElementById('scrim'); if (s) s.classList.remove('hide'); }
+  const s = document.getElementById('scrim'); if (s) s.classList.remove('hide');
 }
 function closeLog(){
   rightRail.classList.add('collapsed');
   if (es){ es.close(); es = null; }
   lwStatus.textContent = '已断开';
-  if (window.innerWidth <= 880){
-    const s = document.getElementById('scrim');
-    if (s && !document.getElementById('left-rail').classList.contains('open')) s.classList.add('hide');
-  }
+  const s = document.getElementById('scrim');
+  if (s && !document.getElementById('left-rail').classList.contains('open')) s.classList.add('hide');
 }
 function connectLog(){
   if (es) return;
@@ -2451,7 +2522,10 @@ document.querySelectorAll('#left-rail .panel[data-collapse]').forEach(p => p.cla
 const openLeftBtn = document.getElementById('open-left');
 if (openLeftBtn) openLeftBtn.onclick = () => {
   const collapsed = leftRail.classList.toggle('collapsed');
-  if (collapsed) leftRail.classList.remove('open'); else leftRail.classList.add('open');
+  if (collapsed) leftRail.classList.remove('open'); else {
+    leftRail.classList.add('open');
+    if (!rightRail.classList.contains('collapsed')) closeLog();
+  }
   const s = document.getElementById('scrim');
   if (!collapsed){ if (s) s.classList.remove('hide'); }
   else if (rightRail.classList.contains('collapsed') && s) s.classList.add('hide');
@@ -2462,6 +2536,7 @@ if (scrimEl) scrimEl.addEventListener('click', () => {
   leftRail.classList.add('collapsed'); leftRail.classList.remove('open');
   if (!rightRail.classList.contains('collapsed')) closeLog();
   const tn = document.getElementById('topnav'); if (tn) tn.classList.remove('show');
+  const menu = document.getElementById('open-menu'); if (menu) menu.setAttribute('aria-expanded', 'false');
   scrimEl.classList.add('hide');
 });
 // 汉堡菜单：开合与点击项后收起
@@ -2470,10 +2545,13 @@ const openMenuBtn = document.getElementById('open-menu');
 if (openMenuBtn) openMenuBtn.addEventListener('click', e => {
   e.stopPropagation();
   const show = topnavEl.classList.toggle('show');
+  openMenuBtn.setAttribute('aria-expanded', show ? 'true' : 'false');
   if (scrimEl) scrimEl.classList.toggle('hide', !show);
 });
 if (topnavEl) topnavEl.querySelectorAll('button').forEach(b => b.addEventListener('click', () => {
-  topnavEl.classList.remove('show'); if (scrimEl) scrimEl.classList.add('hide');
+  topnavEl.classList.remove('show');
+  if (openMenuBtn) openMenuBtn.setAttribute('aria-expanded', 'false');
+  if (scrimEl) scrimEl.classList.add('hide');
 }));
 // 日志窗默认不自动连接：开始界面不应回放上一轮缓冲；进入世界后由 startSession 连接。
 // 默认收起（含宽屏）：日志是给调试用的旁路信息，正式游玩不该第一眼看到；顶栏按钮可展开。
