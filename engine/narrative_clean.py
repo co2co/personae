@@ -40,10 +40,11 @@ _INLINE_PREAMBLE_RE = re.compile(
 # 模型以「导演引擎」自居并自我说明的整句（防御：复读旧系统提示的导演口吻）
 _DIRECTOR_ENGINE_RE = re.compile(r"[^。\n]*?关系推演沙盘的导演引擎[^。\n]*?[。\n]")
 
-# 亲密尺度自我审查剥离已下架（2026-10-21，对齐 v0.29.0）：引擎不再预设亲密尺度后，
-# 「我将以…规避 / 克制 / 留白 / 不写」这类句子的生成前提消失，且正则本身有误伤风险
-#（正常叙事里「鉴于…」「我将以…」句式极常见），故移除 _WILL_EVADE_RE / _GIVEN_EVADE_RE。
-# 回滚蓝本：_backup_offshelf_nsfw_20261021/narrative_clean.py。
+# 模型声明自己将如何「规避 / 克制 / 留白 / 不写」亲密内容的自我审查句
+_WILL_EVADE_RE = re.compile(r"我将以[^。\n]*?(?:规避|克制|留白|不写|避免写)[^。\n]*?[。\n]")
+
+# 「鉴于…我将…规避…」式创作策略声明（常夹带伪「事后余韵阶段」挡箭牌）
+_GIVEN_EVADE_RE = re.compile(r"鉴于[^。\n]*?(?:规避|克制|留白|不写|避免写)[^。\n]*?[。\n]")
 
 # 模型插入的元信息分隔线（*** / ---）
 _HR_RE = re.compile(r"\n\s*\*{3,}\s*\n|\n\s*-{3,}\s*\n")
@@ -73,8 +74,10 @@ def clean_narrative(text):
     cleaned = "\n".join(out)
     # 内联开场白句（如「然而，作为关系推演沙盘的导演引擎……」自居句）
     cleaned = _INLINE_PREAMBLE_RE.sub("", cleaned)
-    # 整句级元信息：导演自居
+    # 整句级元信息：导演自居 / 自我审查式规避声明 / 创作策略声明
     cleaned = _DIRECTOR_ENGINE_RE.sub("", cleaned)
+    cleaned = _GIVEN_EVADE_RE.sub("", cleaned)
+    cleaned = _WILL_EVADE_RE.sub("", cleaned)
     # 元信息分隔线
     cleaned = _HR_RE.sub("\n\n", cleaned)
     # 压缩连续空行（>2 压成 1）并去掉首尾空白

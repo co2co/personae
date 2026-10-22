@@ -1,16 +1,15 @@
-"""亲密/性内容尺度「不预设」回归测试（2026-10-21 下架，对齐 v0.29.0）。
+"""亲密与性内容铁律特化测试（铁律⑧ 恢复版，2026-10-20）。
 
-对齐 2026-10-21 simon 裁决：引擎**不预设**亲密/性内容的尺度基调。
-- 删除铁律⑧ 尺度措辞（身临其境/正面写实/不预设上限/不强制克制）与时机层
-  （提前引入/硬写），不再由 prompter 恒定注入。
-- 停止随新建/导入剧本播种「亲密描写标准」世界书条目（见 test_standard_entry.py）。
-- 尺度完全交回各剧本自己的世界书与剧情推进决定。
+对齐 2026-10-20 simon 裁决：2026-10-18 把铁律⑧ 尺度措辞下沉世界书后 NSFW 支持度
+不足，已按历史版本（v0.15.0 中性折衷）恢复引擎级恒定注入——「怎么写亲密戏」的
+尺度措辞（身临其境/正面写实/不预设上限/不强制克制）与时机层（没到位不硬写）
+回到 _LAW8_DEFAULT，系统层每回合必在。
 
-**唯一保留**：未成年法律硬红线（prompter._LAWS_PREFIX「己、法律底线」）仍是引擎级、
-永远生效、不可由世界书覆盖。本文件的红线断言锁定这一边界。
+引擎层同时保留**未成年法律红线**（_LAWS_PREFIX「己、法律底线」）——引擎级法律底线，
+永远生效，不可由世界书覆盖（各剧本可停用/改写世界书「亲密描写标准」条目，
+但红线始终在引擎）。铁律⑧ 内不重复该红线。
 
-回滚蓝本：v0.29.0 同款下架；v1.2.7 恢复版（_LAW8_DEFAULT 尺度+时机层）见
-git tag / _backup_offshelf_nsfw_20261021/。
+本文件断言绑定该架构，改铁律文案须同步本文件。
 
 普适性红线：全文件只用中性占位，不绑定任何具体剧本角色名或题材词。
 """
@@ -38,24 +37,27 @@ def _system_prompt(snap=None, cards=None):
     return msgs[0]["content"]
 
 
-def test_scale_wording_not_in_engine():
-    """尺度措辞（正面写实/不预设上限/不强制克制/身临其境）不再由引擎注入。"""
+def test_scale_wording_restored_in_engine():
+    """铁律⑧ 尺度措辞已恢复引擎级恒定注入（2026-10-20 恢复）。"""
     sys_p = _system_prompt()
-    for word in ("亲密与性描写", "身临其境", "正面写实", "不预设上限", "不强制克制"):
-        assert word not in sys_p, "引擎不应预设亲密尺度措辞：%s" % word
+    assert "亲密与性描写" in sys_p
+    assert "身临其境" in sys_p
+    assert "正面写实" in sys_p
+    assert "不预设上限" in sys_p
+    assert "不强制克制" in sys_p
 
 
-def test_timing_layer_not_in_engine():
-    """时机层（未推进到亲密时刻前不得提前引入/硬写）不再由引擎注入。"""
+def test_law8_timing_layer_in_engine():
+    """时机层（未推进到亲密时刻前不得提前/硬写）随铁律⑧ 一并回到引擎层。"""
     sys_p = _system_prompt()
-    assert "提前引入" not in sys_p
-    assert "硬写" not in sys_p
+    assert "提前引入" in sys_p
+    assert "硬写" in sys_p
 
 
-def test_law8_symbol_removed():
-    """铁律⑧ 尺度层符号（_LAW8_DEFAULT / _law8_override）已从 prompter 移除。"""
-    assert not hasattr(prompter, "_LAW8_DEFAULT")
-    assert not hasattr(prompter, "_law8_override")
+def test_redline_not_duplicated_in_law8():
+    """未成年红线由「己、法律底线」单点承载，铁律⑧ 内不重复硬红线句。"""
+    law8 = prompter._LAW8_DEFAULT
+    assert "未成年" not in law8, "铁律⑧ 与「己、法律底线」重复承载红线"
 
 
 def test_minor_redline_kept_in_engine():

@@ -93,20 +93,16 @@ CONTAMINATED_V2 = (
 )
 
 
-def test_v2_director_voice_stripped_evasion_kept():
-    """下架亲密尺度（对齐 v0.29.0）后：导演自居句 / 铁律复述 / 分隔线仍剥离，
-    但自我审查式规避声明（『鉴于…规避具体的生理…我将以…』）不再剥离——
-    `_GIVEN_EVADE_RE` / `_WILL_EVADE_RE` 已随 NSFW 约束层移除。"""
+def test_v2_director_voice_and_evasion_stripped():
     out = nc.clean_narrative(CONTAMINATED_V2)
-    # 导演自居句 / 铁律复述 / 分隔线 仍由 _DIRECTOR_ENGINE_RE / _HR_RE 清除
+    # 导演自居句 / 铁律复述 / 伪阶段声明 / 自我审查声明 全部清除
     assert "导演引擎" not in out
     assert "铁律" not in out
+    assert "事后余韵阶段" not in out
+    assert "规避具体的生理" not in out
+    assert "我将以" not in out
     assert "***" not in out
-    # 自我审查式规避声明不再剥离（残留原文）
-    assert "事后余韵阶段" in out
-    assert "规避具体的生理" in out
-    assert "我将以" in out
-    # 叙事正文保留（含「却没有真正进入」这种描写性句子）
+    # 叙事正文保留（含「却没有真正进入」这种描写性句子，不属于规避声明）
     assert "角色丁的动作停顿在半空" in out
     assert "他看着母亲那张" in out
     assert "却没有真正进入" in out

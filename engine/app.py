@@ -285,11 +285,10 @@ def save_world_route(name):
 
 @app.post("/api/world/<name>/restore-defaults")
 def restore_world_defaults(name):
-    """补回被删除的引擎默认条目（写法示范·常驻）。
+    """补回被删除的引擎默认条目（亲密描写标准 / 写法示范·常驻）。
 
-    亲密尺度不由引擎播种（2026-10-21 下架，对齐 v0.29.0），故此处不再补「亲密描写
-    标准」。只补缺失、不覆盖已有：作者改过的默认条目内容不动，需要重置某条时先删
-    再恢复。返回 {"added": [...], "present": [...]}，前端据 added 提示恢复了哪几条。
+    只补缺失、不覆盖已有：作者改过的默认条目内容不动，需要重置某条时先删再恢复。
+    返回 {"added": [...], "present": [...]}，前端据 added 提示恢复了哪几条。
     """
     try:
         result = store.restore_default_entries(name)

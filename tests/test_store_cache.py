@@ -43,8 +43,8 @@ def test_load_card_caches_and_invalidates_on_save(_isolated_store):
 
 
 def test_load_world_caches_and_invalidates(_isolated_store):
-    # v0.29.0 起 save_world 不再播种任何条目。这里验证的是「缓存随覆盖写失效」，
-    # 故断言用户那条内容在列表里被更新。
+    # save_world 会播种引擎默认条目（写法示范 / 亲密描写标准），故此处按 content 前缀
+    # 过滤出用户条目来断言。本用例验证的是「缓存随覆盖写失效」。
     def user_entry(text):
         return next(e for e in store.load_world("世界甲") if e["content"].startswith("c"))
 
