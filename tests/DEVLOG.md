@@ -8,6 +8,39 @@
 
 ---
 
+## 2026-10-22 版本 v2.1.7（回滚重新上架 NSFW 支持：亲密尺度约束层整体还原）
+
+**起因**：simon 下令「通过回滚操作重新上架之前下架的 NSFW 支持」。回滚蓝本 = DEVLOG 2026-10-21「下架 NSFW 支持（v2.1.4）」条目 + `_backup_offshelf_nsfw_20261021/`（11 个改动前文件副本）。回滚前当前状态备份 `_backup_nsfw_relist_20261022/`（12 个文件）。
+
+**回滚方式：精准还原，不做整 commit revert**
+
+`15029c3`（v2.1.4）把 NSFW 下架与 P0 注入审计合成一次提交，`prompter.py` 与 `高氏王朝.json` 两处任务交织。故按文件分档处理：
+
+| 文件 | 处理 | 依据 |
+|---|---|---|
+| `engine/store.py` / `narrative_clean.py` / `app.py` / `static/index.html` / `static/worldbook-guide.html` | `git checkout 15029c3^ --` 整文件还原 | 下架后（15029c3..HEAD）未被任何后续版本改动，diff 全部属 NSFW 下架 |
+| `engine/prompter.py` | **仅手工还原三块**：`_LAW8_DEFAULT` 常量 + `_law8_override` / `_patch_laws` 句柄 + `_build_laws()` 拼接 | 该文件下架后含 v2.1.5 P1 角色块分层（秘密提示分行、`_ferment_hint` 短句化、段名对齐）与 P0 注入改动，整文件还原会全部丢失 |
+| `tests/test_intimacy_scale.py` / `test_standard_entry.py` / `test_standard_entries.py` / `test_narrative_discipline.py` / `test_drama_io.py` / `test_narrative_clean.py` | `git checkout 15029c3^ --` 还原 | 下架后未被改动；测试语义随引擎语义反转回「铁律⑧在引擎 / 新建剧本播种亲密条 / 剥离自我审查句」 |
+| `tests/test_director.py` / `test_pressure_force.py` / `test_stale_cast.py` | **不动** | 下架提交里对它们的改动是 P0 提醒段改名（`[可选提醒·` → `[提醒·`），与 NSFW 无关 |
+| `engine/data/worlds/*.json`（高氏王朝.json 同提交） | **不动** | 该处改动是 P0 情境条目合并，与 NSFW 无关 |
+
+**还原后引擎符号状态**
+
+| 符号 | 状态 |
+|---|---|
+| `prompter._LAW8_DEFAULT` / `_law8_override` / `_patch_laws` | 已恢复 |
+| `_build_laws()` = `_LAWS_PREFIX + (_law8_override or _LAW8_DEFAULT) + "\n" + _NARRATIVE_DISCIPLINE` | 已恢复（973 字，含「亲密与性描写/身临其境/正面写实/不预设上限/不强制克制/提前引入/硬写」，未成年法律红线仍在） |
+| `store._STANDARD_ENTRY_CONTENT` / `_standard_entry` / `_has_standard_entry` | 已恢复（新建 / 导入剧本重新播种「亲密描写标准」条） |
+| `narrative_clean._WILL_EVADE_RE` / `_GIVEN_EVADE_RE` | 已恢复（自我审查式规避句重新剥离） |
+
+**数据层**：下架时就是「磁盘保留、仅停引擎播种」，故 `dramas/高氏王朝/world.json` 与 `engine/data/examples/worlds/高氏王朝.json` 的「亲密描写标准」条一直在，回滚无需补数据。当前运行态 `engine/data/worlds/槐荫里.json`（11 条）是下架后建/导入的，无该条——补不补待 simon 定（前端「恢复默认」即可补，或由 `save_world` 后续自动补）。
+
+**验证**：全量 `381 passed + 1 skipped + 1 deselected`（exit 0，7.17s）。测试数由 378 回升到 381——回滚的测试文件把下架时合并/删除的用例一并带回（如 `test_scale_wording_restored_in_engine` / `test_law8_timing_layer_in_engine` / `test_redline_not_duplicated_in_law8`）。
+
+**发版记账（simon 拍板 v2.1.7 PATCH 档）**：`engine/VERSION` v2.1.6 → **v2.1.7**（PATCH —— 对称 v2.1.4 下架时亦按 PATCH 处理；本次为引擎行为还原，无新增对外能力、无数据契约/存储格式变更）。产出发分包 `dist/personae-v2.1.7.zip`。
+
+**遗留**：① 运行态 `engine/data/worlds/槐荫里.json` 无「亲密描写标准」条，simon 自行用前端「恢复默认」补，引擎侧不再动数据。② 实机验证（本地 llama.cpp 跑亲密场景）未做——本次仅有确定性全量测试。③ `_backup_nsfw_relist_20261022/`、`_backup_offshelf_nsfw_20261021/` 两份回滚备份留在工作树，不入库不进包。
+
 ## 2026-10-22 思考链预算挤占根因修复：关思考送达 + REFLECT_MAX_TOKENS 2800→4096
 
 **问题**（DeepSeek deepseek-flash 实测取证）：纪官 reflect 轮 2-4/8 unparseable，`finish_reason=length`，
