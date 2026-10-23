@@ -1,21 +1,19 @@
 """引擎默认条目的来源标记（origin=engine）与恢复机制。
 
-起因：世界书同时承载「剧本设定」与「注入调度」（position/depth/priority/constant/
-enabled 五维控制），而两条引擎默认条目（亲密描写标准 / 写法示范·常驻）由 save_world
-与 import_drama 播种进用户数据文件——在 UI 里与作者自写条目长得一模一样，用户无法
-判断哪条是系统的、删了会不会补回来。更要紧的是前端旧版既不渲染也不回传 demo /
-first_round，任何一次「保存整份」都会把示范标志静默抹掉（条目从 few-shot 通道退回
-普通设定注入），且控制台不报错。
-
-覆盖：
-  1. 出厂条目带 origin=engine；save_world 首次创建播种两条，均带标记。
-  2. restore_default_entries：只补缺失、不覆盖已有内容、世界不存在返回 None。
-  3. import_drama 补种两条对称（旧版只补示范，导入的剧本包可能永远没有亲密标准）。
+2026-10-21 下架亲密尺度（对齐 v0.29.0）后，引擎出厂条目只剩「写法示范·常驻」一条
+（「亲密描写标准」不再由引擎播种，见 test_standard_entry.py）。本文件守护：
+  1. 出厂条目（写法示范·常驻）带 origin=engine；save_world 首次创建播种即带标记。
+  2. restore_default_entries：只补缺失、不覆盖已有内容、世界不存在返回 None；
+     只补示范条，不补亲密条（下架后）。
+  3. import_drama 补种示范条对称（下架后不再补亲密条）。
   4. HTTP：/api/world/<name>/restore-defaults 正常路径与 404。
   5. UI 往返：按前端 collectWorldEntries 的形状提交后，origin/demo/first_round 保留
      （前端是否真的回传这三者由 test_frontend_binding.py 的静态探针守护）。
 
 全部走隔离的 store.DATA_DIR（临时目录），不碰真实 data/、不调 LLM。
+
+普适性红线：全文件只用中性占位，不绑定任何具体剧本角色名或题材词；
+「亲密描写标准」在此仅作「下架后不再播种的旧条名」常量出现（引擎内部条名，非题材词）。
 """
 import sys
 from pathlib import Path
@@ -28,6 +26,9 @@ if str(ENGINE) not in sys.path:
 
 import store  # noqa: E402
 import app as engine_app  # noqa: E402
+
+# 下架后引擎不再播种的旧条名（仅作常量引用，不来自 store 符号）。
+STD_NAME = "亲密描写标准"
 
 
 @pytest.fixture
@@ -58,19 +59,17 @@ def _strip_engine(entries):
 
 # ---- 1. 出厂条目带来源标记 -------------------------------------------------
 
-def test_factory_entries_carry_origin():
-    assert store._standard_entry()["origin"] == store.ORIGIN_ENGINE
+def test_factory_entry_carries_origin():
     assert store._standard_example_entry()["origin"] == store.ORIGIN_ENGINE
 
 
-def test_save_world_seeds_both_with_origin(data):
+def test_save_world_seeds_example_with_origin(data):
     store.save_world("甲剧本", [{"name": "自定设定", "content": "甲剧本的世界设定。"}])
     entries = store.load_world("甲剧本")
     by = _by_name(entries)
 
-    assert store.STANDARD_ENTRY_NAME in by
     assert store.STANDARD_EXAMPLE_NAME in by
-    assert by[store.STANDARD_ENTRY_NAME]["origin"] == store.ORIGIN_ENGINE
+    assert STD_NAME not in by, "下架后引擎不得再播种「亲密描写标准」"
     assert by[store.STANDARD_EXAMPLE_NAME]["origin"] == store.ORIGIN_ENGINE
     # 示范条目必须仍走 few-shot 通道
     assert by[store.STANDARD_EXAMPLE_NAME]["demo"] is True
@@ -84,21 +83,20 @@ def test_save_world_does_not_reseed_existing(data):
     store.save_world("甲剧本", [{"name": "自定设定", "content": "x"}])
     store.save_world("甲剧本", [{"name": "自定设定", "content": "y"}])
     names = [e.get("name") for e in store.load_world("甲剧本")]
-    assert store.STANDARD_ENTRY_NAME not in names
     assert store.STANDARD_EXAMPLE_NAME not in names
 
 
 # ---- 2. restore 语义：只补缺失、不覆盖 -------------------------------------
 
-def test_restore_adds_both_when_deleted(data):
+def test_restore_adds_example_when_deleted(data):
     store.save_world("甲剧本", [])
     store.save_world("甲剧本", [{"name": "自定设定", "content": "x"}])  # 已存在 → 不再播种
 
     result = store.restore_default_entries("甲剧本")
 
-    assert sorted(result["added"]) == sorted([store.STANDARD_ENTRY_NAME, store.STANDARD_EXAMPLE_NAME])
+    assert result["added"] == [store.STANDARD_EXAMPLE_NAME]
+    assert STD_NAME not in result["added"], "下架后 restore 不得再补「亲密描写标准」"
     by = _by_name(store.load_world("甲剧本"))
-    assert by[store.STANDARD_ENTRY_NAME]["origin"] == store.ORIGIN_ENGINE
     assert by[store.STANDARD_EXAMPLE_NAME]["demo"] is True
 
 
@@ -107,9 +105,6 @@ def test_restore_keeps_author_edits(data):
     store.save_world("甲剧本", [])
     entries = store.load_world("甲剧本")
     for e in entries:
-        if e.get("name") == store.STANDARD_ENTRY_NAME:
-            e["content"] = "作者改写过的亲密标准。"
-            e["enabled"] = False
         if e.get("name") == store.STANDARD_EXAMPLE_NAME:
             e["content"] = "作者换成本剧角色的示范。"
     store.save_world("甲剧本", entries)
@@ -117,25 +112,18 @@ def test_restore_keeps_author_edits(data):
     result = store.restore_default_entries("甲剧本")
 
     assert result["added"] == []
-    assert sorted(result["present"]) == sorted([store.STANDARD_ENTRY_NAME, store.STANDARD_EXAMPLE_NAME])
+    assert result["present"] == [store.STANDARD_EXAMPLE_NAME]
     by = _by_name(store.load_world("甲剧本"))
-    assert by[store.STANDARD_ENTRY_NAME]["content"] == "作者改写过的亲密标准。"
-    assert by[store.STANDARD_ENTRY_NAME]["enabled"] is False
     assert by[store.STANDARD_EXAMPLE_NAME]["content"] == "作者换成本剧角色的示范。"
 
 
-def test_restore_only_fills_the_missing_one(data):
-    store.save_world("甲剧本", [])
-    entries = _strip_engine(store.load_world("甲剧本"))
-    entries.append({"name": store.STANDARD_ENTRY_NAME, "content": "作者自写同名条。"})
-    store.save_world("甲剧本", entries)
-
+def test_restore_does_not_add_standard(data):
+    """下架后 restore 永不补亲密条（即便剧本里原本没有它）。"""
+    store.save_world("甲剧本", [{"name": "自定设定", "content": "x"}])
     result = store.restore_default_entries("甲剧本")
-
-    assert result["added"] == [store.STANDARD_EXAMPLE_NAME]
     by = _by_name(store.load_world("甲剧本"))
-    assert by[store.STANDARD_ENTRY_NAME]["content"] == "作者自写同名条。"
-    assert "origin" not in by[store.STANDARD_ENTRY_NAME]
+    assert STD_NAME not in by
+    assert STD_NAME not in result["added"]
 
 
 def test_restore_missing_world_returns_none(data):
@@ -149,7 +137,7 @@ def test_restore_empty_name_raises(data):
 
 # ---- 3. import 补种对称 ----------------------------------------------------
 
-def test_import_seeds_both_standard_entries(data):
+def test_import_seeds_example_entry(data):
     template = {
         "world": {"name": "乙剧本", "entries": [{"name": "自定设定", "content": "乙剧本的设定。"}]},
         "characters": [],
@@ -157,18 +145,18 @@ def test_import_seeds_both_standard_entries(data):
     store.import_drama("乙剧本", template)
 
     by = _by_name(store.load_world("乙剧本"))
-    assert store.STANDARD_ENTRY_NAME in by, "导入的剧本包也必须拿到亲密描写标准"
     assert store.STANDARD_EXAMPLE_NAME in by
-    assert by[store.STANDARD_ENTRY_NAME]["origin"] == store.ORIGIN_ENGINE
+    assert STD_NAME not in by, "下架后导入的剧本包不得被补种「亲密描写标准」"
     assert by[store.STANDARD_EXAMPLE_NAME]["origin"] == store.ORIGIN_ENGINE
 
 
-def test_import_does_not_duplicate_when_template_has_them(data):
+def test_import_preserves_template_own_standard(data):
+    """模板自带旧版亲密条时，import 原样保留、不重复、不覆盖。"""
     template = {
         "world": {
             "name": "乙剧本",
             "entries": [
-                {"name": store.STANDARD_ENTRY_NAME, "content": "模板自带标准。"},
+                {"name": STD_NAME, "content": "模板自带旧版标准。"},
                 {"name": store.STANDARD_EXAMPLE_NAME, "content": "模板自带示范。", "demo": True},
             ],
         },
@@ -178,10 +166,9 @@ def test_import_does_not_duplicate_when_template_has_them(data):
 
     entries = store.load_world("乙剧本")
     names = [e.get("name") for e in entries]
-    assert names.count(store.STANDARD_ENTRY_NAME) == 1
+    assert names.count(STD_NAME) == 1
     assert names.count(store.STANDARD_EXAMPLE_NAME) == 1
-    # 模板自带的内容优先保留
-    assert _by_name(entries)[store.STANDARD_ENTRY_NAME]["content"] == "模板自带标准。"
+    assert _by_name(entries)[STD_NAME]["content"] == "模板自带旧版标准。"
 
 
 # ---- 4. HTTP 路由 ---------------------------------------------------------
@@ -195,7 +182,8 @@ def test_restore_route_ok(client, data):
 
     assert r.status_code == 200
     assert payload["ok"] is True
-    assert store.STANDARD_ENTRY_NAME in payload["added"]
+    assert store.STANDARD_EXAMPLE_NAME in payload["added"]
+    assert STD_NAME not in payload["added"]
 
 
 def test_restore_route_404(client, data):
@@ -238,4 +226,3 @@ def test_ui_roundtrip_preserves_flags(data):
     assert example["demo"] is True
     assert example["first_round"] is False
     assert example["origin"] == store.ORIGIN_ENGINE
-    assert by[store.STANDARD_ENTRY_NAME]["origin"] == store.ORIGIN_ENGINE

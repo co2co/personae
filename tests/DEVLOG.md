@@ -4,7 +4,68 @@
 
 记录架构决策。待办与搁置项已统一收口至 [TODO.md](./TODO.md)（各版本「下版本待办」外链至此，避免日志臃肿），非任务日志，按主题追加。
 
-> **tag 记录（2026-10-21 补）**：`v2.0.0` 发版当日漏打 tag，已补至 `d726911`。`v2.0.1` / `v2.0.2` 是同日连续 PATCH 迭代，改动交织在 `index.html` 同一批行里（v2.0.2 重构掉了 v2.0.1 的说明条与按钮，反推不出真实的 v2.0.1 界面），故合并为提交 `c8b2db0` 且无独立 tag。当前 tag 序列：`v1.2.3` → `v2.0.0` → `v2.1.0` → `v2.1.1` → `v2.1.2` → `v2.1.3` → `v2.1.4`（v2.0.1/v2.0.2 合并无独立 tag；v2.1.4 同一次提交含 NSFW 下架 + P0 注入审计两项，故 DEVLOG 拆成两条目共用一个版本号）。
+> **tag 记录（2026-10-21 补，2026-10-23 续）**：`v2.0.0` 发版当日漏打 tag，已补至 `d726911`。`v2.0.1` / `v2.0.2` 是同日连续 PATCH 迭代，改动交织在 `index.html` 同一批行里（v2.0.2 重构掉了 v2.0.1 的说明条与按钮，反推不出真实的 v2.0.1 界面），故合并为提交 `c8b2db0` 且无独立 tag。当前 tag 序列：`v1.2.3` → `v2.0.0` → `v2.1.0` → `v2.1.1` → `v2.1.2` → `v2.1.3` → `v2.1.4` → `v2.1.5` → `v2.1.6` → `v2.1.7` → `v2.1.8`（v2.0.1/v2.0.2 合并无独立 tag；v2.1.4 同一次提交含 NSFW 下架 + P0 注入审计两项，故 DEVLOG 拆成两条目共用一个版本号）。
+> **锚点 tag（2026-10-23 补）**：`nsfw-on-v2.1.7` → `a6e1280`（v2.1.7 重新上架 NSFW 的原子提交）。它不是版本发布 tag，只作 NSFW-ON 态的持久锚点：`git checkout nsfw-on-v2.1.7 -- <13文件>` 即可重新上架，不受将来 rebase / 历史重写影响。**勿删**。
+
+---
+
+## 2026-10-23 版本 v2.1.8（NSFW 支持暂时下架，为引擎优化工作；完成后重新上架）
+
+### 缘由
+为顺利进行后续引擎优化工作，仿照 v2.1.4 下架流程，**临时**下架 NSFW 支持（亲密尺度约束层），并建立本回滚日志。优化工作完成后再按下方步骤重新上架。本轮为临时下架，按 PATCH 递增（`v2.1.7` → `v2.1.8`，与 v2.1.3 → v2.1.4 同一操作的历史先例一致），正常发版出 zip。
+
+### 改动清单（13 文件；为重新上架提交 `a6e1280` 的完整反向操作，已落工作区）
+对重新上架提交 `a6e1280` 涉及的 13 文件逐一回退至其父提交态：
+
+**engine/prompter.py**
+- 移除 `_LAW8_DEFAULT`（铁律⑧ 亲密描写：正面写实 + 时机层「到了→放开 / 没到→别硬写」）
+- 移除 `_law8_override`（A/B 对照全局句柄）与 `_patch_laws()` 函数
+- `_build_laws()` 回退为下架版：`laws = 创作铁律前缀（含未成年红线）+ 叙事纪律`，不再拼接铁律⑧
+- 头部注释更新
+
+**engine/store.py**
+- 移除 `_STANDARD_ENTRY_CONTENT`（「亲密描写标准」世界书条目：六分层 + 器官词正反示例）
+- 移除新建 / 导入剧本时的播种逻辑；`restore_default_entries` 不再补回「亲密描写标准」
+- 头部注释更新（标注临时再下架）
+
+**engine/narrative_clean.py**
+- 移除 `_WILL_EVADE_RE` / `_GIVEN_EVADE_RE` 及亲密尺度自我审查剥离逻辑
+- 注释回滚蓝本指向新备份
+
+**engine/app.py**
+- `restore_world_defaults` docstring 不再提及补回「亲密描写标准」
+
+**engine/static/index.html / worldbook-guide.html**
+- UI 说明去掉「亲密叙事技法基线」；指南「九·五」节由「引擎不内置」改回「出厂自带，可停用」的逆向（即回到「引擎不内置」表述）
+
+**tests/（7 文件）**
+- 测试预期回退为 NSFW 下架版：`test_intimacy_scale` / `test_standard_entries` / `test_standard_entry` / `test_narrative_clean` / `test_narrative_discipline` / `test_drama_io` / `test_store_cache`
+
+### 验证
+- 全套快测（`tests/venv`，默认 `-m "not integration"`）：**378 passed, 1 skipped, 1 deselected**
+- 残留引用核查：工作树中 `_build_laws` 铁律⑧ / 出厂播种 / `nsfw` 端点无活动代码，残留均为历史注释
+- 未成年红线（`_VENDOR_FIELDS` 剥离、确认端点移除）状态与 v2.1.4 下架态一致
+
+### 脱敏审计（引擎本体）
+- `engine/*.py` 13 个模块：被删符号（`_LAW8_DEFAULT` / `_law8_override` / `_STANDARD_ENTRY_CONTENT` / `_standard_entry` / `_has_standard_entry` / `_WILL_EVADE_RE` / `_GIVEN_EVADE_RE`）**零定义、零消费**，命中全在注释与 docstring
+- `index.html` 零命中；`worldbook-guide.html` 仅剩「九·五、亲密叙事尺度（引擎不内置）」说明节（描述性，无尺度指令）；`config.json` 无相关字段
+- 未成年法律硬红线 `_LAWS_PREFIX「己、法律底线」` 保留（引擎级，永不可被世界书覆盖）
+- **数据层未脱敏（属作者数据，非引擎本体，本轮按 v2.1.4 立场「剧本数据保留磁盘、只停播种」不动）**：`data/examples/worlds/高氏王朝.json` 含完整「亲密描写标准」条、`data/examples/script-example.txt` 含「常量-亲密尺度·全浓度」——两者入库且随包；运行态 `data/worlds/槐荫里.json`、`data/sessions/*` 永不进包。若要「随包零露骨」，须改真相源 `dramas/高氏王朝/world.json` 后 `sync_drama.py install`，另议。
+
+### 回滚蓝本（备优化完成后重新上架）
+- 备份目录：`_backup_offshelf_nsfw_20261023/`（仓库根，下架前 NSFW-ON 态 13 文件快照；`.gitignore` 已忽略 `_backup_*/`，不入库不进包；行尾已归一为 LF，与仓库一致）
+- 锚点 tag：`nsfw-on-v2.1.7` → `a6e1280`
+- 重新上架方式（二选一）：
+  1. `git checkout nsfw-on-v2.1.7 -- <13文件>`（推荐，不受工作树备份是否被误删影响）
+  2. 用 `_backup_offshelf_nsfw_20261023/` 下同名文件覆盖回 13 个位置
+  再跑全套快测确认（预期回到 **381 passed**，多出的 3 例是回滚带回来的 NSFW 专用用例）
+- 齐备性核验（2026-10-23）：备份 13 文件与 `a6e1280` 逐文件 diff=0；备份清单与 `a6e1280^..a6e1280` 改动集完全一致；5 处代码/docstring 回滚指针全指向本快照
+- 参考条目：本日志 v2.1.4（下架）与 v2.1.7（重新上架）
+
+### 发版
+- VERSION：`v2.1.7` → `v2.1.8`（PATCH）
+- commit / tag：本条目同批提交 + `v2.1.8`；另补锚点 tag `nsfw-on-v2.1.7` → `a6e1280`
+- 产物：`dist/personae-v2.1.8.zip`（`engine/venv/Scripts/python.exe package.py`）
 
 ---
 

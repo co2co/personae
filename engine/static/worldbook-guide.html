@@ -464,14 +464,9 @@ content：学院校规：禁私斗、禁夜出、禁用黑魔法。
 <li><strong><code>character</code> 字段对&quot;非秘密条目&quot;无效</strong>：当前沙盘里，非秘密条目的 <code>character</code> 不参与过滤（秘密的 <code>character</code> 才是归属）。给普通设定加 <code>character</code> 标签不会按角色隔离，别误用。</li>
 </ol>
 <hr>
-<h2>九·五、亲密叙事尺度（出厂自带，可停用）</h2>
-<p>每个世界书<strong>默认内置一条「亲密叙事标准」</strong>：常量、<code>position: after</code>、优先级 100。它给出正面写实、不回避、不预设上限的描写基调，同时保留未成年法律硬红线。这条是<strong>写法标准而非内容开关</strong>——它决定亲密戏「怎么写」，不决定「写不写」（写不写仍由剧情推进决定）。</p>
-<p>如果你希望某个世界不采用这个基调，有两种方式：</p>
-<ul>
-<li><strong>停用</strong>：把该条 <code>enabled</code> 置为 <code>false</code>，它就不再注入；</li>
-<li><strong>改写</strong>：直接编辑该条 <code>content</code>，换成你想要的尺度。</li>
-</ul>
-<p class="note">无论启用与否，<strong>未成年硬红线永远生效</strong>——这是引擎级法律底线，不可由世界书覆盖。这条「亲密叙事标准」只影响成人的亲密戏写法，可随时停用或改写，引擎不会强制回填（仅新建世界时播种一次）。</p>
+<h2>九·五、亲密叙事尺度（引擎不内置）</h2>
+<p>引擎<strong>不预设</strong>任何亲密/性内容的尺度基调，也不随新建或导入剧本播种「亲密叙事标准」条目——尺度完全由<strong>各剧本自己的世界书</strong>与剧情推进决定。想要给某剧本设定亲密写法基调，正路是在本剧世界书里自建一条（常量、<code>position: after</code> 落末尾 user 近因最强，写法可参考历史版本）。</p>
+<p class="note">无论剧本怎么写，<strong>未成年硬红线永远生效</strong>——这是引擎级法律底线（铁律「己、法律底线」），不可由世界书覆盖，也不受本节约束影响。</p>
 <hr>
 <h2>十、机制速查表</h2>
 <table>
