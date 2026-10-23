@@ -9,6 +9,38 @@
 
 ---
 
+## 2026-10-23 剧本亲密度叙事标准清理（对齐引擎 NSFW-OFF 定位）
+
+引擎侧的 NSFW 下架（v2.1.8）只停了「出厂播种」，已落盘剧本里的「亲密描写标准」条目仍留在三态与随包 demo 中——引擎说「不预设尺度」，剧本里却还挂着一条引擎署名的尺度标准条。本轮把这条在剧本数据层一并清掉，使三态与引擎定位一致。
+
+### 清理清单
+| 载体 | 动作 | 说明 |
+|---|---|---|
+| `dramas/高氏王朝/world.json`（作者源） | 删条目「亲密描写标准」 | 19 → 18 条；`constant=true / position=after / origin=engine`，1128 字（六分层 + 器官词正反示例） |
+| `engine/data/worlds/高氏王朝.json`（运行态） | 同上（经 `install` 铺开） | 不手改，单向同步 |
+| `engine/data/examples/worlds/高氏王朝.json`（随包 demo） | 同上（经 `install` 铺开） | 随包内容 |
+| `engine/data/examples/script-example.txt` | 删「【常量-亲密尺度·全浓度】」整行 | 43 → 42 行；该文件经 `/docs/script-example` 对外展示，属随包示范 |
+| `dramas/高氏王朝/README.md` | 修 2 处失效引用 | ① 首行「（全浓度，…）」去掉尺度声明 ②「亲密描写服从出厂【亲密描写标准】条目」标注已废除 |
+
+**保留（判断项）**：README 的 `## NSFW 定档` 与 `## 陆敏×高琳 暗黑 NSFW 线` 两节未删。它们是剧本的**剧情设计笔记**（角色线与推进层次），不是引擎的尺度标准；且 README 位于 `dramas/`（gitignore、不随包、不入库）。删除会丢失创作内容，故只修掉其中已失效的「服从出厂标准条」引用。若要求连创作笔记一并清除，需另行指示。
+
+### 回滚点
+- `_backup_intimacy_purge_20261023/`：清理前快照 5 文件（`world.json` 作者源、`runtime_world.json`、`demo_world.json`、`script-example.txt`、`README.md`），均已核验保留被删内容。`.gitignore:_backup_*/` 覆盖，不入库不进包。
+- 另有 `git` 侧回滚：`engine/data/examples/` 两个入库文件可 `git checkout HEAD --` 还原；作者源「亲密描写标准」全文可从 `_backup_offshelf_nsfw_20261023/engine/store.py` 的 `_STANDARD_ENTRY_CONTENT`（NSFW-ON 快照）或本目录 `world.json` 取回。
+
+### 验证
+- 三态条目数均为 **18**，均不含「亲密描写标准」；`sync_drama.py check` = **✓ 三方一致**
+- 残留扫描（三态 world/characters + script-example）：`亲密描写标准|亲密尺度|全浓度|阴唇|阴蒂|阴茎|龟头|子宫口|抽插|露骨|性行为描写` **零命中**
+- 引擎侧：`store.py` 四处命中全为注释/docstring；`restore_default_entries` 只补「写法示范·常驻」，**不会把该条种回来**
+- 全套快测：**378 passed, 1 skipped, 1 deselected**
+- 打包守卫（不带 flag）：**✓ 三方一致**；临时包内 demo world 18 条、script-example 零残留、体积 227.7 KB → **225.9 KB**
+- `install` 产生的临时备份 `_sync_backup_高氏王朝_20261023_215748/` 已删（回滚点已由上条覆盖）
+
+### 待决
+随包 demo 内容已变，`dist/personae-v2.1.8.zip` 仍是清理前的旧内容（v2.1.8 的 tag 指向 `baa5451` 也未含本改动）。**VERSION 是否 bump 至 v2.1.9 并重出包，待 simon 示下**——本轮未 bump、未覆盖正式包，仅用 `--out` 临时包验证。
+
+---
+
 ## 2026-10-23 工作树清理（非发版，产物不变）
 
 承接三态一致性恢复（`sync_drama.py install` 后运行态只剩「高氏王朝」），一并清掉三类历史遗留。**不 bump VERSION、产物零变化**——被清对象或本就不入库、或本就不进包。
