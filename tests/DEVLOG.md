@@ -9,6 +9,45 @@
 
 ---
 
+## 2026-10-23 三态收敛（前端保存导致的世界书元数据分叉）+ 机制记录
+
+### 现象
+清理「亲密描写标准」条后，运行态被前端保存一次，`sync_drama.py check` 报「世界书不一致」。逐字段比对，**条目内容零差异**，差异全在元数据：
+
+| 差异项 | 作者源（手写） | 运行态（前端保存后） |
+|---|---|---|
+| `demo` / `first_round` | 17 条无此字段 | 补成 `false` |
+| `priority` | 95,90,…,55,**45**,…5（缺 50） | 100,95,…,15（连续） |
+| 写法示范·常驻 | index 7，priority 60 | index 0，priority 100 |
+
+### 根因（机制性，与删条目无关）
+- `renderWorldEntries()`（`engine/static/index.html:2065`）把条目按 `origin` 拆进两个容器渲染：`#w-entries-engine` 在前、`#w-entries-author` 在后，组内再 `byConst()` 把常量前置。
+- `collectWorldEntries()`（`index.html:2187`）从 `#w-entries .entry` 按 **DOM 顺序**回写 `priority: 100 - idx * 5`，并从 `dataset` 回写 `demo` / `first_round` / `origin`（缺失时落成 `false`）。
+
+后果：**只要剧本同时存在 `origin=engine` 与作者条目，前端任意一次保存都会把引擎条目顶到第一位并整体重排 priority**。作者源手写的 priority 阶梯（含刻意的空位）无法在界面上存活。这是设计耦合，不是操作失误，也与是否删除亲密条无关。
+
+### 处置
+按 `MEMORY` 既有约定（运行态实测改动先 `adopt` 再 `install`）收敛：
+
+```
+sync_drama.py adopt    # 运行态 -> 作者源（覆盖前自动备份 7 文件）
+sync_drama.py install  # 作者源 -> 运行态 + demo（14 文件）
+```
+
+- 作者源 priority 采纳为连续序列 `100…15`，写法示范·常驻 落在 index 0 / priority 100，「缺 50」空位消失。
+- 17 条作者条目自此携带 `demo:false` / `first_round:false`。语义与缺失等价（引擎侧一律 `e.get('demo')` 取 falsy）。
+- 红线字段未受损：写法示范·常驻 仍为 `demo=true` / `constant=false` / `first_round=false` / `origin="engine"`。
+
+### 幂等性验证（关键）
+按 `byConst(engine) + byConst(author)` 重放前端 DOM 顺序，再套 `100 - idx*5` 重算：结果与当前 priority 序列**逐项相同**、顺序相同、无条目缺 `demo`/`first_round` 字段。即收敛后前端再保存**不再产生分叉**。
+
+### 结论 / 后续
+- 三态 `entries` 逐条 `json.dumps(sort_keys)` 完全相同；`check` ✓ 三方一致；快测 378 passed。
+- 剧本内新增条目若要精确控制注入次序，只能靠 `constant` 与列表位置，**不能靠手写 priority**——界面保存会覆盖。
+- 若确需保留手写 priority，须改前端让保存保留原值、只给新条目分配（属机制改动，未做，另行评估）。
+
+---
+
 ## 2026-10-23 剧本亲密度叙事标准清理（对齐引擎 NSFW-OFF 定位）
 
 引擎侧的 NSFW 下架（v2.1.8）只停了「出厂播种」，已落盘剧本里的「亲密描写标准」条目仍留在三态与随包 demo 中——引擎说「不预设尺度」，剧本里却还挂着一条引擎署名的尺度标准条。本轮把这条在剧本数据层一并清掉，使三态与引擎定位一致。
