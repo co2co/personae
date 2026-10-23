@@ -9,6 +9,32 @@
 
 ---
 
+## 2026-10-23 工作树清理（非发版，产物不变）
+
+承接三态一致性恢复（`sync_drama.py install` 后运行态只剩「高氏王朝」），一并清掉三类历史遗留。**不 bump VERSION、产物零变化**——被清对象或本就不入库、或本就不进包。
+
+### 清理清单
+| 类别 | 对象 | 数量/体积 | 入库 | 进包 |
+|---|---|---|---|---|
+| 1. 旧玩家卡素材 | `engine/player-cast/Cast_New v0.5 单人寄宿.md` | 1 文件 / 3.6 KB | 是（本轮 `git rm`） | 否（`EXCLUDE_SUBPATHS` 已排除） |
+| 2. 历史会话 | `engine/data/sessions/*`（内容清空，**空目录保留**） | 10 个 / 425 KB | 否 | 否 |
+| 3. 同步快照与退役剧本归档 | `_sync_backup_*`（21）、`_backup_kefu_*`（2）、`backup/dramas_retired_*`（2） | 25 目录 / 3.3 MB | 否 | 否 |
+
+### 回滚点
+- `backup/_archive_purge_20261023.tar.gz`：上述三类**全部内容**的单一归档（367 文件，0.96 MB，路径已归一为正斜杠）。`.gitignore:12` 的 `backup/` 覆盖，不入库不进包。需要找回任一文件时直接从该 tar 解出即可。
+
+### 保留决定（清理时明确不动）
+- `package.py` 的 `EXCLUDE_SUBPATHS["player-cast"]` 与 `tests/test_universality.py` 的 `_DISTRIB_PRIVATE_PREFIXES["player-cast"]` **保留**。二者语义是「若存在则不分发 / 不扫描」，属防御性配置：路径不存在时无副作用，删掉反而失去将来重新放入时的保护。
+- `engine/data/sessions/` 目录本身保留（仅清内容）。`memory.prune_sessions()` 对空目录返回 0，`memory.new()` 有 `mkdir(parents=True, exist_ok=True)`，空目录安全。
+- `_backup_offshelf_nsfw_20261023/`（NSFW 回滚蓝本）与 `_backup_nsfw_relist_20261022/` 等其它 `_backup_*` 一律不动——第 3 项范围严格限定为 `_sync_backup_*` / `_backup_kefu_*` / `backup/dramas_retired_*` 三类。
+
+### 验证
+- 全套快测：**378 passed, 1 skipped, 1 deselected**（与清理前一致）
+- 打包守卫（不带 flag）：`✓ 作者源/运行态/随包 demo 三方一致（剧本「高氏王朝」）`
+- 产物比对：`dist/personae-v2.1.8.zip` 32 条目，与清理前**逐条内容全部字节一致**（清理不触碰分发面）
+
+---
+
 ## 2026-10-23 版本 v2.1.8（NSFW 支持暂时下架，为引擎优化工作；完成后重新上架）
 
 ### 缘由
