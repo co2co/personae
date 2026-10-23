@@ -30,11 +30,20 @@
     --radius:var(--radius-md);
     --shadow:0 1px 2px rgba(60,50,30,.06), 0 10px 26px rgba(60,50,30,.08);
     --topbar-h:58px;
+    /* 顶栏真实占位 = 栏高 + 刘海安全区。所有「贴在顶栏之下」的元素（board / 横幅 /
+       遮罩 / 抽屉 / 开场区）都必须用这一个变量，否则异形屏下会各自错位。 */
+    --topbar-real:calc(var(--topbar-h) + env(safe-area-inset-top, 0px));
+    /* 声明浅色配色：否则系统处于深色模式时，原生 select 下拉、滚动条、日期选择器
+       会整体变黑，与米色宣纸底直接打架（这是纯 CSS 无法逐项覆写的部分）。 */
+    color-scheme:light;
   }
   *{ box-sizing:border-box; }
   html,body{ height:100%; }
   /* 沙盘三栏占满视口，禁止整页滚动（滚动发生在各栏内部） */
   body:has(#board:not(.hide)){ overflow:hidden; }
+  /* 弹窗打开时同样锁住背景页：否则移动端双指滑动会带动底下的 board 一起滚，
+     关掉弹窗后常常已经「飘」到别处去了。 */
+  body:has(.modal:not(.hide)){ overflow:hidden; }
   body{
     margin:0;
     /* 手账字体栈：楷体/手写体优先，回退系统无衬线，兼顾可读 */
@@ -101,7 +110,10 @@
   header{
     position:fixed; top:0; left:0; right:0; z-index:50;
     display:flex; gap:14px; align-items:center; flex-wrap:wrap;
-    height:var(--topbar-h); padding:0 22px;
+    /* 高度把刘海安全区算进去、内容用 padding-top 让位。旧版固定 height + padding-top，
+       等于把内容挤进固定高度里，异形屏上按钮会被裁掉一半且整条顶栏没有变高。 */
+    height:var(--topbar-real);
+    padding:env(safe-area-inset-top, 0px) 22px 0;
     background:rgba(255,255,255,.86); -webkit-backdrop-filter:blur(8px); backdrop-filter:blur(8px);
     border-bottom:1px solid var(--line);
   }
@@ -114,14 +126,14 @@
   .modal-tools .nav-group-label{ margin-left:8px; }
   .modal-tools .nav-group-label:first-child{ margin-left:0; }
   #open-menu{ display:none; }
-  .scrim{ position:fixed; inset:var(--topbar-h) 0 0 0; background:rgba(20,20,20,.28); z-index:45; }
+  .scrim{ position:fixed; inset:var(--topbar-real) 0 0 0; background:rgba(20,20,20,.28); z-index:45; }
   .scrim.hide{ display:none; }
   .brand{ display:flex; align-items:baseline; gap:9px; }
   .brand b{ font-size:16px; font-weight:650; letter-spacing:.01em; }
   .brand span{ font-size:12.5px; color:var(--muted); letter-spacing:.06em; }
 
   /* ---------- 布局：三栏（左固定 / 中叙事 / 右日志） ---------- */
-  #board{ position:fixed; top:var(--topbar-h); left:0; right:0; bottom:0; display:flex; overflow:hidden; }
+  #board{ position:fixed; top:var(--topbar-real); left:0; right:0; bottom:0; display:flex; overflow:hidden; }
   #board.hide{ display:none; }
   .rail{ display:flex; flex-direction:column; background:var(--surface); overflow:hidden; }
   .rail-left{ width:320px; flex:0 0 320px; border-right:1px solid var(--line); transition:width .18s ease, flex-basis .18s ease; }
@@ -153,7 +165,7 @@
      ——表现就是「内容被截断且拖不动」。显式禁止收缩，滚动交给 .rail-body。 */
   .side > .panel{ flex-shrink:0; }
   #center{ flex:1; min-width:0; display:flex; flex-direction:column; background:var(--bg); }
-  #center .stage{ flex:1; overflow:auto; padding:18px 22px 10px; }
+  #center .stage{ flex:1; min-height:0; overflow:auto; padding:18px 22px 10px; }
 
   .panel{ background:var(--surface); border:1px solid var(--line);
           border-radius:var(--radius); overflow:hidden;
@@ -225,7 +237,9 @@
   #status{ font-size:12.5px; color:var(--muted); min-height:18px; padding:4px 2px 0; }
 
   /* ---------- 开场（setup） ---------- */
-  .hero{ min-height:100vh; display:flex; align-items:center; justify-content:center; padding:calc(var(--topbar-h) + 24px) 24px 24px; }
+  /* dvh 而非 vh：移动端地址栏收起/展开时 vh 不变，会把卡片底部推到屏幕外。 */
+  .hero{ min-height:100dvh; display:flex; align-items:center; justify-content:center;
+         padding:calc(var(--topbar-real) + 24px) 24px calc(24px + env(safe-area-inset-bottom, 0px)); }
   .card{ width:100%; max-width:520px; background:var(--surface); border:1px solid var(--line);
          border-radius:20px; padding:30px 32px; box-shadow:var(--shadow); }
   .card .eyebrow{ font-size:12px; color:var(--accent); letter-spacing:.14em; font-weight:600; }
@@ -256,8 +270,18 @@
           align-items:center; justify-content:center; z-index:60; padding:20px; }
   .modal.hide{ display:none; }
   .modal-box{ background:var(--surface); border:1px solid var(--line); border-radius:18px;
-              padding:24px 26px; width:480px; max-width:94vw; max-height:92vh; overflow:auto;
+              padding:24px 26px; width:480px; max-width:94vw; max-height:92dvh; overflow:auto;
+              position:relative;
+              overscroll-behavior:contain;
               box-shadow:0 20px 60px rgba(20,20,20,.22); }
+  /* 统一的显式关闭入口：旧版只有「点遮罩」和底部的取消按钮，会话管理窗连底部按钮都没有，
+     点不到遮罩就只能刷新页面。所有 .modal-box 都带一个。 */
+  .modal-x{ position:absolute; top:8px; right:8px; z-index:2;
+            width:36px; height:36px; padding:0; line-height:1;
+            display:flex; align-items:center; justify-content:center;
+            font-size:20px; color:var(--muted);
+            background:transparent; border-color:transparent; border-radius:10px; }
+  .modal-x:hover:not(:disabled){ color:var(--ink); background:var(--surface-2); border-color:var(--line); }
   .modal-box h3{ margin:0; font-size:18px; font-weight:650; }
   .modal-box .sub{ font-size:13px; color:var(--muted); margin:6px 0 18px; line-height:1.6; }
   .modal-box label{ display:block; margin:14px 0 6px; font-size:13px; color:var(--ink-2); font-weight:500; }
@@ -286,7 +310,7 @@
                          font-size:14px; color:var(--ink-2); font-weight:500; cursor:pointer; }
   .modal-box .acc-check input{ width:18px; height:18px; accent-color:var(--accent); }
   /* 轻量提示框：不打断操作流，覆盖在当前界面之上（z-index 高于 .modal），自动消失 */
-  .toast{ position:fixed; top:18px; left:50%; transform:translateX(-50%); z-index:80;
+  .toast{ position:fixed; top:calc(env(safe-area-inset-top, 0px) + 18px); left:50%; transform:translateX(-50%); z-index:80;
           background:var(--surface); border:1px solid var(--line); border-radius:12px;
           padding:11px 18px; font-size:13.5px; font-weight:550; color:var(--ink);
           box-shadow:0 12px 36px rgba(20,20,20,.18); max-width:min(560px, 92vw); }
@@ -295,7 +319,7 @@
   /* 已保存的 LLM 提供商清单（可展开编辑 / 删除 / 新增） */
   .providers{ display:flex; flex-direction:column; gap:8px; }
   .prov-empty{ font-size:12.5px; color:var(--muted); padding:6px 2px; }
-  .prov-card{ border:1px solid var(--line); border-radius:8px; background:var(--bg-2); overflow:hidden; }
+  .prov-card{ border:1px solid var(--line); border-radius:8px; background:var(--surface-2); overflow:hidden; }
   .prov-head{ display:flex; align-items:center; gap:8px; min-height:42px; padding:0 10px; cursor:pointer; }
   .prov-head:hover{ border-color:var(--accent); }
   .prov-chev{ flex:none; width:16px; text-align:center; color:var(--muted); font-size:12px; }
@@ -313,88 +337,14 @@
   .prov-body .field{ margin-bottom:4px; }
   .prov-msg{ margin-top:4px; min-height:16px; }
 
-  /* ---------- 响应式（三栏自适应） ---------- */
-  @media (max-width:1100px){
-    .rail-right{ width:330px; flex-basis:330px; }
-  }
-  @media (max-width:880px){
-    :root{ --topbar-h:56px; }
-    header{ flex-wrap:nowrap; height:var(--topbar-h); padding:0 14px; padding-top:env(safe-area-inset-top); }
-    .brand span{ display:none; }
-    .tag{ display:none; }
-    #open-menu{ display:inline-flex; }
-    .topnav{ display:none; position:absolute; top:100%; right:8px; flex-direction:column; gap:10px;
-             align-items:stretch; background:var(--surface); border:1px solid var(--line);
-             border-radius:12px; padding:10px; box-shadow:var(--shadow); z-index:55; min-width:220px; }
-    .topnav.show{ display:flex; }
-    .topnav-group{ border-left:0; border-top:1px solid var(--line-2); padding:10px 0 0; }
-    .topnav-group:first-child{ border-top:0; padding-top:0; }
-    .topnav-group, .nav-util{ flex-direction:column; align-items:stretch; }
-    .nav-group-label{ padding:0 4px 2px; }
-    .modal-tools .nav-group-label{ margin-left:0; }
-    .modal-tools .row{ width:100%; }
-    .modal-tools .row .btn{ flex:1; }
-    .topnav .btn{ width:100%; justify-content:flex-start; }
-    .rail-right{ width:300px; flex-basis:300px; }
-  }
-  /* 窄屏：左右栏变可滑出 overlay 抽屉，中间占满（用 .collapsed 控制滑入/滑出） */
-  @media (max-width:720px){
-    .rail-left, .rail-right{
-      position:fixed; top:calc(var(--topbar-h) + env(safe-area-inset-top)); bottom:0; z-index:46;
-      width:min(86vw, 360px); max-width:360px; height:auto;
-    }
-    .rail-left{ left:0; border-right:1px solid var(--line);
-      transform:translateX(-100%); transition:transform .2s ease; }
-    .rail-right{ right:0; border-left:1px solid var(--line);
-      transform:translateX(100%); transition:transform .2s ease; }
-    .rail-left.open{ transform:translateX(0); }
-    .rail-right:not(.collapsed){ transform:translateX(0); }
-    .rail-left.collapsed{ width:min(86vw, 360px); flex-basis:auto; border-right:1px solid var(--line); }
-    .rail-right.collapsed{ width:min(86vw, 360px); flex-basis:auto; border-left:1px solid var(--line); }
-    .mgr{ grid-template-columns:1fr; }
-    .mgr-list{ border-right:none; border-bottom:1px solid var(--line); max-height:38vh;
-               margin-bottom:12px; padding-right:0; }
-    .drama-cols{ grid-template-columns:1fr; }
-    .drama-left{ border-right:none; border-bottom:1px solid var(--line); }
-    .modal{ padding:0; align-items:flex-start; }
-    .modal-box{ width:100%; max-width:94vw; max-height:calc(100vh - 24px); }
-    .modal-box.wide{ width:min(100vw, 94vw); }
-    .modal-foot{ flex-wrap:wrap; }
-    #bar{ padding:10px 12px; padding-bottom:calc(10px + env(safe-area-inset-bottom)); }
-    #bar-inner{ align-items:stretch; }
-    #input{ height:auto; min-height:48px; }
-    #bar .btn-primary{ min-height:48px; }
-    #center .stage{ padding:14px 14px 8px; }
-    .msg{ font-size:15px; max-width:92%; }
-    button, .btn, input, select, textarea{ font-size:16px; }
-    .btn{ min-height:42px; }
-    input, select, textarea{ min-height:42px; }
-    .hero{ padding:calc(var(--topbar-h) + 16px) 16px 16px; }
-    .card{ padding:24px 20px; }
-    #ending-banner{ flex-wrap:wrap; }
-    #ending-banner .eb-text{ min-width:0; }
-    #ending-banner .eb-actions{ width:100%; }
-    .lw-resize{ display:none; }
-    .e-summary{ min-width:0; }
-    .e-grip{ padding-left:0; padding-right:2px; }
-    .entry .row{ gap:8px; }
-  }
-  @media (max-width:480px){
-    .brand b{ font-size:15px; }
-    .topnav{ left:8px; right:8px; min-width:0; }
-    .modal-box{ max-width:100vw; border-radius:14px 14px 0 0; }
-    .modal-box .row, .modal-foot, .actions{ flex-direction:column; align-items:stretch; }
-    .modal-foot .btn, .actions .btn{ width:100%; }
-    .modal-foot .btn-primary, .actions .btn-primary{ order:-1; }
-    .modal-box .row .field{ max-width:none; }
-    .field.sm{ max-width:none; }
-    .drama-cols{ gap:14px; }
-    .mgr-list{ max-height:32vh; }
-    .mgr-form{ max-height:52vh; }
-    .lw-body{ padding:8px; }
-    .lw-row{ flex-wrap:wrap; }
-    .lw-msg{ flex-basis:100%; }
-  }
+  /* ---------- 响应式（三栏自适应） ----------
+     注意：这一整块必须排在所有基础组件规则之后（本文件末尾）。
+     旧版写在 .mgr / .drama-cols / .modal-box.wide 的基础规则之前，同特异性下
+     被后面的基础规则覆盖——手机上的「剧本库单列」「角色表单列」从来没有生效过，
+     始终是 240px + 1fr 的双栏，在 375px 屏上右栏只剩一百来像素。 */
+
+  /* 窄屏抽屉样式统一收在文件末尾的响应式块里 */
+
   /* 初始化管理面板（剧本库 / 角色表） */
   .modal-box.wide{ width:min(1060px, 94vw); }
   /* 剧本库双栏：左剧本列表 / 右剧本详情（世界书设定 + 角色表两 tab） */
@@ -475,7 +425,7 @@
   .lw-btn{ padding:4px 10px; font-size:12px; border-radius:8px; background:var(--surface);
     color:var(--ink-2); cursor:pointer; }
   .lw-btn:hover:not(:disabled){ background:var(--surface-2); border-color:#dedcd6; }
-  .lw-body{ flex:1; overflow:auto; padding:8px 10px; background:#fbfbfa; }
+  .lw-body{ flex:1; min-height:0; overflow:auto; padding:8px 10px; background:#fbfbfa; }
   .lw-foot{ padding:7px 14px; border-top:1px solid var(--line); font-size:11.5px; color:var(--muted);
     display:flex; justify-content:space-between; gap:10px; background:var(--surface-2); }
   .lw-foot #lw-status{ font-weight:600; }
@@ -532,7 +482,7 @@
   /* 窄屏抽屉样式见上方 @media (max-width:720px) */
 
   /* ---------- 结局软提示横幅（非阻塞） ---------- */
-  #ending-banner{ position:fixed; top:var(--topbar-h); left:0; right:0; z-index:40;
+  #ending-banner{ position:fixed; top:var(--topbar-real); left:0; right:0; z-index:40;
     display:none; align-items:center; gap:14px; flex-wrap:wrap;
     padding:11px 22px; background:var(--warn-soft); border-bottom:1px solid #f0dcb8; }
   #ending-banner.show{ display:flex; }
@@ -656,6 +606,147 @@
   /* 结局横幅：淡赭石纸片，左侧朱砂印章点 */
   #ending-banner{ background:var(--warn-soft); border-bottom:1px solid #e8d6ab; }
   #ending-banner .eb-ico{ color:var(--accent-strong); }
+
+  /* ---------- 列表容器尺寸（原先是内联 style，媒体查询无法覆写） ---------- */
+  .drama-list{ max-height:64dvh; overflow:auto; }
+  .wb-entries{ max-height:42dvh; overflow:auto; }
+  .wb-hits{ margin-top:8px; max-height:18dvh; overflow:auto; }
+  .sess-list{ max-height:60dvh; overflow:auto; margin-top:6px; }
+  .si-cols{ display:grid; grid-template-columns:1fr 1fr; gap:14px; }
+  /* 条目的上移 / 下移：触屏上 HTML5 拖拽完全不触发（draggable 只认鼠标），
+     抽屉里必须有可点的排序入口，否则手机上永远改不了世界书的注入次序。 */
+  .e-move{ display:none; gap:4px; }
+  .e-move .btn{ padding:4px 7px; min-width:32px; min-height:36px; font-size:13px; line-height:1.2; }
+
+  /* 尊重系统「减少动态效果」：旋转胶带、抽屉滑入、按压位移一律即时完成。 */
+  @media (prefers-reduced-motion: reduce){
+    *{ animation-duration:.001ms !important; animation-iteration-count:1 !important;
+       transition-duration:.001ms !important; scroll-behavior:auto !important; }
+  }
+
+  /* ============================================================
+     响应式（必须排在所有基础组件规则之后，见文件中部注释）
+     ============================================================ */
+  @media (max-width:1100px){
+    .rail-left{ width:290px; flex:0 0 290px; }
+    .rail-right{ width:330px; flex-basis:330px; }
+  }
+  /* 中屏：左栏收窄、右栏提前改抽屉。
+     旧版到 720 才抽屉化，880 以下「左 320 + 右 300」把中间叙事挤到 200 出头，
+     手机横屏（812/844）正好落进这个区间，正文一行只剩几个字。 */
+  @media (max-width:880px){
+    :root{ --topbar-h:54px; }
+    header{ flex-wrap:nowrap; padding:env(safe-area-inset-top, 0px) 14px 0; }
+    .brand span{ display:none; }
+    /* 只藏顶栏那枚回合签，不要写成 .tag{display:none}：.hit-row .tag 是世界书
+       命中预览里的「设定 / 秘密」标记，一并隐藏会让预览失去定性。 */
+    header .tag{ display:none; }
+    /* 回合数是主界面最基础的进度状态，不该随窄屏一起藏掉：改成紧凑小签继续显示。 */
+    #round-tag{ display:inline-flex; align-items:center; font-size:11px; padding:3px 9px; }
+    #open-menu{ display:inline-flex; min-height:38px; }
+    .topnav .btn{ min-height:42px; }
+    .topnav{ display:none; position:absolute; top:100%; right:8px; flex-direction:column; gap:10px;
+             align-items:stretch; background:var(--surface); border:1px solid var(--line);
+             border-radius:12px; padding:10px; box-shadow:var(--shadow); z-index:55; min-width:220px; }
+    .topnav.show{ display:flex; }
+    .topnav-group{ border-left:0; border-top:1px solid var(--line-2); padding:10px 0 0; }
+    .topnav-group:first-child{ border-top:0; padding-top:0; }
+    .topnav-group, .nav-util{ flex-direction:column; align-items:stretch; }
+    .nav-group-label{ padding:0 4px 2px; }
+    .modal-tools .nav-group-label{ margin-left:0; display:none; }
+    .modal-tools .row{ width:100%; }
+    .modal-tools .row .btn{ flex:1; }
+    .topnav .btn{ width:100%; justify-content:flex-start; }
+    /* 左栏 880 以下改抽屉：720-880 这段（平板竖屏、手机横屏）若让左栏常驻 260px，
+       中间叙事只剩五百来宽，而它的开关按钮此时已经收进汉堡菜单里——
+       常驻栏却要开菜单才能收起，两种形态互相打架。统一成抽屉后语义一致。 */
+    .rail-left{ position:fixed; top:var(--topbar-real); bottom:0; left:0; z-index:47;
+      width:min(86vw, 340px); max-width:340px; height:auto; flex-basis:auto;
+      border-right:1px solid var(--line); transform:translateX(-100%);
+      transition:transform .2s ease, box-shadow .2s ease; }
+    .rail-left.open{ transform:translateX(0); box-shadow:14px 0 36px rgba(40,32,20,.16); }
+    .rail-left.collapsed{ width:min(86vw, 340px); flex-basis:auto;
+      border-right:1px solid var(--line); }
+    /* 右栏抽屉：可见性统一由 .collapsed 表达——宽屏在流内挤占布局、窄屏 fixed 滑出，
+       同一套类名，JS 不需要按屏宽分支判断。 */
+    .rail-right{ position:fixed; top:var(--topbar-real); bottom:0; right:0; z-index:47;
+      width:min(88vw, 340px); max-width:340px; height:auto; flex-basis:auto;
+      border-left:1px solid var(--line); transform:translateX(100%);
+      transition:transform .2s ease, box-shadow .2s ease; }
+    .rail-right:not(.collapsed){ transform:translateX(0);
+      box-shadow:-14px 0 36px rgba(40,32,20,.16); }
+    .rail-right.collapsed{ width:min(88vw, 340px); flex-basis:auto;
+      border-left:1px solid var(--line); }
+    /* 340px 抽屉里放不下「标题 + 分类 + 清空 + 关闭」，允许换行。 */
+    .lw-head{ flex-wrap:wrap; }
+    .lw-tools{ flex:1 1 100%; flex-wrap:wrap; }
+    .lw-sel{ flex:1 1 auto; min-width:0; }
+    .lw-resize{ display:none; }
+  }
+  /* 窄屏：弹窗改全屏面板（侧栏已在上一个断点抽屉化） */
+  @media (max-width:720px){
+    .drama-cols{ grid-template-columns:1fr; }
+    .drama-left{ border-right:none; border-bottom:1px solid var(--line); padding-right:0; }
+    .mgr{ grid-template-columns:1fr; }
+    .mgr-list{ border-right:none; border-bottom:1px solid var(--line); max-height:38dvh;
+               margin-bottom:12px; padding-right:0; }
+    /* 弹窗改全屏：省掉「外壳滚动 + 内部各自限高」的双层滚动，
+       也避开移动端 vh 与地址栏不同步导致的底部溢出。 */
+    .modal{ padding:0; align-items:stretch; justify-content:stretch; }
+    .modal-box, .modal-box.wide{ width:100vw; max-width:100vw; height:100dvh; max-height:100dvh;
+      border-radius:0; border:none; margin:0;
+      padding:calc(env(safe-area-inset-top, 0px) + 30px) 16px
+              calc(env(safe-area-inset-bottom, 0px) + 16px); }
+    .drama-list, .wb-entries, .wb-hits, .sess-list, .mgr-list, .mgr-form{ max-height:none; }
+    .si-cols{ grid-template-columns:1fr; }
+    .modal-foot{ flex-wrap:wrap; }
+    .modal-x{ position:fixed; top:calc(env(safe-area-inset-top, 0px) + 8px); right:10px; }
+    #bar{ padding:10px 12px; padding-bottom:calc(10px + env(safe-area-inset-bottom, 0px)); }
+    #bar-inner{ align-items:stretch; gap:8px; }
+    #input{ min-height:52px; }
+    #bar .btn-primary{ min-height:48px; padding:0 14px; }
+    #center .stage{ padding:14px 14px 8px; }
+    .msg{ font-size:15px; max-width:92%; }
+    button, .btn, input, select, textarea{ font-size:16px; }
+    .btn{ min-height:42px; }
+    input, select, textarea{ min-height:42px; }
+    .hero{ padding:calc(var(--topbar-real) + 16px) 16px
+                   calc(16px + env(safe-area-inset-bottom, 0px)); }
+    .card{ padding:24px 20px; }
+    #ending-banner{ flex-wrap:wrap; }
+    #ending-banner .eb-text{ min-width:0; }
+    #ending-banner .eb-actions{ width:100%; }
+    .panel-head{ min-height:44px; }
+    .e-summary{ min-width:0; }
+    .entry .row{ gap:8px; }
+    .prov-del{ width:36px; height:36px; }
+    body{ background-attachment:scroll; }
+  }
+  /* 触屏设备一律用 ↑↓ 排序按钮取代拖拽手柄：判据是指针类型而不是屏宽。
+     768 以上的平板竖屏同样没有鼠标，按宽度判断会把这些设备漏掉——
+     手柄显示得出来、却怎么拖都不动。 */
+  @media (max-width:720px), (hover:none) and (pointer:coarse){
+    .e-grip{ display:none; }
+    .e-move{ display:flex; }
+  }
+  @media (max-width:480px){
+    .brand b{ font-size:15px; }
+    .topnav{ left:8px; right:8px; min-width:0; }
+    .modal-box{ padding-left:13px; padding-right:13px; }
+    /* 竖排只对「按钮组」生效。旧版选择器写的是 .modal-box .row，把世界书条目行、
+       会话条目行、提供商卡片行也一起压成竖排，一屏塞不下两条。 */
+    .modal-foot, .actions{ flex-direction:column; align-items:stretch; }
+    .modal-foot .btn, .actions .btn{ width:100%; }
+    .modal-foot .btn-primary, .actions .btn-primary{ order:-1; }
+    .modal-box > .row{ flex-direction:column; align-items:stretch; }
+    .modal-box > .row .field{ max-width:none; }
+    .field.sm{ max-width:none; }
+    .drama-cols{ gap:14px; }
+    .lw-body{ padding:8px; }
+    .lw-row{ flex-wrap:wrap; }
+    .lw-msg{ flex-basis:100%; }
+    .entry .e-actions{ margin-left:0; }
+  }
 </style>
 </head>
 <body>
@@ -701,6 +792,7 @@
 <!-- 系统设置（按职责分组的折叠面板：内容管控 / 模型与生成 / 帮助与文档） -->
 <div id="sys-modal" class="modal hide">
   <div class="modal-box wide">
+    <button class="modal-x" type="button" data-close aria-label="关闭系统设置">×</button>
     <h3>系统设置</h3>
     <div class="sub">系统级选项按职责分组管理，点击各组标题可展开 / 收起。</div>
 
@@ -790,6 +882,7 @@
 <!-- 剧本库（一个剧本 = 一本世界书 + 该世界全部角色 + 其进行中的会话，按剧本聚合管理） -->
 <div id="drama-modal" class="modal hide">
   <div class="modal-box wide">
+    <button class="modal-x" type="button" data-close aria-label="关闭剧本库">×</button>
     <h3>剧本库</h3>
     <div class="sub">一个剧本 = 一本世界书 + 该剧本全部角色。左栏选剧本，右栏管理它的「世界书设定」与「角色表」。</div>
     <div class="drama-cols">
@@ -798,7 +891,7 @@
           <span style="font-size:13px;font-weight:600;color:var(--ink-2);">剧本</span>
           <button id="d-new" class="btn btn-sm" style="margin-left:auto;">+ 新剧本</button>
         </div>
-        <div id="drama-list" style="max-height:64vh;overflow:auto;"></div>
+        <div id="drama-list" class="drama-list"></div>
       </div>
       <div class="drama-right">
         <div id="drama-empty" class="hit-empty" style="margin-top:8px;">
@@ -833,7 +926,7 @@
               <span style="font-size:12px;color:var(--muted);">改动只在点「保存整份」后写入；切换剧本会丢弃未保存的改动。</span>
               <button id="w-save" class="btn btn-primary" style="margin-left:auto;">保存整份</button>
             </div>
-            <div id="w-entries" style="max-height:42vh;overflow:auto;">
+            <div id="w-entries" class="wb-entries">
               <!-- 组 1：引擎默认条目（origin=engine）。系统层内容，正常不需要改，故默认折叠。 -->
               <div class="wb-group engine">
                 <div class="wb-group-head">
@@ -864,7 +957,7 @@
                 </div>
                 <button id="w-test-btn" class="btn btn-sm">测试命中</button>
               </div>
-              <div id="w-hits" style="margin-top:8px;max-height:18vh;overflow:auto;"></div>
+              <div id="w-hits" class="wb-hits"></div>
             </div>
           </div>
 
@@ -904,7 +997,7 @@
                 </details>
 
               <div class="modal-foot">
-                <button id="char-delete" class="btn">删除</button>
+                <button id="char-delete" class="btn btn-danger">删除</button>
                 <button id="char-save" class="btn btn-primary">保存</button>
               </div>
               <div class="cfg-msg" id="char-msg"></div>
@@ -921,9 +1014,10 @@
 <!-- 会话管理（剧本管理入口：列出 / 继续 / 放弃） -->
 <div id="session-modal" class="modal hide">
   <div class="modal-box wide">
+    <button class="modal-x" type="button" data-close aria-label="关闭会话管理">×</button>
     <h3>会话管理</h3>
     <div class="sub">列出所有进行中的剧本。可继续推进某一局，或放弃不需要的剧本（仅删除运行时状态，角色卡与世界书保留）。</div>
-    <div id="session-list" style="max-height:60vh;overflow:auto;margin-top:6px;"></div>
+    <div id="session-list" class="sess-list"></div>
     <div class="cfg-msg" id="session-msg"></div>
   </div>
 </div>
@@ -931,6 +1025,7 @@
 <!-- 剧本总结（终结会话后展示收束复盘；软指引的一部分，非强制） -->
 <div id="end-modal" class="modal hide">
   <div class="modal-box">
+    <button class="modal-x" type="button" data-close aria-label="关闭剧本总结">×</button>
     <h3>剧本总结</h3>
     <div class="sub" id="end-sub">该剧本已走到终局，以下是收束复盘。</div>
     <pre id="end-summary"></pre>
@@ -983,22 +1078,22 @@
     </div>
     <div class="rail-body side">
       <div class="panel">
-        <div class="panel-head"><h3>角色名册 / 场景</h3><span class="panel-toggle">▾</span></div>
+        <div class="panel-head" role="button" tabindex="0" aria-expanded="true"><h3>角色名册 / 场景</h3><span class="panel-toggle">▾</span></div>
         <div class="panel-body">
           <div class="chips" id="present"></div>
           <div class="scene-line" id="scene-line"></div>
         </div>
       </div>
       <div class="panel">
-        <div class="panel-head"><h3>现状</h3><span class="panel-toggle">▾</span></div>
+        <div class="panel-head" role="button" tabindex="0" aria-expanded="true"><h3>现状</h3><span class="panel-toggle">▾</span></div>
         <div class="panel-body panel-body-scroll"><div id="states"></div></div>
       </div>
       <div class="panel">
-        <div class="panel-head"><h3>人物位置</h3><span class="panel-toggle">▾</span></div>
+        <div class="panel-head" role="button" tabindex="0" aria-expanded="true"><h3>人物位置</h3><span class="panel-toggle">▾</span></div>
         <div class="panel-body panel-body-scroll"><div id="locations"></div></div>
       </div>
       <div class="panel">
-        <div class="panel-head"><h3>秘密</h3><span class="panel-toggle">▾</span></div>
+        <div class="panel-head" role="button" tabindex="0" aria-expanded="true"><h3>秘密</h3><span class="panel-toggle">▾</span></div>
         <div class="panel-body"><div id="secrets"></div></div>
       </div>
     </div>
@@ -1012,7 +1107,7 @@
     </div>
     <div id="bar">
       <div id="bar-inner">
-        <textarea id="input" placeholder="作为导演注入环境扰动，如 *让她去厨房*、*天色暗下来开始下雨*"></textarea>
+        <textarea id="input" enterkeyhint="send" placeholder="注入环境扰动，如 *天色暗下来*"></textarea>
         <button id="send" class="btn btn-primary">注入扰动</button>
       </div>
     </div>
@@ -1053,6 +1148,7 @@
 <!-- 从剧本生成设定（S3 大工程） -->
 <div id="script-import-modal" class="modal hide">
   <div class="modal-box wide">
+    <button class="modal-x" type="button" data-close aria-label="关闭生成面板">×</button>
     <h3>从剧本生成设定</h3>
     <div class="sub">把构思好的剧本粘贴进去，引擎用 LLM 提炼角色卡与世界书。确认后一键写入，无需手动填表；也可复制 JSON 手动微调。</div>
     <textarea id="si-script" class="field" style="min-height:170px;" placeholder="在此粘贴你的剧本 / 构思，例如：灾变降临，一名退役兵带着养女躲进地下车库……"></textarea>
@@ -1063,7 +1159,9 @@
       <button id="si-close" class="btn btn-sm">关闭</button>
     </div>
     <div id="si-msg" class="cfg-msg"></div>
-    <div id="si-preview" class="mgr" style="margin-top:8px;"></div>
+    <!-- 这里曾误用 .mgr（220px + 1fr 两列网格），而内部只有一个 .si-cols 子元素，
+         预览被压在 220px 的第一列里。改用普通块级容器，两列交给 .si-cols。 -->
+    <div id="si-preview" style="margin-top:8px;"></div>
   </div>
 </div>
 <script>
@@ -1079,6 +1177,39 @@ let SID = '';
 // 输入框默认引导文案，供「同步中」状态时临时切换、结束后复原
 const INPUT_PLACEHOLDER_DEFAULT = input.placeholder;
 
+// ---- 侧栏开合：单一状态源 ----
+// 宽屏：左栏常驻、右栏挤占布局；窄屏（<=880px）：两侧都是滑出抽屉。
+// 旧版左栏把状态拆成「collapsed 与 open 各表一半」——窄屏初始两个类都没有，
+// 于是第一次点「世界状态」只是把 collapsed 置 true，画面毫无变化，要点第二次才滑出。
+// 现在两个类始终同步，且「算不算打开」按屏宽判定，一次点击即一次生效。
+// 与 CSS 的左栏抽屉断点保持一致（880）：跨过它才从「常驻栏」变成「滑出抽屉」
+const NARROW_MQ = '(max-width:880px)';
+function isNarrow(){
+  if (window.matchMedia) return window.matchMedia(NARROW_MQ).matches;
+  return (window.innerWidth || 0) <= 720;
+}
+function leftOpenNow(){
+  return isNarrow() ? leftRail.classList.contains('open')
+                    : !leftRail.classList.contains('collapsed');
+}
+// 遮罩只在「真的盖住了中间叙事」时才出现：窄屏的左抽屉、或任意屏宽的右抽屉。
+function syncScrim(){
+  const s = document.getElementById('scrim');
+  if (!s) return;
+  const anyOpen = !rightRail.classList.contains('collapsed')
+               || (isNarrow() && leftRail.classList.contains('open'));
+  s.classList.toggle('hide', !anyOpen);
+}
+function setLeftOpen(open){
+  leftRail.classList.toggle('collapsed', !open);
+  leftRail.classList.toggle('open', open);
+  syncScrim();
+}
+function setRightOpen(open){
+  rightRail.classList.toggle('collapsed', !open);
+  syncScrim();
+}
+
 // 开场区：先选世界 → 再列该世界的角色（只读名册，v2.1.1）。
 // 选世界即加载该世界的全部角色与世界观（世界书），取代早期「按角色逐个反查world」的
 // 做法——后者在多世界并存时会把不同世界的角色混在同一张列表里。
@@ -1088,7 +1219,7 @@ async function loadCharacters() {
   const worlds = await fetch('/api/worlds').then(r => r.json());
   const keep = sel.value;                // 刷新时保留已选项（剧本导入后可用）
   sel.innerHTML = '<option value="">' + WORLD_PLACEHOLDER + '</option>'
-    + (worlds || []).map(w => `<option value="${escHtml(w)}">${escHtml(w)}</option>`).join('');
+    + (worlds || []).map(w => `<option value="${escAttr(w)}">${escHtml(w)}</option>`).join('');
   sel.disabled = !(worlds || []).length;
   if (keep && (worlds || []).includes(keep)) sel.value = keep;
   document.getElementById('npcs-note').textContent = '';
@@ -1127,8 +1258,10 @@ async function syncNpcs() {
 let NPC_NAMES = [];
 function renderNpcs(list) {
   NPC_NAMES = list || [];
-  document.getElementById('npcs').innerHTML = NPC_NAMES
-    .map(n => `<span class="chip">${escHtml(n)}</span>`).join('');
+  // 空名册给一句占位：只留标签没有内容，用户分不清「还没加载」和「这个剧本真没人」。
+  document.getElementById('npcs').innerHTML = NPC_NAMES.length
+    ? NPC_NAMES.map(n => `<span class="chip">${escHtml(n)}</span>`).join('')
+    : '<span class="npcs-empty">（选择世界后显示本剧本的全部角色）</span>';
 }
 
 async function startSession() {
@@ -1186,6 +1319,17 @@ async function startSession() {
   streamAct('', {showUserBubble: false});
 }
 
+// 叙事区滚动跟随：默认吸底，但用户自己往上翻（读上文）时不再抢滚动。
+// 旧版每收一个 delta 就把 scrollTop 拽到底，一段长文根本没法回看——手一停就被拉回去。
+let stagePinned = true;
+function isStageNearBottom(){
+  return stageEl.scrollHeight - stageEl.scrollTop - stageEl.clientHeight < 80;
+}
+function followStage(){
+  if (stagePinned) stageEl.scrollTop = stageEl.scrollHeight;
+}
+stageEl.addEventListener('scroll', () => { stagePinned = isStageNearBottom(); });
+
 function bubble(role, text) {
   const div = document.createElement('div');
   div.className = 'msg ' + (role === 'user' ? 'user' : 'char');
@@ -1194,7 +1338,9 @@ function bubble(role, text) {
   body.textContent = text;
   div.appendChild(body);
   log.appendChild(div);
-  stageEl.scrollTop = stageEl.scrollHeight;
+  // 自己的出手总是要看到结果，这一下强制吸底；引擎流式输出才遵循用户滚动。
+  if (role === 'user'){ stagePinned = true; stageEl.scrollTop = stageEl.scrollHeight; }
+  else followStage();
   return body;
 }
 
@@ -1203,7 +1349,7 @@ function bubbleSystem(text) {
   div.className = 'msg sys';
   div.textContent = text;
   log.appendChild(div);
-  stageEl.scrollTop = stageEl.scrollHeight;
+  followStage();
 }
 
 function renderSnapshot(snap) {
@@ -1220,7 +1366,10 @@ function renderSnapshot(snap) {
       ? `<sup class="chip-warn" title="连续 ${s} 轮没有行为，下一轮会提醒叙事给他一处交代">·${s}</sup>` : '';
     return `<span class="chip">${n}${warn}</span>`;
   };
-  document.getElementById('present').innerHTML = rosterHtml(snap, chipOf);
+  // 名册为空时给一句占位，否则左栏第一块是一片空白，看着像没加载出来。
+  const roster = rosterHtml(snap, chipOf);
+  document.getElementById('present').innerHTML = roster
+    || '<span class="npcs-empty">（等待首轮推演）</span>';
   const sc = snap.scene || {};
   let line = '场景：' + (sc.place || '');
   if (sc.time) line += '（' + sc.time + '）';
@@ -1297,72 +1446,104 @@ async function streamAct(text, opts) {
   statusEl.textContent = '生成中…';
   if (showUserBubble && text) bubble('user', text);
 
-  const resp = await fetch('/api/act', {
-    method: 'POST', headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({session: SID, input: text}),
-  });
-  const reader = resp.body.getReader();
-  const decoder = new TextDecoder();
-  let buffer = '', node = null, acc = '';
-  while (true) {
-    const {done, value} = await reader.read();
-    if (done) break;
-    buffer += decoder.decode(value, {stream: true});
-    const parts = buffer.split('\n\n');
-    buffer = parts.pop();
-    for (const part of parts) {
-      const line = part.trim();
-      if (!line.startsWith('data:')) continue;
-      const data = JSON.parse(line.slice(5).trim());
-      if (data.error) { statusEl.textContent = '错误：' + data.error; break; }
-      if (data.status) {
-        statusEl.textContent = data.status;
-        // 纪官同步阶段：输入框显式切换到「后台同步」提示，禁止玩家误解为可输入下一回合
-        const syncing = data.status.indexOf('同步') >= 0;
-        if (syncing) {
-          input.placeholder = '后台正在进行本回合叙事状态同步…';
-          input.disabled = true;
+  let aborted = false;
+  try {
+    const resp = await fetch('/api/act', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({session: SID, input: text}),
+    });
+    // 服务端报错时没有可读的 SSE 流，旧版会直接抛 TypeError（resp.body 为 null），
+    // 后面的解锁语句永远执行不到——按钮停在禁用态，只能整页刷新。
+    if (!resp.ok) throw new Error('HTTP ' + resp.status + (resp.statusText ? ' ' + resp.statusText : ''));
+    if (!resp.body) throw new Error('响应无内容');
+
+    const reader = resp.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '', node = null, acc = '';
+    while (true) {
+      const {done, value} = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, {stream: true});
+      const parts = buffer.split('\n\n');
+      buffer = parts.pop();
+      for (const part of parts) {
+        const line = part.trim();
+        if (!line.startsWith('data:')) continue;
+        const data = JSON.parse(line.slice(5).trim());
+        if (data.error) {
+          statusEl.textContent = '错误：' + data.error;
+          bubbleSystem('本轮中断：' + data.error);
+          aborted = true;
+          break;
+        }
+        if (data.status) {
+          statusEl.textContent = data.status;
+          // 纪官同步阶段：输入框显式切换到「后台同步」提示，禁止玩家误解为可输入下一回合
+          const syncing = data.status.indexOf('同步') >= 0;
+          if (syncing) {
+            input.placeholder = '后台正在进行本回合叙事状态同步…';
+            input.disabled = true;
+          }
+        }
+        if (data.delta) {
+          if (!node) node = bubble('assistant', '');
+          acc += data.delta;
+          node.textContent = acc;
+          followStage();
+        }
+        if (data.done) {
+          if (data.reply) { if (!node) node = bubble('assistant', ''); node.textContent = data.reply; acc = data.reply; }
+          // 纪官同步结束，恢复输入框默认状态，允许玩家进入下一回合
+          input.placeholder = INPUT_PLACEHOLDER_DEFAULT;
+          input.disabled = false;
+          if (data.snapshot) {
+            renderSnapshot(data.snapshot);
+          }
+          if (data.ending_candidate) showEndingCandidate(data.ending_candidate);
+          if (data.scene_change) {
+            const sc = data.scene_change;
+            let line = '—— 场景切换：' + sc.place + (sc.time ? '（' + sc.time + '）' : '）');
+            if (sc.leave.length) line += ' ｜ ' + sc.leave.join('、') + ' 离开';
+            if (sc.arrive.length) line += ' ｜ ' + sc.arrive.join('、') + ' 到场';
+            bubbleSystem(line);
+            statusEl.textContent = '场景切换：' + sc.place + (sc.time ? '（' + sc.time + '）' : '');
+          }
+          else statusEl.textContent = '完成';
         }
       }
-      if (data.delta) {
-        if (!node) node = bubble('assistant', '');
-        acc += data.delta;
-        node.textContent = acc;
-        stageEl.scrollTop = stageEl.scrollHeight;
-      }
-      if (data.done) {
-        if (data.reply) { if (!node) node = bubble('assistant', ''); node.textContent = data.reply; acc = data.reply; }
-        // 纪官同步结束，恢复输入框默认状态，允许玩家进入下一回合
-        input.placeholder = INPUT_PLACEHOLDER_DEFAULT;
-        input.disabled = false;
-        if (data.snapshot) {
-          renderSnapshot(data.snapshot);
-        }
-        if (data.ending_candidate) showEndingCandidate(data.ending_candidate);
-        if (data.scene_change) {
-          const sc = data.scene_change;
-          let line = '—— 场景切换：' + sc.place + (sc.time ? '（' + sc.time + '）' : '）');
-          if (sc.leave.length) line += ' ｜ ' + sc.leave.join('、') + ' 离开';
-          if (sc.arrive.length) line += ' ｜ ' + sc.arrive.join('、') + ' 到场';
-          bubbleSystem(line);
-          statusEl.textContent = '场景切换：' + sc.place + (sc.time ? '（' + sc.time + '）' : '');
-        }
-        else statusEl.textContent = '完成';
-      }
+      if (aborted) break;
     }
+  } catch (err) {
+    // 网络断开 / 引擎 5xx / 流解析失败：必须让用户看见「这一轮断了」，而不是界面静止
+    statusEl.textContent = '生成中断';
+    bubbleSystem('本轮生成中断：' + ((err && err.message) ? err.message : err)
+      + '。检查引擎与模型是否在线后可再次注入扰动。');
+  } finally {
+    // 兜底复原：无论正常结束、中途报错还是异常抛出，都必须解锁输入
+    sendBtn.disabled = false;
+    input.placeholder = INPUT_PLACEHOLDER_DEFAULT;
+    input.disabled = false;
   }
-  sendBtn.disabled = false;
-  // 兜底复原：无论正常结束还是中途异常，都恢复输入框默认状态
-  input.placeholder = INPUT_PLACEHOLDER_DEFAULT;
-  input.disabled = false;
 }
 
 async function send() {
   const text = input.value.trim();
   if (!text || sendBtn.disabled) return;
   input.value = '';
+  autoGrowInput();
   await streamAct(text, {showUserBubble: true});
 }
+
+// 输入框随内容长高。旧版 height 写死 46px、max-height 160px 形同虚设：
+// 稍微写长一点的扰动只能在一条窄缝里滚动，看不见自己写了什么。
+// 清空后把内联高度撤掉，交回 CSS（宽屏 46px / 触屏 48px）。
+function autoGrowInput(){
+  if (!input.style) return;
+  input.style.height = '';
+  const h = input.scrollHeight || 0;
+  if (h > 46) input.style.height = Math.min(h + 2, 160) + 'px';
+}
+input.addEventListener('input', autoGrowInput);
 
 // 主流程按钮绑定。缺任何一个都会让界面「点了没反应」且不报错，
 // 因此集中放在这里，不要在别处分散绑定。
@@ -1381,7 +1562,7 @@ function renderActiveSelect() {
   const sel = document.getElementById('cfg-active-prov');
   if (!sel) return;
   sel.innerHTML = cfgProviders.length
-    ? cfgProviders.map(p => `<option value="${escHtml(p.key)}">${escHtml(p.name || p.key || p.key)}</option>`).join('')
+    ? cfgProviders.map(p => `<option value="${escAttr(p.key)}">${escHtml(p.name || p.key || p.key)}</option>`).join('')
     : '<option value="">（暂无提供商）</option>';
   sel.value = cfgActiveKey;
 }
@@ -1396,7 +1577,7 @@ function renderProviders() {
     const open = !!cfgOpen[p.key];
     const isActive = p.key === cfgActiveKey;
     return `
-    <div class="prov-card${open ? ' open' : ''}" data-key="${escHtml(p.key)}">
+    <div class="prov-card${open ? ' open' : ''}" data-key="${escAttr(p.key)}">
       <div class="prov-head" data-act="toggle">
         <span class="prov-chev">${open ? '▾' : '▸'}</span>
         <span class="prov-name">${escHtml(p.name || p.key)}</span>
@@ -1405,15 +1586,15 @@ function renderProviders() {
       </div>
       <div class="prov-body">
         <label>名称</label>
-        <input class="field prov-f-name" value="${escHtml(p.name || '')}">
+        <input class="field prov-f-name" value="${escAttr(p.name || '')}">
         <label>Base URL</label>
-        <input class="field prov-f-base" value="${escHtml(p.base_url || '')}" placeholder="http://127.0.0.1:1234/v1">
+        <input class="field prov-f-base" value="${escAttr(p.base_url || '')}" placeholder="http://127.0.0.1:1234/v1">
         <label>API Key（本地可留空）</label>
-        <input class="field prov-f-key" value="${escHtml(p.api_key || '')}" placeholder="sk-...">
+        <input class="field prov-f-key" value="${escAttr(p.api_key || '')}" placeholder="sk-...">
         <label>模型
           <button class="prov-f-test btn btn-sm" data-act="test" style="float:right;">测试连接</button>
         </label>
-        <input class="field prov-f-model" value="${escHtml(p.model || '')}" placeholder="如 Qwen3.5-32B / hunyuan">
+        <input class="field prov-f-model" value="${escAttr(p.model || '')}" placeholder="如 Qwen3.5-32B / hunyuan">
         <select class="field prov-f-models" style="display:none;"></select>
         <div class="prov-msg" style="margin-top:8px;"></div>
       </div>
@@ -1423,7 +1604,6 @@ function renderProviders() {
 const sysModal = document.getElementById('sys-modal');
 const cfgMsg = document.getElementById('cfg-msg');
 
-function escHtml(s) { return String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
 // 系统设置打开时载入已保存的提供商清单（可增删，持久化到 config.providers）
 
 document.getElementById('open-system').onclick = async () => {
@@ -1507,7 +1687,7 @@ provBox.addEventListener('click', async e => {
       if (r.ok) {
         const models = Array.isArray(r.models) ? r.models : [];
         if (models.length) {
-          sel.innerHTML = models.map(m => `<option value="${escHtml(m)}">${escHtml(m)}</option>`).join('');
+          sel.innerHTML = models.map(m => `<option value="${escAttr(m)}">${escHtml(m)}</option>`).join('');
           sel.style.display = '';
           sel.value = p.model || models[0];
           msg.style.color = 'var(--pos)';
@@ -1611,6 +1791,13 @@ document.getElementById('sys-save').onclick = async () => {
 document.querySelectorAll('.modal').forEach(m => m.addEventListener('click', e => {
   if (e.target === m) m.classList.add('hide');
 }));
+// 统一的右上角关闭按钮：每个 modal-box 都带一个，点它关闭所属弹窗
+document.querySelectorAll('.modal .modal-x').forEach(b => {
+  b.addEventListener('click', () => {
+    const m = b.closest('.modal');
+    if (m) m.classList.add('hide');
+  });
+});
 const dramaModal = document.getElementById('drama-modal');
 const charMsg = document.getElementById('char-msg');
 const worldMsg = document.getElementById('world-msg');
@@ -1946,6 +2133,10 @@ function entryCard(e, i, expanded) {
       </div>
       <span class="e-summary">${summary ? escHtml(summary) : '<span style="color:var(--muted)">（空白条目，点击 ▸ 展开编辑）</span>'}</span>
       <div class="e-actions">
+        <span class="e-move">
+          <button type="button" class="btn btn-sm e-up" title="上移：提高注入优先级" aria-label="上移">↑</button>
+          <button type="button" class="btn btn-sm e-down" title="下移：降低注入优先级" aria-label="下移">↓</button>
+        </span>
         <label style="margin:0;display:flex;gap:5px;align-items:center;font-size:13px;color:var(--ink-2);font-weight:400;"><input type="checkbox" class="e-enabled" ${on}> 启用</label>
         <label style="margin:0;display:flex;gap:5px;align-items:center;font-size:13px;color:var(--ink-2);font-weight:400;"><input type="checkbox" class="e-secret" ${sec}> 秘密条目</label>
         <button class="btn btn-sm e-del">删除条目</button>
@@ -2077,6 +2268,28 @@ function bindGrip(grip) {
     updateOrderBadges();
   });
 }
+// 条目上移 / 下移：触屏上 HTML5 拖拽完全不触发（draggable 只认鼠标事件），
+// 这是手机与平板上唯一的排序入口。约束与拖拽完全一致——不得跨组
+// （父亲容器即本组，天然隔离）、不得跨过常量段分界、落位后就地重排 priority。
+function moveEntry(el, dir) {
+  const box = el.parentElement;
+  if (!box || !dir) return;
+  const els = [...box.querySelectorAll('.entry')];
+  const i = els.indexOf(el);
+  if (i < 0) return;
+  const j = i + dir;
+  if (j < 0 || j >= els.length) return;
+  const constCount = els.filter(x => x.classList.contains('constant')).length;
+  const isConst = el.classList.contains('constant');
+  // 常量段恒定置顶：常量只能排在非常量段之前，非常量不能插进常量段
+  if (isConst ? (j >= constCount) : (j < constCount)) return;
+  const ref = els[j];
+  if (dir < 0) box.insertBefore(el, ref);
+  else box.insertBefore(el, ref.nextSibling);
+  renumberGroup(box);
+  updateOrderBadges();
+  if (el.scrollIntoView) el.scrollIntoView({ block: 'nearest' });
+}
 function makeEntryNode(e, i, expanded) {
   const tmp = document.createElement('div');
   tmp.innerHTML = entryCard(e, i, expanded);
@@ -2085,6 +2298,11 @@ function makeEntryNode(e, i, expanded) {
   node.querySelector('.e-secret').onchange = () => applySecret(node);
   node.querySelector('.e-constant').onchange = () => applyConstant(node);
   node.querySelector('.e-toggle').onclick = () => toggleEntry(node);
+  // 触屏排序：draggable 在手机上不触发任何事件，只能靠这两个按钮
+  const upBtn = node.querySelector('.e-up');
+  const downBtn = node.querySelector('.e-down');
+  if (upBtn) upBtn.onclick = () => moveEntry(node, -1);
+  if (downBtn) downBtn.onclick = () => moveEntry(node, 1);
   bindGrip(node.querySelector('.e-grip'));
   return node;
 }
@@ -2115,6 +2333,17 @@ function updateGroupMeta() {
     : '本剧本<b>没有</b>引擎默认条目（已删除或未播种），可点「恢复默认」找回；已有条目不会被覆盖。';
   document.getElementById('w-entries-engine').hidden = engineCollapsed;
   document.getElementById('w-engine-toggle').textContent = engineCollapsed ? '▸' : '▾';
+  // 剧本条目为空时给一句可执行的指引：右侧曾是一片纯空白，看着像加载失败。
+  const ph = document.getElementById('w-author-empty');
+  if (ph) ph.remove();
+  if (!author.length) {
+    const d = document.createElement('div');
+    d.id = 'w-author-empty';
+    d.className = 'hit-empty';
+    d.style.padding = '10px 2px';
+    d.textContent = '本剧本还没有条目。点右上「+ 新增条目」添加设定，或用顶部「从剧本生成」一键提炼。';
+    document.getElementById('w-entries-author').appendChild(d);
+  }
   updateOrderBadges();
 }
 document.getElementById('w-engine-toggle').onclick = () => {
@@ -2473,20 +2702,15 @@ function appendEntry(e){
 }
 
 function openLog(){
-  if (leftRail.classList.contains('open')) {
-    leftRail.classList.add('collapsed');
-    leftRail.classList.remove('open');
-  }
-  rightRail.classList.remove('collapsed');
+  // 两侧抽屉互斥：窄屏同时开两张等于互相遮挡，谁也看不全。
+  if (isNarrow() && leftRail.classList.contains('open')) setLeftOpen(false);
+  setRightOpen(true);
   if (!es) connectLog();
-  const s = document.getElementById('scrim'); if (s) s.classList.remove('hide');
 }
 function closeLog(){
-  rightRail.classList.add('collapsed');
+  setRightOpen(false);
   if (es){ es.close(); es = null; }
   lwStatus.textContent = '已断开';
-  const s = document.getElementById('scrim');
-  if (s && !document.getElementById('left-rail').classList.contains('open')) s.classList.add('hide');
 }
 function connectLog(){
   if (es) return;
@@ -2539,8 +2763,22 @@ document.getElementById('open-log').onclick = () => {
 document.getElementById('lw-close').onclick = closeLog;
 document.getElementById('lw-clear').onclick = () => { lwBody.innerHTML = ''; };
 lwFilter.onchange = applyFilter;
-// 快捷键：Esc 收起日志窗
-document.addEventListener('keydown', e => { if (e.key === 'Escape' && !rightRail.classList.contains('collapsed')) closeLog(); });
+// 快捷键：Esc 逐层退出——弹窗 > 顶栏菜单 > 侧栏抽屉。
+// 旧版只关日志窗，弹窗打开时按 Esc 毫无反应，只能去点遮罩。
+document.addEventListener('keydown', e => {
+  if (e.key !== 'Escape') return;
+  const open = [...document.querySelectorAll('.modal')].filter(m => !m.classList.contains('hide'));
+  if (open.length) { open[open.length - 1].classList.add('hide'); return; }
+  const tn = document.getElementById('topnav');
+  if (tn && tn.classList.contains('show')) {
+    tn.classList.remove('show');
+    const mb = document.getElementById('open-menu');
+    if (mb) mb.setAttribute('aria-expanded', 'false');
+    syncScrim(); return;
+  }
+  if (!rightRail.classList.contains('collapsed')) { closeLog(); return; }
+  if (isNarrow() && leftRail.classList.contains('open')) setLeftOpen(false);
+});
 // 占位：消除旧版 index.html 末尾对未定义 refreshState 的引用（避免控制台报错）
 function refreshState(){}
 
@@ -2558,7 +2796,7 @@ document.getElementById('eb-continue').onclick = async () => {
   hideEnding();
 };
 async function endSession(){
-  if (!SID) return;
+  if (!SID) { showToast('当前没有进行中的剧本', '', 1600); return; }
   // 二次确认：终结会话不可撤销，防误触（顶栏「结束剧本」与结局横幅共用本入口）
   if (!confirm('确认结束本剧本并生成总结？结束后需删除会话并重新开启世界才能开始新局。')) return;
   hideEnding();
@@ -2582,30 +2820,38 @@ document.getElementById('end-delete').onclick = async () => {
 loadCharacters();
 refreshState();
 
-// 左栏各子面板可独立收起/展开。
 // 左栏各子面板可独立收起/展开。默认全部展开：面板数少（4 个）且一屏放得下，
 // 玩家想精简时可点标题自行收起。若日后面板增多，给需要默认收起的面板加
 // data-collapse 即可（下面的选择器会把它折叠）。
+// 标题行是 div，补上 role/tabindex 与 Enter/Space，键盘用户也能折叠。
+function togglePanel(p){
+  const collapsed = p.classList.toggle('collapsed');
+  const head = p.querySelector('.panel-head');
+  if (head) head.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
+}
 document.querySelectorAll('#left-rail .panel').forEach(p => {
-  p.querySelector('.panel-head').addEventListener('click', () => p.classList.toggle('collapsed'));
+  const head = p.querySelector('.panel-head');
+  if (!head) return;
+  head.addEventListener('click', () => togglePanel(p));
+  head.addEventListener('keydown', e => {
+    if (e.key === 'Enter' || e.key === ' ' || e.key === 'Spacebar') {
+      e.preventDefault(); togglePanel(p);
+    }
+  });
 });
 document.querySelectorAll('#left-rail .panel[data-collapse]').forEach(p => p.classList.add('collapsed'));
-// 顶栏「世界状态」按钮：展开/收起整条左栏（与右栏运行时日志机制对齐，任意屏宽生效）；窄屏下同步抽屉 open 态
+// 顶栏「世界状态」按钮：开/关左栏。宽屏是常驻栏的显隐，窄屏是抽屉滑出，
+// 两种语义都收敛到 setLeftOpen 一处，不再各自拼类名。
 const openLeftBtn = document.getElementById('open-left');
 if (openLeftBtn) openLeftBtn.onclick = () => {
-  const collapsed = leftRail.classList.toggle('collapsed');
-  if (collapsed) leftRail.classList.remove('open'); else {
-    leftRail.classList.add('open');
-    if (!rightRail.classList.contains('collapsed')) closeLog();
-  }
-  const s = document.getElementById('scrim');
-  if (!collapsed){ if (s) s.classList.remove('hide'); }
-  else if (rightRail.classList.contains('collapsed') && s) s.classList.add('hide');
+  const willOpen = !leftOpenNow();
+  if (willOpen && !rightRail.classList.contains('collapsed')) closeLog();
+  setLeftOpen(willOpen);
 };
-// 遮罩点击：关闭所有抽屉与菜单（左栏收起保持 collapsed/open 反相关不变式）
+// 遮罩点击：关闭所有抽屉与菜单
 const scrimEl = document.getElementById('scrim');
 if (scrimEl) scrimEl.addEventListener('click', () => {
-  leftRail.classList.add('collapsed'); leftRail.classList.remove('open');
+  setLeftOpen(false);
   if (!rightRail.classList.contains('collapsed')) closeLog();
   const tn = document.getElementById('topnav'); if (tn) tn.classList.remove('show');
   const menu = document.getElementById('open-menu'); if (menu) menu.setAttribute('aria-expanded', 'false');
@@ -2627,7 +2873,22 @@ if (topnavEl) topnavEl.querySelectorAll('button').forEach(b => b.addEventListene
 }));
 // 日志窗默认不自动连接：开始界面不应回放上一轮缓冲；进入世界后由 startSession 连接。
 // 默认收起（含宽屏）：日志是给调试用的旁路信息，正式游玩不该第一眼看到；顶栏按钮可展开。
-rightRail.classList.add('collapsed');
+setRightOpen(false);
+// 初始左栏：宽屏常驻展开，窄屏收起（等用户点「世界状态」滑出）
+setLeftOpen(!isNarrow());
+// 横竖屏切换跨过断点时回到该屏宽的默认态，避免「宽屏收起过的左栏」在窄屏里
+// 变成一张打不开也关不掉的抽屉。
+let _wasNarrow = isNarrow();
+window.addEventListener('resize', () => {
+  const n = isNarrow();
+  if (n === _wasNarrow) return;
+  _wasNarrow = n;
+  setLeftOpen(!n);
+  if (!rightRail.classList.contains('collapsed')) closeLog();
+  const tn = document.getElementById('topnav');
+  if (tn) { tn.classList.remove('show'); if (openMenuBtn) openMenuBtn.setAttribute('aria-expanded', 'false'); }
+  syncScrim();
+});
 
 // ---- S3 剧本→设定 自动导入 ----
 const siModal = document.getElementById('script-import-modal');
@@ -2659,7 +2920,7 @@ document.getElementById('si-refine').onclick = async () => {
 
 function renderSiPreview(r) {
   const box = document.getElementById('si-preview');
-  let html = '<div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;">';
+  let html = '<div class="si-cols">';
   html += '<div><h4>角色卡 (' + (r.characters?.length || 0) + ')</h4>';
   for (const c of (r.characters || [])) {
     html += '<div class="card" style="padding:10px;margin-bottom:8px;">';
