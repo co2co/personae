@@ -53,17 +53,44 @@
 | 3. 同步快照与退役剧本归档 | `_sync_backup_*`（21）、`_backup_kefu_*`（2）、`backup/dramas_retired_*`（2） | 25 目录 / 3.3 MB | 否 | 否 |
 
 ### 回滚点
-- `backup/_archive_purge_20261023.tar.gz`：上述三类**全部内容**的单一归档（367 文件，0.96 MB，路径已归一为正斜杠）。`.gitignore:12` 的 `backup/` 覆盖，不入库不进包。需要找回任一文件时直接从该 tar 解出即可。
+- ~~`backup/_archive_purge_20261023.tar.gz`~~：上述三类内容的单一归档（367 文件，0.96 MB）。**已于同晚由 simon 手工清理工作树时删除**——三类对象（旧玩家卡素材 / 历史会话 / 同步快照与退役剧本归档）本就无保留价值，此归档的消失不构成有效资产损失。
 
 ### 保留决定（清理时明确不动）
 - `package.py` 的 `EXCLUDE_SUBPATHS["player-cast"]` 与 `tests/test_universality.py` 的 `_DISTRIB_PRIVATE_PREFIXES["player-cast"]` **保留**。二者语义是「若存在则不分发 / 不扫描」，属防御性配置：路径不存在时无副作用，删掉反而失去将来重新放入时的保护。
 - `engine/data/sessions/` 目录本身保留（仅清内容）。`memory.prune_sessions()` 对空目录返回 0，`memory.new()` 有 `mkdir(parents=True, exist_ok=True)`，空目录安全。
-- `_backup_offshelf_nsfw_20261023/`（NSFW 回滚蓝本）与 `_backup_nsfw_relist_20261022/` 等其它 `_backup_*` 一律不动——第 3 项范围严格限定为 `_sync_backup_*` / `_backup_kefu_*` / `backup/dramas_retired_*` 三类。
+- ~~`_backup_offshelf_nsfw_20261023/`（NSFW 回滚蓝本）与 `_backup_nsfw_relist_20261022/` 等其它 `_backup_*` 一律不动~~ → 本轮清理确实没动它们，但**同晚 simon 手工清理工作树时一并删除了**（详见下节「工作树备份目录被手工清空」）。NSFW 回滚未受影响，见 v2.1.8 条目的「回滚蓝本」段。
 
 ### 验证
 - 全套快测：**378 passed, 1 skipped, 1 deselected**（与清理前一致）
 - 打包守卫（不带 flag）：`✓ 作者源/运行态/随包 demo 三方一致（剧本「高氏王朝」）`
 - 产物比对：`dist/personae-v2.1.8.zip` 32 条目，与清理前**逐条内容全部字节一致**（清理不触碰分发面）
+
+### 工作树备份目录被手工清空（同日 22:00，simon 操作）
+
+**事件**：simon 自行清理工作树时，把根目录 `_backup_*` 与 `backup/` 下大量目录一并删除，超出上轮「三类」范围。
+
+**已消失**（工作树副本，非 git 对象）：
+| 目录 | 原内容 | 影响 |
+|---|---|---|
+| `_backup_offshelf_nsfw_20261023/` | NSFW-ON 13 文件快照 | 无（tag 等价且更强） |
+| `_backup_offshelf_nsfw_20261021/` | v2.1.4 时代 11 文件 | 无（仅历史，已被 20261023 版取代） |
+| `_backup_nsfw_relist_20261022/` | v2.1.7 上架前 12 文件 | 无（同属历史） |
+| `_backup_runtime_purge_20261023/` | 槐荫里 world + 5 卡 + state.json | **槐荫里已无任何副本**（该剧本按 simon 指令已退役，属预期内损失） |
+| `backup/dramas_retired_20261020/` 等 | 客服战争 / 南镇暑夏归档 | 退役剧本副本全失（均已废弃，不构成资产） |
+| `backup/_archive_purge_20261023.tar.gz` | 上节三类归档 | 无（三类本身即垃圾） |
+| 根目录其余 `_backup_gaoshi_*` 等 30 余个 | 10-16~10-21 历史快照 | 无（内容已全部落在 git 历史里） |
+
+**未受影响（关键结论）**：
+- 锚点 tag `nsfw-on-v2.1.7` → `a6e1280` 完好，13 文件齐全，NSFW-ON 符号俱全
+- `tests/DEVLOG.md` 全部回滚日志（git 管理）
+- 剧本真相源 `dramas/高氏王朝/`、随包 demo `data/examples/`、运行态三态齐全且一致
+- git 工作树干净（被删目录全在 `.gitignore` 覆盖范围，`git status` 无变化）
+
+**处置**：5 处回滚指针（`prompter.py` / `narrative_clean.py` / `store.py` 三处引擎注释 + `test_intimacy_scale.py` / `test_standard_entry.py` 两处 docstring）由「目录快照路径」统一改指 `git tag nsfw-on-v2.1.7`，并注明旧目录已清理勿再引用。
+
+**验证**：真实执行 `git checkout nsfw-on-v2.1.7 -- <13文件>` → `_LAW8_DEFAULT`(1) / `_patch_laws`(1) / `_STANDARD_ENTRY_CONTENT`(2) / `_WILL_EVADE_RE`(2) 全部回来 → `git checkout HEAD -- <同13文件>` 撤回 → 工作树 0 改动。往返可逆，回滚能力完好。
+
+**教训**：工作树目录快照是弱保障（可被误删、不入库、不可追溯）。**凡有长期价值的回滚点，必须落在 git 对象（tag / 分支 / 提交）上**，工作树副本只能算方便，不能算备份。
 
 ---
 
@@ -111,13 +138,23 @@
 - **数据层未脱敏（属作者数据，非引擎本体，本轮按 v2.1.4 立场「剧本数据保留磁盘、只停播种」不动）**：`data/examples/worlds/高氏王朝.json` 含完整「亲密描写标准」条、`data/examples/script-example.txt` 含「常量-亲密尺度·全浓度」——两者入库且随包；运行态 `data/worlds/槐荫里.json`、`data/sessions/*` 永不进包。若要「随包零露骨」，须改真相源 `dramas/高氏王朝/world.json` 后 `sync_drama.py install`，另议。
 
 ### 回滚蓝本（备优化完成后重新上架）
-- 备份目录：`_backup_offshelf_nsfw_20261023/`（仓库根，下架前 NSFW-ON 态 13 文件快照；`.gitignore` 已忽略 `_backup_*/`，不入库不进包；行尾已归一为 LF，与仓库一致）
-- 锚点 tag：`nsfw-on-v2.1.7` → `a6e1280`
-- 重新上架方式（二选一）：
-  1. `git checkout nsfw-on-v2.1.7 -- <13文件>`（推荐，不受工作树备份是否被误删影响）
-  2. 用 `_backup_offshelf_nsfw_20261023/` 下同名文件覆盖回 13 个位置
-  再跑全套快测确认（预期回到 **381 passed**，多出的 3 例是回滚带回来的 NSFW 专用用例）
-- 齐备性核验（2026-10-23）：备份 13 文件与 `a6e1280` 逐文件 diff=0；备份清单与 `a6e1280^..a6e1280` 改动集完全一致；5 处代码/docstring 回滚指针全指向本快照
+
+**唯一权威路径 = 锚点 tag `nsfw-on-v2.1.7` → `a6e1280`**（13 文件原子提交，git 对象，不受工作树文件被误删影响）。
+
+```
+git checkout nsfw-on-v2.1.7 -- engine/app.py engine/narrative_clean.py engine/prompter.py \
+    engine/static/index.html engine/static/worldbook-guide.html engine/store.py \
+    tests/test_drama_io.py tests/test_intimacy_scale.py tests/test_narrative_clean.py \
+    tests/test_narrative_discipline.py tests/test_standard_entries.py \
+    tests/test_standard_entry.py tests/test_store_cache.py
+```
+
+再跑全套快测确认（预期 **381 passed**，多出的 3 例是回滚带回来的 NSFW 专用用例）。
+
+- 齐备性核验（2026-10-23）：`a6e1280^..a6e1280` 改动集恰为上述 13 文件；tag 内 `prompter.py` 有 `_LAW8_DEFAULT = (` / `_law8_override = None` / `def _patch_laws`，`store.py` 有 `_STANDARD_ENTRY_CONTENT`，`narrative_clean.py` 有 `_WILL_EVADE_RE` / `_GIVEN_EVADE_RE`
+- **实机验证（2026-10-23 22:00）**：真实执行上述 `git checkout` → 上述四组符号全部回来 → `git checkout HEAD -- <同13文件>` 撤回 → 工作树 0 改动。往返可逆，已证
+- **目录快照已不存在**：原 `_backup_offshelf_nsfw_20261023/`（13 文件）、`_backup_offshelf_nsfw_20261021/`、`_backup_nsfw_relist_20261022/` 均于 2026-10-23 晚由 simon 手工清理工作树时删除。**回滚能力未受影响**（tag 完整），但本条目与代码注释中的目录路径引用已统一改指 tag
+- **上架后需补一步**：tag 是 v2.1.7 的原子快照，checkout 后那 5 处注释会**回到旧版**（又指向已删目录）。属预期——上架完成后按 2026-10-23 晚同款改法把指针再改指 tag 即可（纯注释，不改逻辑）
 - 参考条目：本日志 v2.1.4（下架）与 v2.1.7（重新上架）
 
 ### 发版
@@ -131,7 +168,7 @@
 - 运行态之所以对不上：当时 `data/worlds/` 装的是另一部剧本「槐荫里」（作者自用、非 `dramas/` 源），属正常的单剧本运行态，不是同步事故。
 - **守卫缺陷（同日已修）**：`package.py` 的 `except SystemExit` 原本包住了整个判定块，把第 194 行自己 `sys.exit(1)` 一并吞掉——守卫判定「✗ 打包中止」后仍继续出包（v2.1.8 首次打包实踩）。修法：`try` 只包 `sync_drama.collect_divergences()` 调用，中止逻辑移到 `try` 之外，并把 `_detect_drama` 抛出的 SystemExit 原因文本原样打印（原分支丢掉具体原因）。验证：① 不带 flag → 打印 8 处分歧、`exit=1`、zip 指纹（md5 `51fc48f9…`）不变；② 制造多剧本目录 → 打印「⚠ 跳过一致性检查：✗ dramas/ 下有多个剧本目录…」并照常出包 `exit=0`。**该修复不触达产物（`package.py` 不进 zip），故不 bump VERSION、不重打包。**
 - 泄漏扫描：包内无 venv / 缓存 / `data/sessions` / `tests` / `_backup_*` / `dramas` / 绝对路径 / 真实 key；`data/config.json` 已洗白（base_url / api_key / model 空、providers=[]、无 fallback 段）。
-- 已知遗留：包内 `prompter.py` / `store.py` / `narrative_clean.py` 的下架注释仍带着回滚蓝本路径 `_backup_offshelf_nsfw_20261023/`（对收包人是悬空指针，且暗示曾存在 NSFW 层）。按「暂不派发第三方」暂不处理。
+- ~~已知遗留：包内 `prompter.py` / `store.py` / `narrative_clean.py` 的下架注释仍带着回滚蓝本路径 `_backup_offshelf_nsfw_20261023/`（对收包人是悬空指针）~~ → **2026-10-23 晚已解决**：三处引擎注释与两处测试 docstring 统一改指 `git tag nsfw-on-v2.1.7`，包内不再出现工作树备份路径。
 
 ---
 

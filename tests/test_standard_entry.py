@@ -8,8 +8,10 @@
   4. 引擎不预设亲密尺度：store 不再暴露 _standard_entry / _has_standard_entry /
      STANDARD_ENTRY_NAME 符号。
 
-回滚蓝本：v0.29.0 同款下架；NSFW 播种版（六分层 + 器官词正反示例）见
-_backup_offshelf_nsfw_20261023/tests/test_standard_entry.py（2026-10-23 下架前快照）/ git tag。
+回滚蓝本（唯一权威）：git tag `nsfw-on-v2.1.7`（→ 提交 a6e1280）里的
+NSFW 播种版（六分层 + 器官词正反示例），含本文件的上架态。
+重新上架：git checkout nsfw-on-v2.1.7 -- <13文件>。
+注：早期目录快照 _backup_offshelf_nsfw_* 已于 2026-10-23 晚手工清理。
 
 普适性红线：全文件只用中性占位，不绑定任何具体剧本角色名或题材词。
 """

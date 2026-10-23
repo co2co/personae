@@ -44,7 +44,9 @@ _DIRECTOR_ENGINE_RE = re.compile(r"[^。\n]*?关系推演沙盘的导演引擎[^
 # 工作临时再下架，完成后重新上架）：引擎不再预设亲密尺度后，
 # 「我将以…规避 / 克制 / 留白 / 不写」这类句子的生成前提消失，且正则本身有误伤风险
 #（正常叙事里「鉴于…」「我将以…」句式极常见），故移除 _WILL_EVADE_RE / _GIVEN_EVADE_RE。
-# 回滚蓝本：_backup_offshelf_nsfw_20261023/engine/narrative_clean.py（NSFW-ON 快照）。
+# 回滚蓝本（唯一权威）：git tag `nsfw-on-v2.1.7`（→ 提交 a6e1280）。
+# 重新上架：git checkout nsfw-on-v2.1.7 -- <13文件>，清单见 DEVLOG 2026-10-23 条目。
+# 注：早期使用的目录快照 _backup_offshelf_nsfw_* 已于 2026-10-23 晚手工清理，勿再引用。
 
 # 模型插入的元信息分隔线（*** / ---）
 _HR_RE = re.compile(r"\n\s*\*{3,}\s*\n|\n\s*-{3,}\s*\n")
