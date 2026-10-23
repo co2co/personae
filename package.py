@@ -182,21 +182,28 @@ if __name__ == "__main__":
     # zip 行为与你设计稿不一致。先 install（或 adopt+install）再打包。
     if not args.skip_demo_check:
         sys.path.insert(0, str(ROOT / "scripts"))
+        drama, divs = None, None
         try:
             import sync_drama
             drama, divs = sync_drama.collect_divergences()
-            if divs:
-                print(f"✗ 打包中止：作者源/运行态/demo 三方不一致（剧本「{drama}」），共 {len(divs)} 处：")
-                for d in divs:
-                    print("   -", d)
-                print("  → 先运行  python scripts/sync_drama.py install  铺开后再打包；"
-                      "或 --skip-demo-check 强制跳过（不建议）。")
-                sys.exit(1)
-            print(f"✓ 作者源/运行态/随包 demo 三方一致（剧本「{drama}」）。")
-        except SystemExit:
-            print("⚠ 无法自动判定当前剧本（dramas/ 为空或多个），跳过一致性检查。")
+        except SystemExit as e:
+            # _detect_drama 在无法判定剧本时以 SystemExit 携带原因文本抛出，这是
+            # 「无法检查、跳过」，不是「检查失败、中止」。
+            print(f"⚠ 跳过一致性检查：{e}")
         except Exception as e:
             print(f"⚠ 一致性检查异常：{e}，继续打包（不建议）。")
+
+        # 中止逻辑必须留在 try 之外：写进含 except SystemExit 的 try 里，自己的
+        # sys.exit(1) 会被同一 except 反吞，变成「打印中止却照常出包」（v2.1.8 实踩）。
+        if divs:
+            print(f"✗ 打包中止：作者源/运行态/demo 三方不一致（剧本「{drama}」），共 {len(divs)} 处：")
+            for d in divs:
+                print("   -", d)
+            print("  → 先运行  python scripts/sync_drama.py install  铺开后再打包；"
+                  "或 --skip-demo-check 强制跳过（不建议）。")
+            sys.exit(1)
+        elif divs is not None:
+            print(f"✓ 作者源/运行态/随包 demo 三方一致（剧本「{drama}」）。")
 
     out, n, bad = build(args.out)
     print(f"已生成 {out}（{n} 条目，{os.path.getsize(out)/1024:.1f} KB）")
