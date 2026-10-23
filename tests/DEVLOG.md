@@ -157,6 +157,39 @@ git checkout nsfw-on-v2.1.7 -- engine/app.py engine/narrative_clean.py engine/pr
 - **上架后需补一步**：tag 是 v2.1.7 的原子快照，checkout 后那 5 处注释会**回到旧版**（又指向已删目录）。属预期——上架完成后按 2026-10-23 晚同款改法把指针再改指 tag 即可（纯注释，不改逻辑）
 - 参考条目：本日志 v2.1.4（下架）与 v2.1.7（重新上架）
 
+#### 层 B：剧本数据侧（tag 不含，须单独恢复）
+
+2026-10-23 晚 simon 另提交 `3f1f69e`，把三态剧本的「亲密描写标准」世界书条与 `script-example.txt` 的「全浓度」示例一并删除，对齐引擎 NSFW-OFF 定位。**tag `nsfw-on-v2.1.7` 只含引擎/测试 13 文件，不含剧本数据**——重新上架若要连剧本侧的亲密标准一并回来，须额外做这一步。
+
+内容未丢，落在 git 历史里，来源是 `3f1f69e^`（清理前最后一版）：
+
+| # | 目标位置 | 恢复方式 | 备注 |
+|---|---|---|---|
+| 1 | `dramas/高氏王朝/world.json`（作者源） | 从 #2 的历史版里抽出该条回填 | **`dramas/` 被 `.gitignore:72` 忽略，作者源本身无 git 副本**，只能从派生体反推 |
+| 2 | `engine/data/examples/worlds/高氏王朝.json` | `git checkout 3f1f69e^ -- engine/data/examples/worlds/高氏王朝.json` | 入库，可直接整文件还原 |
+| 3 | `engine/data/worlds/高氏王朝.json`（运行态） | 不需单独恢复，`sync_drama.py install` 从 #1 生成 | 运行态永不入库 |
+| 4 | `engine/data/examples/script-example.txt` | `git checkout 3f1f69e^ -- engine/data/examples/script-example.txt` | 该行原文「常量-亲密尺度·全浓度」 |
+
+抽取 #1 的条目内容（1128 字，条目对象完整、可直接 JSON 反序列化）：
+
+```
+git show 3f1f69e^:engine/data/examples/worlds/高氏王朝.json > /tmp/old_world.json
+# 从中取出 name 为「亲密描写标准」的条目对象，手工并入 dramas/高氏王朝/world.json 的 entries
+python scripts/sync_drama.py install   # 再铺开三态
+```
+
+顺序：先 #2 / #4 还原 → 抽条回填 #1 → `install` 生成 #3 与同步 #2 → `sync_drama.py check` 确认三方一致。
+
+**回填时必须去掉 `origin` 字段**（已核验）：历史亲密条带 `origin: "engine"`，而作者源 `world.json` 现有 18 条**一律不带 `origin`**——该字段是引擎出厂默认条目的标记，由引擎在加载时补，作者源里不该出现。其余字段照抄即可：
+
+| 字段 | 值 |
+|---|---|
+| `name` | 「亲密描写标准」 |
+| `constant` / `position` / `priority` | `True` / `"after"` / `100` |
+| `depth` / `enabled` / `secret` / `keys` | `None` / `True` / `False` / `[]` |
+| `content` | 1128 字（六分层 + 器官词正反示例） |
+| ~~`origin`~~ | **回填时删除** |
+
 ### 发版
 - VERSION：`v2.1.7` → `v2.1.8`（PATCH）
 - commit / tag：本条目同批提交（`baa5451`）+ `v2.1.8`；另补锚点 tag `nsfw-on-v2.1.7` → `a6e1280`
