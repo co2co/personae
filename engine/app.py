@@ -36,6 +36,11 @@ import script_refiner
 
 ROOT = Path(__file__).parent
 app = Flask(__name__, static_folder=None)
+# jsonify 默认 sort_keys=True，会把世界书条目按字母序重排键。前端「打开 → 保存」
+# 是原样往返（GET 拿到的就是 POST 回去的），键序一旦被重排，写回的字节就与作者源
+# 不同——而 sync_drama 的三态守卫用字节比较，于是「一个字没改点保存」也会判分叉。
+# 关掉排序让 GET 保持磁盘上的键序，往返即字节稳定。
+app.json.sort_keys = False
 
 RECENT_FOR_SCAN = 4  # 世界书条目未设 depth 时的默认回看窗口（默认 4 轮）
 WORLDBOOK_SCAN_WINDOW = 60  # 传给世界书扫描的历史窗口上限；depth 在 1..60 内真实可调，>60 等同 60

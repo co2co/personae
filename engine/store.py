@@ -290,8 +290,10 @@ def restore_default_entries(name):
     if _has_standard_example(entries):
         present.append(STANDARD_EXAMPLE_NAME)
     else:
-        # 置于首位：前端 collectWorldEntries 按列表序重算 priority，
-        # 展示顺序最终由 priority 决定，位置不影响注入。
+        # 插入位置只决定它在世界书列表里的初始位置；注入先后由 priority 决定
+        # （本条目 priority=60，见 _standard_example_entry）。
+        # 2026-10-23 起前端保存不再按列表序重算 priority，故这里插到首位不会
+        # 把它顶成最高优先级——两者已解耦。
         entries.insert(0, _standard_example_entry())
         added.append(STANDARD_EXAMPLE_NAME)
 
@@ -324,8 +326,8 @@ def save_world(name, entries):
     entries = list(entries or [])
     first_create = not p.exists()
     if first_create:
-        # 置于首位：前端 collectWorldEntries 按列表序重算 priority（index 0 → 100），
-        # 保持靠前利于渲染顺序。demo 条目不占 max_entries 配额。
+        # 插入位置只决定初始列表位置；priority 由条目自带（60），不受位置影响。
+        # demo 条目不占 max_entries 配额。前端保存已不改写 priority（2026-10-23）。
         if not _has_standard_example(entries):
             entries.insert(0, _standard_example_entry())
     data = {"name": name, "entries": entries}

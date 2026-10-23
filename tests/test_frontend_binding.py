@@ -118,6 +118,50 @@ class TestFrontendMainFlowBound(unittest.TestCase):
                 "世界书保存链路丢失%s——界面上没有对应控件，一旦不回传就被永久抹掉" % desc,
             )
 
+    def test_world_entry_priority_preserved_on_save(self):
+        """保存世界书不得无条件重算 priority（2026-10-23 修）。
+
+        起因：旧版 collectWorldEntries 用 `100 - idx * 5` 按列表位置重算，
+        于是只要在界面上点一次保存，作者手写的 priority 阶梯就被整体抹平——
+        「一个字没改」也会让 sync_drama 的三态守卫判世界书不一致，而条目内容
+        其实分毫未动。更隐蔽的是：界面上没有 priority 控件，作者根本看不出
+        自己的注入次序被改写了。
+
+        修法与 demo / first_round / origin 一致：priority 也走 dataset 原样往返；
+        顺序真变了（拖拽落位、勾选常量导致移段）由 renumberGroup 在改动现场
+        就地重排。本测试锁住四条链路，任何一环断掉都会让「无条件重排」复活。
+        """
+        html = _read_index()
+        # 1) 渲染必须把 priority 落到 dataset，否则保存时读不到原值。
+        self.assertRegex(
+            html, r'data-priority="\$\{e\.priority',
+            "entryCard 未渲染 data-priority——保存链路读不到原优先级",
+        )
+        m = re.search(r"function collectWorldEntries\(\)\s*\{(.*?)\n\}", html, re.S)
+        self.assertIsNotNone(m, "collectWorldEntries() 缺失")
+        body = m.group(1)
+        # 2) 保存必须优先取 dataset 原值。
+        self.assertIn(
+            "el.dataset.priority", body,
+            "collectWorldEntries 未读取 dataset.priority——又会按列表序重算",
+        )
+        # 3) 顺序变更现场必须有就地重排函数。
+        self.assertIn("function renumberGroup", html, "renumberGroup() 缺失")
+        # 4) 两处顺序变更点都必须调用它：拖拽落位、勾选/取消常量。
+        self.assertIn(
+            "renumberGroup(card.parentElement)", html,
+            "拖拽落位后未重排 priority——保存重载会弹回原位",
+        )
+        self.assertIn(
+            "renumberGroup(box)", html,
+            "勾选常量导致移段后未重排 priority——保存重载会弹回原位",
+        )
+        # 5) 新条目必须只给自己赋值，不得连带重写既有条目。
+        self.assertIn(
+            "node.dataset.priority", html,
+            "新增条目未赋 priority——会落成 0 或继承首条的值",
+        )
+
     def test_setup_cast_is_readonly_roster(self):
         """开场区不再提供角色勾选（v2.1.1）。
 

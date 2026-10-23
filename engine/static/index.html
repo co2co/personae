@@ -1929,8 +1929,12 @@ function entryCard(e, i, expanded) {
   // 与作者自写条目分开标识。demo / first_round / origin 必须落到 dataset 上，
   // 否则 collectWorldEntries 回写时会把它们丢掉（旧版就是因此静默抹掉了示范标志）。
   const isEngine = e.origin === 'engine';
+  // priority 必须原样落到 dataset：它是「注入先后」的唯一载体，而界面上没有对应控件。
+  // 旧版在保存时按列表位置重算（100 - idx*5），导致「一字未改点保存」也会把作者手写的
+  // 阶梯整体抹平，三态守卫每次都判不一致。空串表示新条目，保存时按位置兜底分配。
   return `<div class="entry${e.secret?' secret':''}${isEngine?' engine':''}${e.constant?' constant':''}" data-i="${i}"
-       data-origin="${escAttr(e.origin||'')}" data-demo="${e.demo?'1':'0'}" data-first-round="${e.first_round?'1':'0'}">
+       data-origin="${escAttr(e.origin||'')}" data-demo="${e.demo?'1':'0'}" data-first-round="${e.first_round?'1':'0'}"
+       data-priority="${e.priority ?? ''}">
     <div class="row">
       <span class="e-grip" draggable="true" title="拖拽排序">⠿</span>
       <button type="button" class="e-toggle btn btn-sm" title="展开/收起" aria-expanded="${expanded?'true':'false'}">${expanded?'▾':'▸'}</button>
@@ -1984,6 +1988,22 @@ function updateOrderBadges() {
     });
   });
 }
+// 仅在「顺序真的变了」时调用（拖拽落位、勾选/取消常量导致的移位）。
+// 以本组现有值域 [lo, hi] 为界，按 DOM 序等间距重分配，值域不外溢——
+// 这样既保证「视觉顺序 = 注入顺序」，又不会覆盖另一组的取值空间。
+// 关键约束：**没改顺序就不许调它**，否则保存又变成无条件重排，回到旧版的老路。
+function renumberGroup(box) {
+  if (!box) return;
+  const els = [...box.querySelectorAll('.entry')];
+  if (!els.length) return;
+  const vals = els.map(el => parseInt(el.dataset.priority, 10)).filter(n => !isNaN(n));
+  const hi = vals.length ? Math.max(...vals) : 100;
+  const lo = vals.length ? Math.min(...vals) : 100 - (els.length - 1) * 5;
+  const step = els.length > 1 ? (hi - lo) / (els.length - 1) : 0;
+  els.forEach((el, i) => {
+    el.dataset.priority = String(Math.round(hi - step * i));
+  });
+}
 function applyConstant(el) {
   const con = el.querySelector('.e-constant').checked;
   el.classList.toggle('constant', con);
@@ -1997,6 +2017,9 @@ function applyConstant(el) {
   const constCount = others.filter(n => n.classList.contains('constant')).length;
   const after = others[constCount] || null;
   if (after) box.insertBefore(el, after); else box.appendChild(el);
+  // 勾选状态改变会让本条在常量段/非常量段之间搬家，组内顺序随之变化，
+  // 与拖拽同理需要就地重排，否则保存重载后位置弹回。
+  renumberGroup(box);
   updateOrderBadges();
 }
 function applySecret(el) {
@@ -2047,6 +2070,9 @@ function bindGrip(grip) {
   grip.addEventListener('dragend', () => {
     card.classList.remove('dragging');
     clearDropMarks();
+    // 落位可能改变了组内顺序：此时必须重排本组 priority，否则保存后重新加载
+    // 会按旧 priority 弹回原位（顺序徽标与实际注入顺序脱钩）。
+    renumberGroup(card.parentElement);
     dragSrc = null;
     updateOrderBadges();
   });
@@ -2168,6 +2194,11 @@ document.getElementById('w-add').onclick = () => {
   const box = document.getElementById('w-entries-author');
   const node = makeEntryNode({}, 0, true);  // 新增空白条目默认展开
   box.appendChild(node);
+  // 新条目追加到末尾（末位 = 最后注入）：取组内最小 priority 再降一档。
+  // 只给新条目赋值、不动既有条目，避免「加一条把全组优先级洗一遍」。
+  const vals = [...box.querySelectorAll('.entry')]
+    .map(el => parseInt(el.dataset.priority, 10)).filter(n => !isNaN(n));
+  node.dataset.priority = String(vals.length ? Math.min(...vals) - 5 : 100);
   updateGroupMeta();
   if (node.scrollIntoView) node.scrollIntoView({ block: 'nearest' });
 };
@@ -2191,7 +2222,13 @@ function collectWorldEntries() {
     const o = {
       keys: el.querySelector('.e-keys').value.split(/[，,、\s]+/).map(s=>s.trim()).filter(Boolean),
       content: el.querySelector('.e-content').value,
-      priority: 100 - idx * 5,
+      // 原值优先：界面上没改顺序时原样回写，保存不再无条件重排——
+      // 这是「点一下保存就把整份 priority 洗一遍」的根因修复。
+      // 顺序真变了由 renumberGroup 在改动现场处理，不拖到保存这一步。
+      priority: (() => {
+        const v = parseInt(el.dataset.priority, 10);
+        return isNaN(v) ? 100 - idx * 5 : v;  // 兜底：无原值的新条目按当前位置给
+      })(),
       enabled: el.querySelector('.e-enabled').checked,
       constant: el.querySelector('.e-constant').checked,
       position: el.querySelector('.e-position').value,

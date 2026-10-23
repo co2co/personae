@@ -9,6 +9,46 @@
 
 ---
 
+## 2026-10-23 根治：世界书「打开→保存」不再改写 priority 与键序
+
+承接同日三态收敛条目。收敛只是接受现状，真正的问题是**界面保存会无条件重写数据**：一个字没改、点一次保存，`priority` 与 JSON 键序都会被改，而 `sync_drama` 的三态守卫用**字节比较**，于是每次都判分叉。
+
+### 两处根因
+
+| 层 | 根因 | 位置 |
+|---|---|---|
+| priority | 保存时按 DOM 序重算 `100 - idx * 5`，作者手写的阶梯无法存活 | `index.html` `collectWorldEntries()` |
+| 键序 | `jsonify` 默认 `sort_keys=True`，GET 返回字母序，原样 POST 回去就写回字母序 | `app.py` `Flask()` 初始化 |
+
+两者都属「隐式改写」：界面上没有对应控件，作者看不出自己的数据被动了。
+
+### 改法
+
+**priority 改为 dataset 原样往返**（与 demo / first_round / origin 同一套原则）：
+
+1. `entryCard()` 渲染 `data-priority="${e.priority ?? ''}"`，空串＝新条目。
+2. `collectWorldEntries()` 优先取 `el.dataset.priority`，`NaN` 时才回落到 `100 - idx*5` 兜底。
+3. 新增 `renumberGroup(box)`：以本组现有值域 `[lo, hi]` 为界按 DOM 序等间距重分配，**值域不外溢**（不与另一组抢空间）。
+4. 只在**顺序真的变了**的两个现场调用它：拖拽 `dragend`、勾选/取消常量导致移段（`applyConstant`）。未改顺序绝不调用——否则又变成无条件重排。
+5. `w-add` 新条目只给**自己**赋值（组内最小值 − 5），不触碰既有条目。
+
+**键序**：`app.json.sort_keys = False`，让 GET 保持磁盘上的键序，往返即字节稳定。
+
+### 设计取舍
+- 不采用「保存时统一规范化字段顺序」的方案：`sync_drama install` 用 `shutil.copy2` 保持作者源字节，两套序列化规则会互相覆盖，反而制造新的分叉。
+- 新条目取「最小值 − 5」而非插入中间取中值：`w-add` 只能追加到末尾，中值分配需要处理间隔耗尽（间隔 < 2 时无解），收益不抵复杂度。
+
+### 验证
+- **jsdom 真 DOM**（`tests/_probe_priority_dom.js`，不入库）：原样保存 18 条 priority 逐条不变；二次保存幂等；新增条目 priority=10（既有最小 15）且既有条目零改动；拖拽后该条目置首且组内 priority 严格递减。
+- **端到端**（`tests/_probe_save_roundtrip.py`，不入库）：`GET /api/world/<name>` → 原样 `POST` → **文件 md5 前后完全相同**（`17ce42eb…`），`check` ✓ 三方一致。
+- 快测 **379 passed** + 1 skipped + 1 deselected（新增 `test_world_entry_priority_preserved_on_save`）。
+- 打包守卫无 flag 通过，`dist/personae-v2.1.8.zip` 32 条目 227.6 KB，包内 `index.html` 已无旧式重算式。
+
+### 遗留
+- 若将来允许「插入到中间」的新增方式，`renumberGroup` 的等间距策略需重新考虑（当前会整体重排本组数值）。顺序语义仍正确，只是既有条目的 priority 数值会被微调一次。
+
+---
+
 ## 2026-10-23 三态收敛（前端保存导致的世界书元数据分叉）+ 机制记录
 
 ### 现象
