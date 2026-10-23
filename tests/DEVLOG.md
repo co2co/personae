@@ -64,8 +64,16 @@
 
 ### 发版
 - VERSION：`v2.1.7` → `v2.1.8`（PATCH）
-- commit / tag：本条目同批提交 + `v2.1.8`；另补锚点 tag `nsfw-on-v2.1.7` → `a6e1280`
-- 产物：`dist/personae-v2.1.8.zip`（`engine/venv/Scripts/python.exe package.py`）
+- commit / tag：本条目同批提交（`baa5451`）+ `v2.1.8`；另补锚点 tag `nsfw-on-v2.1.7` → `a6e1280`
+- 产物：`dist/personae-v2.1.8.zip`（32 条目，227.7 KB）
+
+**打包实况（与设计意图的偏差，需知悉）**
+- 实际命令：`engine/venv/Scripts/python.exe package.py --skip-demo-check`。原因见下条。
+- 三方一致性守卫（`sync_drama.collect_divergences()`）报 8 处分歧，**全部在运行态**：`data/worlds/高氏王朝.json` 与 6 张角色卡缺失、另有 5 张「作者源没有」的角色卡（林晚晚/苏梅/赵铁/陆沉/顾言）。已核验 `data/examples/` 与作者源 `dramas/高氏王朝/` **逐字节一致**（world.json + 6 角色卡），而 zip 只携带 `data/examples/`，故跳过守卫不影响随包内容。
+- 运行态之所以对不上：当时 `data/worlds/` 装的是另一部剧本「槐荫里」（作者自用、非 `dramas/` 源），属正常的单剧本运行态，不是同步事故。
+- **守卫缺陷（待修，未动）**：`package.py:196-197` 的 `except SystemExit` 把同一 try 块内第 194 行的 `sys.exit(1)` 一并吞掉——守卫判定「✗ 打包中止」后仍继续出包，只有紧接的 `⚠ 无法自动判定当前剧本` 是它的本意分支。目前守卫形同虚设（会打印中止却照常产出），修法：把 `collect_divergences()` 调用单独包 try 捕获 SystemExit，中止逻辑放在 try 之外。
+- 泄漏扫描：包内无 venv / 缓存 / `data/sessions` / `tests` / `_backup_*` / `dramas` / 绝对路径 / 真实 key；`data/config.json` 已洗白（base_url / api_key / model 空、providers=[]、无 fallback 段）。
+- 已知遗留：包内 `prompter.py` / `store.py` / `narrative_clean.py` 的下架注释仍带着回滚蓝本路径 `_backup_offshelf_nsfw_20261023/`（对收包人是悬空指针，且暗示曾存在 NSFW 层）。按「暂不派发第三方」暂不处理。
 
 ---
 
