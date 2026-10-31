@@ -1230,14 +1230,44 @@ const I18N_PATTERNS = [
   // 秘密簿记的「角色名：」前缀（文本节点以全角冒号结尾）；更长的句子不走这条。
   [/^([^：]{1,16})：$/, '$1:'],
   // 现状 / 人物位置两类「键：值」行。放最后，优先级最低。
-  [/^([^：]{1,16})：(.+)$/, '$1: $2']
+  [/^([^：]{1,16})：(.+)$/, '$1: $2'],
+  // 名册静默角标的 title（变量：连续轮数）
+  [/^连续 (\d+) 轮没有行为，下一轮会提醒叙事给他一处交代$/, '$1 silent round(s) — the next round will prompt the narrator to give them a scene']
 ];
 
-// 出厂默认界面语言：英文（国际用户开箱即英文）。localStorage 一旦写入即以用户选择为准，
-// 故中文用户切一次「中文」后会长期保持；换浏览器 / 清缓存回到默认英文。
+// 界面语言三态：auto（默认，跟随系统）| zh | en
+// 出厂不写死语种——浏览器语言列表里第一个可识别的语种决定首屏语言（zh* → 中文，其余 → 英文）。
+// 用户在系统设置里手动选过之后，localStorage 里存的就是 zh / en，此后覆盖系统语言；
+// 选回 Auto 即恢复跟随（并重新读取当前系统语言，无需刷新）。
 const UI_LANG_KEY = 'personae_ui_lang';
-let UI_LANG = 'en';
-try { UI_LANG = localStorage.getItem(UI_LANG_KEY) || 'en'; } catch (e) {}
+const UI_LANG_AUTO = 'auto';
+function _sysLang() {
+  let list = [];
+  try {
+    list = (navigator.languages && navigator.languages.length)
+      ? navigator.languages : [navigator.language || ''];
+  } catch (e) { list = []; }
+  for (const l of list) {
+    const low = String(l || '').toLowerCase();
+    if (low.indexOf('zh') === 0) return 'zh';
+    if (low.indexOf('en') === 0) return 'en';
+  }
+  return 'en';
+}
+let UI_LANG_PREF = UI_LANG_AUTO;
+try { UI_LANG_PREF = localStorage.getItem(UI_LANG_KEY) || UI_LANG_AUTO; } catch (e) {}
+if (UI_LANG_PREF !== 'zh' && UI_LANG_PREF !== 'en') UI_LANG_PREF = UI_LANG_AUTO;
+let UI_LANG = UI_LANG_PREF === UI_LANG_AUTO ? _sysLang() : UI_LANG_PREF;
+// 系统语言在会话中途变化（如用户在系统里改语言）：仅在 Auto 态跟随。
+try {
+  window.addEventListener('languagechange', function () {
+    if (UI_LANG_PREF !== UI_LANG_AUTO) return;
+    const next = _sysLang();
+    if (next === UI_LANG) return;
+    UI_LANG = next;
+    applyI18n();
+  });
+} catch (e) {}
 
 function _norm(s) { return String(s).replace(/\s+/g, ' ').trim(); }
 // 中文标点归一：译文模板里保留的捕获组（角色名侧的中文枚举/冒号/括号）一并转英文形态，
@@ -1300,6 +1330,15 @@ function _restoreText(n) {
   }
 }
 function _attrKey(el, attr) { return 'i18nOrig' + attr.replace(/-(\w)/g, (_, c) => c.toUpperCase()); }
+// 属性译文：先查精确词条，再走与文本同一套正则模板（属性里也会带变量，如静默轮数的 title）。
+function _attrEn(s, dict) {
+  const v = dict[s];
+  if (v !== undefined) return _enPunct(v);
+  for (const [re, tpl] of I18N_PATTERNS) {
+    if (re.test(s)) return _enPunct(s.replace(re, tpl));
+  }
+  return undefined;
+}
 function _translateAttr(el, attr) {
   const dict = I18N_ATTR[attr];
   if (!dict) return;
@@ -1309,11 +1348,11 @@ function _translateAttr(el, attr) {
   const orig = el[key];
   if (orig !== undefined) {
     if (orig === cur) return;                       // 未译
-    const prevEn = dict[orig];
+    const prevEn = _attrEn(orig, dict);
     if (prevEn !== undefined && cur === prevEn) return; // 已是译态
     el[key] = undefined;                            // 被外部改写：重来
   }
-  const en = dict[cur];
+  const en = _attrEn(cur, dict);
   if (en !== undefined && en !== cur) { el[key] = cur; el.setAttribute(attr, en); }
 }
 function _restoreAttr(el, attr) {
@@ -1398,24 +1437,32 @@ function renderLangSwitch() {
     bZh.className = 'btn btn-sm lang-opt'; bZh.dataset.lang = 'zh'; bZh.textContent = '中文';
     const bEn = document.createElement('button');
     bEn.className = 'btn btn-sm lang-opt'; bEn.dataset.lang = 'en'; bEn.textContent = 'English';
+    const bAuto = document.createElement('button');
+    bAuto.className = 'btn btn-sm lang-opt'; bAuto.dataset.lang = 'auto'; bAuto.textContent = 'Auto';
     bZh.onclick = () => setUILang('zh');
     bEn.onclick = () => setUILang('en');
+    bAuto.onclick = () => setUILang('auto');
     const note = document.createElement('span');
     note.className = 'sub'; note.style.cssText = 'margin:0;font-size:12px;';
     note.id = 'lang-switch-note';
-    box.appendChild(lab); box.appendChild(bZh); box.appendChild(bEn); box.appendChild(note);
+    box.appendChild(lab); box.appendChild(bZh); box.appendChild(bEn);
+    box.appendChild(bAuto); box.appendChild(note);
     body.insertBefore(box, body.firstChild);
   }
   const en = UI_LANG === 'en';
   document.getElementById('lang-switch-label').textContent = en ? 'Interface language' : '界面语言';
-  document.getElementById('lang-switch-note').textContent = en ? 'UI text only; the narrative language is whatever your drama and model produce' : '仅切换界面文字；叙事语言由剧本与模型决定';
-  document.querySelectorAll('.lang-opt').forEach(b => b.classList.toggle('btn-primary', b.dataset.lang === UI_LANG));
+  document.getElementById('lang-switch-note').textContent = en
+    ? 'Auto follows your system language. UI text only; the narrative language is whatever your drama and model produce'
+    : 'Auto 跟随系统语言。仅切换界面文字；叙事语言由剧本与模型决定';
+  document.querySelectorAll('.lang-opt').forEach(b => b.classList.toggle('btn-primary', b.dataset.lang === UI_LANG_PREF));
 }
-function setUILang(lang) {
-  if (lang !== 'zh' && lang !== 'en') return;
-  if (lang === UI_LANG) return;
-  UI_LANG = lang;
-  try { localStorage.setItem(UI_LANG_KEY, lang); } catch (e) {}
+function setUILang(pref) {
+  if (pref !== 'auto' && pref !== 'zh' && pref !== 'en') return;
+  UI_LANG_PREF = pref;
+  try { localStorage.setItem(UI_LANG_KEY, pref); } catch (e) {}
+  const next = pref === 'auto' ? _sysLang() : pref;
+  if (next === UI_LANG) { renderLangSwitch(); return; }
+  UI_LANG = next;
   applyI18n();
 }
 // 动态面板渲染后自动翻译（含流式更新；叙事区在 _inNarr 过滤下直接跳过）

@@ -9,7 +9,34 @@
 
 ---
 
+## 2026-10-31 开发中（未发版）：界面语言改为跟随系统（三态 auto / zh / en）
+
+### 策略改变
+
+- 上一轮把出厂默认写死英文，属矫枉过正：中文用户开箱看到英文界面。改为 **三态**——`auto`（默认，跟随系统）/ `zh` / `en`。
+- `_sysLang()` 取 `navigator.languages` 首个可识别语种：`zh*` → 中文，其余（含无法识别）→ 英文。系统在会话中途改语言时，`languagechange` 事件仅在 auto 态跟随重译，显式选择不受影响。
+- 设置面板切换组从两按钮扩为三按钮（中文 / English / Auto），高亮按「用户偏好」而非「当前生效语言」——否则 auto 态下没有任何按钮亮起，用户会以为设置丢了。注记同步说明 auto 语义。
+- 持久化仍是 `localStorage(personae_ui_lang)`：存 `auto` / `zh` / `en`；旧值 `zh` / `en` 直接兼容，无需迁移。
+
+### 左栏收尾（「世界状态同理」）
+
+- 名册静默角标的 `title`（`连续 N 轮没有行为…`）是带变量的属性文案，原先只有精确词条可译、模式不可用。`_translateAttr` 升级为「精确词条 → 同一套 `I18N_PATTERNS` 模板」，属性文案与文本共享一套翻译规则；「已是译态」判定同步改用同函数，避免写成英文后被反复重译。
+- 至此左栏四块（名册 / 现状 / 人物位置 / 秘密簿记）在英文态全部英文化，仅角色名、地点名、状态值等叙事数据保留原文。
+
+### 验证
+
+- Chrome headless 按系统语言三档实测（`--lang` + `--accept-lang`）：`zh-CN` → 中文首屏（`<html lang="zh-CN">`、标题「群像弈 沙盘」）；`en-US` → 英文首屏（`lang="en"`、`Personae Sandbox`）；`ja-JP` → 回落英文（非 zh 一律英文，符合设计）。
+- 三态切换探针（两套系统语言各跑一遍）：zh 系统 `init=zh → en → zh → auto=zh`；en 系统 `init=en → en → zh（覆盖系统）→ auto=en`，每步 `localStorage` 与首屏语言一致。
+- 持久化实机：固定 `--user-data-dir` 跑两次——zh 系统下选英文后再加载，仍为英文（`PREF=en`），证明手动选择跨刷新生效。
+- 左栏探针：英文态 `title="2 silent round(s) — the next round will prompt the narrator to give them a scene"`、`(main camera)`、`(Location unrecorded)`、`Suspected (suspects: 赵铁)`；`setUILang('zh')` 后逐项还原（含 title 属性）。
+- 全量 381 passed, 1 skipped；守卫测试改为 `test_ui_lang_follows_system_by_default`（锁 auto 默认、`navigator.languages` 探测、zh 判定、显式选择覆盖、Auto 按钮存在）。
+- 未 bump VERSION，随 v2.3.0 一并发版。
+
+---
+
 ## 2026-10-31 开发中（未发版）：界面语言默认英文 + 秘密簿记英文化
+
+> 本条中的「默认英文」已于同日被上一条「跟随系统（三态）」取代，仅秘密簿记英文化与键名修复仍有效。保留原文备查。
 
 ### 默认语言
 

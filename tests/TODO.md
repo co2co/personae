@@ -19,11 +19,11 @@
 
 **状态**：待排期，不阻塞。
 
-1. **发版**：i18n 功能未 bump VERSION。下次发版 MINOR → v2.3.0，走完整 SOP（测试 + DEVLOG 转正 + tag + 打包 + 泄漏扫描 + 旧包清理）。范围含 2026-10-31 追加的三项：默认语言改英文、秘密簿记英文化、README 双语化。
+1. **发版**：i18n 功能未 bump VERSION。下次发版 MINOR → v2.3.0，走完整 SOP（测试 + DEVLOG 转正 + tag + 打包 + 泄漏扫描 + 旧包清理）。范围含 2026-10-31 追加的四项：界面语言跟随系统（三态）、秘密簿记与左栏动态文案英文化、README 双语化、localStorage 键名修复。
 2. **运行时日志窗文案**（方案 B 范围）：日志由 Python 侧产生（`logger.py`），英文化需要后端按 UI 语言传参或双语化日志——方案 A 拍板时明确列为后续项。
 3. **worldbook-guide / script-guide 手册文档**（方案 B 范围）：三份手册 HTML 共约 511 行中文文档，英文化工作量约等于 UI 的两倍。
 4. **词典维护纪律**：今后 `index.html` 新增用户可见文案时须同步补 `I18N_TEXT`/`I18N_ATTR` 词条，否则英文态漏译（漏译不报错、显示回退中文，属静默退化）。可考虑加「英文态无未译节点」检查测试（Playwright 断言 DOM 无 CJK chrome）。
-   - **2026-10-31 进展**：出厂默认语言已改英文；秘密簿记（状态词 + 括号说明 + 空态）完成英文化；已加两条静态守卫（`test_ui_lang_defaults_to_english` 锁默认值与键名、`test_secret_states_have_english_entries` 锁词条与模板）。**仍缺**：全页「无未译 CJK」自动断言——现靠 headless `--dump-dom` 人工核对，未固化进 pytest。
+   - **2026-10-31 进展**：界面语言改为跟随系统（auto / zh / en 三态，用户选择持久化并覆盖系统）；秘密簿记（状态词 + 括号说明 + 空态）与左栏全部动态文案完成英文化；已加两条静态守卫（`test_ui_lang_follows_system_by_default` 锁 auto 默认与系统探测、`test_secret_states_have_english_entries` 锁词条与模板）。**仍缺**：全页「无未译 CJK」自动断言——现靠 headless `--dump-dom` 人工核对，未固化进 pytest。
 
 ### 终局曙光 v2.2.0 实机遗留两观察项
 

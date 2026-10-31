@@ -307,19 +307,27 @@ class TestFrontendMainFlowBound(unittest.TestCase):
                 "JS 仍引用已移除的 #%s" % pid,
             )
 
-    def test_ui_lang_defaults_to_english(self):
-        """界面语言出厂默认必须是英文，且持久化键名完整。
+    def test_ui_lang_follows_system_by_default(self):
+        """界面语言出厂必须跟随系统，且可被用户手动覆盖。
 
-        守卫两件事：
-        1. 默认值回归——曾出现「国际化做了但默认仍中文」，英文用户开箱看到中文界面；
-        2. 键名字面量完整性——曾出现 `'personae_ui_lang'` 被误写成含省略号的
+        守卫三件事：
+        1. 默认态是 Auto（跟随 navigator.languages），不能写死某一语种——
+           曾出现「默认英文」，中文用户开箱看到英文界面；
+        2. 用户选择（zh / en）必须落 localStorage 并覆盖系统语言；
+        3. 键名字面量完整性——曾出现 `'personae_ui_lang'` 被误写成含省略号的
            `'personae_…e'`，读写仍自洽所以功能「看起来正常」，但换键后旧偏好静默丢失。
         """
         html = _read_index()
         self.assertRegex(html, r"const UI_LANG_KEY = 'personae_ui_lang';")
-        self.assertIn("let UI_LANG = 'en';", html, "出厂默认界面语言应为英文")
-        self.assertIn("localStorage.getItem(UI_LANG_KEY) || 'en'", html,
-                      "localStorage 缺省回退应为英文")
+        self.assertIn("const UI_LANG_AUTO = 'auto';", html, "缺少 Auto（跟随系统）态常量")
+        self.assertIn("localStorage.getItem(UI_LANG_KEY) || UI_LANG_AUTO", html,
+                      "无用户偏好时应回落到 Auto，而非写死语种")
+        self.assertIn("function _sysLang()", html, "缺少系统语言探测")
+        self.assertIn("navigator.languages", html, "系统语言应取自 navigator.languages")
+        self.assertIn("indexOf('zh') === 0", html, "zh* 应判为中文")
+        self.assertIn("UI_LANG_PREF === UI_LANG_AUTO ? _sysLang() : UI_LANG_PREF", html,
+                      "Auto 态应实时取系统语言，显式选择应覆盖它")
+        self.assertIn("bAuto.dataset.lang = 'auto'", html, "设置面板缺 Auto 按钮")
 
     def test_secret_states_have_english_entries(self):
         """秘密簿记的状态词与括号说明必须有英文词条/模板。
