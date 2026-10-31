@@ -9,6 +9,31 @@
 
 ---
 
+## 2026-10-31 开发中（未发版）：界面语言 i18n（方案 A，DOM 层翻译）
+
+### 架构决定：DOM 层翻译，渲染逻辑零改动
+
+- 设计约束（simon 拍板方案 A）：只英文化 UI chrome；运行时日志、worldbook 手册、叙事语言不在本期——叙事语言属剧本/世界书范畴，混进 UI 设置会让「语言」承担两个语义，定义层不干净。
+- 实现：`index.html` 内联脚本头部注入独立 i18n 层——`I18N_TEXT` 词典（约 300 条 zh→en，归一化 key）+ `I18N_ATTR`（placeholder/title/aria-label）+ `I18N_BLOCKS`（6 个含内联标签混排块整段替换）+ `I18N_PATTERNS`（带插值动态短语的正则模板）。
+- 为什么不走 `T()` 包裹路线：JS 渲染逻辑近 3000 行、动态文案 90+ 条散在模板串里，机械包裹侵入面大且易把「逻辑比较用的中文字面量」（`s.state === '潜伏'` 等后端状态值）误包裹。DOM 层方案让渲染代码一行不动：翻译发生在 DOM 消费端，`_i18nOrig`/`_i18nEn` 影子属性保存原文，切回中文完整还原；逻辑层的中文比较天然不被触碰。
+- 叙事红线：`#log`（气泡）、`.eb-text`（终局横幅正文）、`#si-preview`（提炼预览）在排除区永不翻译；`#status` 状态栏与气泡 `.who` 标签（你→You）属 chrome 要译（首版把 `#stage` 整块排除误伤了 `#status`，已修——排除判定按精确容器/类，不按外层容器）。
+- MutationObserver 覆盖动态渲染：innerHTML 重绘、流式 textContent 更新、属性变更都会经过翻译；已是译态的节点（影子属性匹配）幂等跳过。
+- 持久化：`localStorage(personae_ui_lang)`，纯浏览器偏好，不进 `config.json`（不污染随包配置，换浏览器即恢复默认中文）。切换组注入系统设置「模型与生成」组顶部（界面语言 中文/English）。
+
+### 守卫整改（tests/test_frontend_binding.py + _frontend_binding_check.js）
+
+- `test_inline_script_parses` 的 raw `count()` 配平守卫被 i18n 词典误伤：词典英文译文合法带 ASCII 括号（`(unnamed)` 等），属数据而非代码。守卫升级为 `_js_balance()`——状态机跳过字符串/正则字面量/模板串（`${}` 递归）/注释，只数真代码括号；比 raw count 更准（它此前还漏算了正则 `/"/g` 里的引号会把后续真代码当字符串吞掉这类反向盲区）。
+- 沙箱 mock 补 `MutationObserver`/`NodeFilter`/`createTreeWalker` 最小桩：i18n 层随脚本完整加载执行到底，本身即冒烟。
+
+### 验证
+
+- Playwright 实机三态：默认中文零破坏 / 切英文 chrome 全渲染（含剧本库、条目卡徽章、状态栏、名册）/ 切回中文完整还原 / 再切可重复，JS 零错误。
+- 全量测试 379 绿（含升级后的守卫与沙箱 ALL PASS）。
+- 英文界面四张截图入库 `docs/assets/*-en.png`（与中文版同口径：setup/board/dramas/mobile，逐张视觉核验无路径/端口/会话 ID/探针痕迹；叙事正文保持剧本原文），README 预览节双语化。
+- 发版留档：本条目未 bump VERSION；发版时机由 simon 定（MINOR → v2.3.0 走完整 SOP）。后续项见 TODO「界面语言后续项」。
+
+---
+
 ## 2026-10-31 版本 v2.2.0（随包 DEMO 换血：高氏王朝下架，「终局曙光」转正并重做）
 
 > 版本号说明：v2.1.11~13 号段因两次回退（10-30 回退至 v2.1.10 基线、10-31 二次回退舍弃 NSFW 重新上架批次）从未发版、号段腾位；本次重新起编直接取 MINOR `v2.2.0`。回退前工作保全在分支 `keep/v2.1.13` → `5bf1d84` 与 `keep/v2.1.12` → `dea891b`，找回入口在分支，不在工作树。

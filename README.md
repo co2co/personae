@@ -22,7 +22,17 @@
 
 ![移动端](docs/assets/mobile.png)
 
-截图基于随包官方 demo 剧本，仅展示界面形态；实际推演内容由所接模型决定。
+界面语言内置中文 / English 切换（系统设置 → 界面语言），以下四张为英文界面形态：
+
+![English - Open a World](docs/assets/setup-en.png)
+
+![English - Sandbox](docs/assets/board-en.png)
+
+![English - Drama Library](docs/assets/dramas-en.png)
+
+![English - Mobile](docs/assets/mobile-en.png)
+
+截图基于随包官方 demo 剧本，仅展示界面形态；实际推演内容由所接模型决定。语言切换只改变界面文字，叙事语言由剧本与所接模型决定（图中界面为英文、剧情仍为剧本原文）。
 
 ## 定位与设计理念
 
