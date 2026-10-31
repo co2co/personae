@@ -9,6 +9,16 @@
 
 ---
 
+## 2026-10-31 文档：README 双语化（中文版 / 英文版各配本地语言截图）
+
+- `README.md`（中文版）：顶部加语言行 `简体中文 | [English](README.en.md)`；原「英文界面四张截图」整段移除——中文页不夹英文 UI 图，改为一行文字指向英文版。
+- `README.en.md`（新增，英文版）：与中文版逐节对应（Interface Preview / Positioning and Design Principles / Quick Start / Core Mechanics at a Glance / Engine Layout / Version / License），四张预览图改用 `docs/assets/*-en.png`，顶部互链回中文版。
+- 截图分工：中文页只引 `setup/board/dramas/mobile.png`，英文页只引同名 `-en.png`，两页零重复引用（8 个引用逐条校验命中文件）。
+- 分发不受影响：`package.py` 只打包 `engine/`，根 README 与 `docs/assets/` 不进 zip。
+- 未 bump VERSION（文档改动），随 v2.3.0 一并发版。
+
+---
+
 ## 2026-10-31 开发中（未发版）：界面语言 i18n（方案 A，DOM 层翻译）
 
 ### 架构决定：DOM 层翻译，渲染逻辑零改动

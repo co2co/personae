@@ -1,5 +1,7 @@
 # 群像弈（Personae）
 
+简体中文 | [English](README.en.md)
+
 一个原创的**多角色关系沙盘**引擎：Flask + 大模型驱动的剧情推演工具，自带世界书、秘密机制、关系网演化与多角色叙事推演。
 
 本引擎为原创 Python/Flask 实现，设计参考开放的角色卡 / 世界书理念，未使用 SillyTavern 等任何第三方源代码。
@@ -22,17 +24,9 @@
 
 ![移动端](docs/assets/mobile.png)
 
-界面语言内置中文 / English 切换（系统设置 → 界面语言），以下四张为英文界面形态：
+界面语言内置中文 / English 切换（系统设置 → 界面语言），英文界面形态见 [English README](README.en.md)。
 
-![English - Open a World](docs/assets/setup-en.png)
-
-![English - Sandbox](docs/assets/board-en.png)
-
-![English - Drama Library](docs/assets/dramas-en.png)
-
-![English - Mobile](docs/assets/mobile-en.png)
-
-截图基于随包官方 demo 剧本，仅展示界面形态；实际推演内容由所接模型决定。语言切换只改变界面文字，叙事语言由剧本与所接模型决定（图中界面为英文、剧情仍为剧本原文）。
+截图基于随包官方 demo 剧本，仅展示界面形态；实际推演内容由所接模型决定。
 
 ## 定位与设计理念
 
