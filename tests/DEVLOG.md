@@ -34,6 +34,19 @@
 
 ---
 
+## 2026-10-31 文档：README 语言栏（英文版占首页，中文版独立成页）
+
+- 目标（simon）：仿 SillyTavern 形态——仓库首页默认英文，最上方一行语言链接跳到中文版，中文版同样跳回英文版。
+- 结构调整：`git mv README.md README.zh-CN.md`（中文版）、`git mv README.en.md README.md`（英文版占首页）。GitHub 只把根 `README.md` 当首页，所以「默认英文」只能靠换名实现，仓库设置里没有指定首页文件的开关。
+- 语言栏：两页顶部插入居中 `<p align="center">`，当前语言加粗非链接、另一语言为链接（`English` ↔ `简体中文`）；原正文第二行的互链行删除，避免同一页两个入口。
+- 正文互链跟随改名：中文页「英文界面形态见 [English README](README.md)」，英文页「the [Chinese README](README.zh-CN.md) shows the Chinese UI」。
+- `README.en.md` 不再存在，旧路径 404；仓库刚公开、无外部引用，故不留 stub 文件。
+- 截图分工不变：中文页引 `docs/assets/{setup,board,dramas,mobile}.png`，英文页引同名 `-en.png`。
+- 分发不受影响：`package.py` 只打包 `engine/`，根 README 与 `docs/assets/` 不进 zip。
+- 未 bump VERSION（文档改动），随 v2.3.0 一并发版。
+
+---
+
 ## 2026-10-31 开发中（未发版）：界面语言默认英文 + 秘密簿记英文化
 
 > 本条中的「默认英文」已于同日被上一条「跟随系统（三态）」取代，仅秘密簿记英文化与键名修复仍有效。保留原文备查。
