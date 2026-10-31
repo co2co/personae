@@ -865,7 +865,7 @@ def _update_silent_rounds(snap, present, reply=""):
     实测（会话 8823e5f7）导演连续用指令点名同一批人时，镜头外角色的数字长期停在 0，
     提醒永不触发，提示词里那一段等于不存在。
 
-    另一处 v2.1.2 实证（_probe_stale d827692f）：R9 正文写了高天，纪官漏抽他的
+    另一处 v2.1.2 实证（_probe_stale d827692f）：R9 正文写了某配角，纪官漏抽他的
     actions，静默照涨到 8——下一轮又把提醒位浪费在刚写过的人身上，真正被冷落的
     反而轮不到。故加一层正文兜底：名字出现在正文里，本轮就算有戏。
     """
@@ -1319,7 +1319,7 @@ def reflect(sid, reply, directive=""):
     # 举证窗口：纪官的一切「谁做了什么、谁在哪里」都只认正文（与 secret_exposures 的
     # evidence 核验同一原则——引擎不猜，只核验出处）。
     # v2.1.2 实证：present 改成名册后，纪官把「名册」当「本轮在场」，给正文里根本没出现
-    # 的角色编出 actions（「维持现状」「保持北境稳定」）和 locations（把高昌报成本轮场景）。
+    # 的角色编出 actions（「维持现状」「保持边境稳定」）和 locations（把某配角报成本轮场景）。
     # 前者让 silent_rounds 永久归零、[可选提醒·久未登场] 形同不存在；后者把不在场的人
     # 钉进当前场景，下一轮 [本轮场面] 照着错记录分场。
     _spoken = (reply or "") + "\n" + (directive or "")
@@ -1453,7 +1453,7 @@ def reflect(sid, reply, directive=""):
     update_states(snap, _as_dict_list(data.get("state_updates")), rd)
     # 人物位置：独立唯一真相源，与状态键分离（见 update_locations 说明）。
     # 同样按正文举证：纪官会把没出场的名册成员报进 location_updates（v2.1.2 实证，
-    # 高昌被报成本轮场景），那种记录会把下一轮的分场带偏。
+    # 有配角被报成本轮场景），那种记录会把下一轮的分场带偏。
     update_locations(snap, [x for x in _as_dict_list(data.get("location_updates"))
                             if (x.get("who") or "").strip() in _spoken], rd)
     # 兜底（v0.31.1，v2.1.1 收窄到「正文写到的人」）：对仍无位置记录的角色，用 scene.place
