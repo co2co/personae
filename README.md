@@ -1,92 +1,70 @@
-# 群像弈（Personae）【暂定】· 项目总览
+# 群像弈（Personae）
 
-> 项目曾用名 **my-st / ST-Lite**（已于 v0.13.x 阶段更名）。新名 **群像弈（Personae）【暂定】** 为暂定名，后续可能调整。
-> 本引擎为原创 Python/Flask 实现，设计参考公开理念，未使用 SillyTavern 等任何第三方源代码。
+一个原创的**多角色关系沙盘**引擎：Flask + 大模型驱动的剧情推演工具，自带世界书、秘密机制、关系网演化与多角色叙事推演。
 
-原创的**多角色关系沙盘**引擎——Flask + 本地/云端大模型驱动的
-剧情推演工具，自带世界书、秘密机制、关系网演化与多角色叙事推演。
+本引擎为原创 Python/Flask 实现，设计参考开放的角色卡 / 世界书理念，未使用 SillyTavern 等任何第三方源代码。
 
-## 目录结构（A + B）
+## 定位与设计理念
 
-本项目采用「**引擎本体（A） + 测试单元（B）**」双目录并列存放：
-
-```
-personae/                 ← 项目根（群像弈，D:/codes/personae）
-├── engine/                 ← A. 引擎本体（分发时用户只需这一份）
-│   ├── app.py              后端入口（路由 + SSE 流式转发）
-│   ├── director.py         导演简报 + 秘密曝光 + 机会等级 + present 校验
-│   ├── world.py            世界书（constant / depth / position / recursive）
-│   ├── prompter.py         提示词组装（分层注入）
-│   ├── memory.py           会话 / 快照 / 秘密种子
-│   ├── store.py            角色卡 / 世界书 / 聊天 本地 JSON 存储
-│   ├── llm.py  scene.py  hooks.py
-│   ├── data/               创作内容（角色卡 / 世界书 / config）
-│   ├── static/index.html   单页前端
-│   ├── run.bat  install.bat  requirements.txt  VERSION
-│   ├── INSTALL.md          安装指南（见 engine/INSTALL.md）
-│   └── README.md           引擎说明（见 engine/README.md）
-├── tests/                  ← B. 开发工作树（开发用，不分发）
-│   ├── DEVLOG.md           开发日志（架构决策 / 版本记录）
-│   ├── TODO.md             待办与搁置项
-│   ├── FACT-MEMO.md        内部设计备忘
-│   ├── test_world_scan.py   world.scan 确定性单测
-│   ├── test_director.py     director 确定性单测
-│   ├── playthrough.py      走查驱动库（落盘 markdown）
-│   ├── test_playthrough.py  集成走查（标记 integration）
-│   ├── run_playthrough.py   独立走查入口
-│   ├── conftest.py  pytest.ini  README.md
-│   └── runs/               走查生成的 markdown 日志（gitignore）
-└── README.md               ← 本文件
-```
-
-> **开发与本体隔离**：`engine/` 是纯引擎本体，只含运行所需的一切 + 面向使用者的
-> `README.md` / `INSTALL.md`；所有开发类文档与测试脚本集中在 `tests/`。
-> 分发时只需 `engine/`，开发内容不会进入分发包。
-
-### 四层物理隔离（项目文件树规范）
-
-除 `engine/` + `tests/` 的源码层外，其余目录按「数据生命周期」分为三层，统一规范（详见技能 `project-tree-standard`）：
-
-| 层 | 目录 | 职责 | 进 git / 包 |
-|---|---|---|---|
-| 源码层 | `engine/` `tests/` + 根目录配置 | 引擎本体 + 测试 + 打包脚本 | 是 / 是 |
-| 交付物层 | `dist/` `audit/` | 发版 zip、审计报告 | 否 / 否 |
-| 作者态层 | `dramas/` `scripts/` | 剧本库、临时对比/压测脚手架 | 否 / 否 |
-| 运行时态层 | `backup/` + sessions/日志/venv | 带日期备份、会话态、缓存 | 否 / 否 |
-
-- 备份统一进 `backup/`（命名 `backup_YYYYMMDD_<主题>/`），发版 zip 统一进 `dist/`，审计报告进 `audit/`。
-- 脚手架脚本（`_probe_*`/`_tmp_*`/`_ab_*` 等含具体剧本角色名的一次性工具）归 `scripts/`，正式测试才是 `test_*.py`。
-- 四层均由 `.gitignore` 兜底，`git add .` 永不误伤私人数据（剧本、密钥、配置、备份）。
+- **群像缠斗，没有主角**：引擎不为单一主角服务。开局名册即剧本全部角色，张力来自角色之间的关系网、目标冲突与秘密博弈，而非单人养成。
+- **秘密是一等机制**：每个秘密绑定持有者，初始「潜伏」；剧情真正写出"发现动作 + 事实"才翻「暴露」，状态变化持续驱动后续博弈。关系与秘密的簿记（而非模型自身的长程记忆）是引擎的核心能力。
+- **世界书是环境杠杆**：通过关键词命中、常量注入、注入位置（系统层前 / 历史后）与递归依赖，把设定精确投喂给模型，用"位置"而非"力度"撬动叙事。
+- **外部导演范式**：使用者是不登场的导演，只向场景注入扰动；角色由模型自主决策行动。
+- **模型无关**：任何 OpenAI 兼容接口皆可对接（本地 llama.cpp / 云端服务均可）。
+- **零依赖负担**：数据为本地 JSON / JSONL，无数据库；前端单页原生 JS，无构建步骤。
 
 ## 快速开始
 
-**跑引擎**（进入 `engine/`）：
+完整安装步骤见 [`engine/INSTALL.md`](engine/INSTALL.md)。最简路径：
 
 ```bash
 cd engine
-python app.py          # 默认 http://127.0.0.1:5000
-# 或双击 engine/run.bat（默认端口 5051；首次需先 engine/install.bat 装依赖）
+install.bat            # 建 venv 并装依赖（Flask / requests）
+run.bat                # 启动，默认 http://127.0.0.1:5051
 ```
 
-打开浏览器访问对应地址即可使用（角色库 / 世界书 / 会话 / 系统设置四个面板）。
+浏览器打开对应地址，顶部四个面板：
 
-**跑测试**（在项目根）：
+- **角色库**：新建 / 编辑 / 删除角色卡（支持导入外部 JSON，未识别字段保留）
+- **世界书**：编辑世界书条目（浏览器内 `/docs/worldbook` 有完整用户手册）
+- **会话**：列出 / 继续 / 放弃进行中的剧本
+- **系统设置**：LLM 后端连接与生成参数，世界书说明书内链
 
-```bash
-pytest                              # 快测（确定性单测，不调 LLM）
-pytest -m integration              # 完整走查 + 落盘 markdown（需引擎在运行 + 真实 LLM）
-python tests/run_playthrough.py     # 不依赖 pytest，直接跑一局走查并保存 markdown
+引擎自带官方 demo 剧本（`engine/data/examples/`），首次运行自动播种，可直接开局体验。
+
+## 核心机制速览
+
+- **世界书**：关键词命中注入；`constant` 每轮必注；`depth` 条目级扫描深度；`position` 注入位置（before 系统层 / after 历史后）；`#name#` 递归拉入依赖条目。
+- **秘密机制**：秘密四态（潜伏 / 起疑 / 暴露 / 已公开），由剧情中的看见、听见、被告知、发现物证、自述、承认等通道驱动状态迁移。
+- **关系网 / 目标**：每轮由导演模块从叙事回写（actions / goals / relations）；亲缘关系独立冻结，不被长轮对话覆盖。
+- **名册与分场**：开局名册固定为剧本全部角色（少人会让关系网、秘密归属、亲缘、目标出现悬空引用）；生成后剥离名册外角色的台词；「谁在场」由 `locations` 分场表达，不靠名册收缩。
+
+## 引擎目录
+
+```
+engine/
+├── app.py          服务入口：路由 + SSE 流式转发
+├── director.py     导演简报：秘密状态机 / 名册校验 / 关系与镜头推断
+├── world.py        世界书扫描（constant / depth / position / recursive）
+├── prompter.py     提示词分层组装
+├── memory.py       会话 / 快照 / 秘密种子 / 行动状态
+├── store.py        角色卡 / 世界书 / 聊天 的本地文件读写
+├── llm.py          模型后端接入（OpenAI 兼容）
+├── scene.py        场景自动切换（时间 / 天气 / 在场名单）
+├── hooks.py        钩子（prompt_ready / message_received）
+├── data/           角色卡 / 世界书 / 配置 / 随包 demo 剧本
+├── static/         单页前端 + 世界书用户手册
+├── run.bat  install.bat  requirements.txt
+├── INSTALL.md      安装指南（面向使用者，先看这个）
+├── README.md       引擎说明
+└── VERSION         版本号
 ```
 
-## 分发说明
-
-用户只需 **`engine/`** 这一份即可独立运作；`tests/` 是开发期测试单元，分发时排除。
-打包脚本应只包含 `engine/` 及其创作内容（`data/`、前端、`config`），排除 `venv/`、`__pycache__/`、
-运行时会话状态（`engine/data/sessions/`、`engine/data/state.json`）与测试相关文件。
+引擎即 `engine/` 目录本身，独立自足：只含运行所需的一切与面向使用者的说明。
 
 ## 版本
 
-当前版本见 `engine/VERSION`（唯一真相源，此处不再复写版本号以免日志漂移）。各版本备份 zip 与提交记录见 `tests/DEVLOG.md`。
+当前版本见 [`engine/VERSION`](engine/VERSION)。
 
 ## 许可证
 

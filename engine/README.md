@@ -39,9 +39,6 @@ engine/
 ```
 
 > 本目录是**纯引擎本体**：只含运行所需的一切，以及面向使用者的说明文档。
-> 开发类文档（开发日志 `DEVLOG.md`、待办 `TODO.md`、内部备忘 `FACT-MEMO.md`）
-> **已移出本目录**，存放于开发工作树 `tests/`，不随分发包提供
-> （内含具体剧本的角色名与题材词，属引擎普适性红线）。
 
 ## 运行
 
@@ -71,4 +68,4 @@ python app.py          # 默认 http://127.0.0.1:5000
   亲缘、目标出现指向无卡角色的悬空引用），生成后剥离名册外角色与环境推手的台词块；
   「谁在场」由 `locations` 分场表达，不靠名册收缩。
 
-世界书用法见浏览器 `/docs/worldbook`（由 `static/worldbook-guide.html` 提供）；版本演进与架构决策见开发工作树 `tests/DEVLOG.md`（不随分发提供）。
+世界书用法见浏览器 `/docs/worldbook`（由 `static/worldbook-guide.html` 提供）；版本以 `VERSION` 文件为准。
