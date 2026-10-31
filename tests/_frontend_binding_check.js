@@ -65,6 +65,11 @@ global.localStorage = { getItem: () => null, setItem(){}, removeItem(){} };
 global.navigator = { userAgent: 'node' };
 global.FileReader = class { readAsDataURL(){} addEventListener(){} };
 global.EventSource = class { constructor(){ this.close = () => {}; } close(){} addEventListener(){} };
+// i18n 层所需的最小 DOM 依赖（本 mock 不验证翻译逻辑，只保证脚本完整加载并执行到底；
+// setTimeout(applyI18n,0) 照常真实调度——它在 mock DOM 下跑通本身即冒烟）。
+global.MutationObserver = class { observe(){} disconnect(){} };
+global.NodeFilter = { SHOW_TEXT: 4 };
+global.document.createTreeWalker = () => ({ nextNode: () => null });
 
 // fetch mock：把 /api/act 返回一条最小 SSE 流
 global.fetch = function (url, opts) {

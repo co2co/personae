@@ -71,6 +71,108 @@ def _read_index():
         return f.read()
 
 
+def _js_balance(js):
+    """统计「真代码」括号配平：跳过字符串、正则字面量、模板串（${} 插值递归计数）、
+    行注释、块注释。返回 {括号: 净差}，全 0 即配平。
+
+    起因：i18n 词典是纯数据串，英文译文合法带 ASCII 括号（"(unnamed)"、
+    "Session resumed" 等），raw count 会把数据里的括号计入而误报「编辑截断」。
+    真配平只筛代码结构损坏——它比 raw count 更准，不削弱守卫。
+    正则字面量必须单独识别（escHtml 里有 `/"/g`）：把正则里的引号当字符串
+    起点会吞掉后续真代码括号，产生假偏差。
+    """
+    bal = {"(": 0, "{": 0, "[": 0, ")": 0, "}": 0, "]": 0}
+    openers = {"(", "{", "["}
+    closers = {")", "}", "]"}
+    # 允许正则字面量出现在这些前导符号之后（JS 常规正则上下文）
+    regex_prev = set("(,=:[!&|?{};+-*%~^<>/")
+    n = len(js)
+
+    def walk(i, prev_sig, stop_char):
+        """扫描代码上下文；遇到 stop_char（未被本层消费）时不消费它，返回其位置。"""
+        while i < n:
+            c = js[i]
+            if stop_char and c == stop_char:
+                return i, prev_sig
+            if c == "/" and i + 1 < n and js[i + 1] == "/":
+                j = js.find("\n", i)
+                return (n if j < 0 else j), prev_sig  # 行注释止于换行前，交外层继续
+            if c == "/" and i + 1 < n and js[i + 1] == "*":
+                j = js.find("*/", i)
+                i = n if j < 0 else j + 2
+                prev_sig = "*"
+                continue
+            if c == "/" and (prev_sig == "" or prev_sig in regex_prev):
+                # 正则字面量（引号、括号都在其内部，不计数）
+                i += 1
+                in_cls = False
+                while i < n:
+                    d = js[i]
+                    if d == "\\":
+                        i += 2
+                        continue
+                    if d == "\n" and not in_cls:
+                        break
+                    if d == "[":
+                        in_cls = True
+                    elif d == "]":
+                        in_cls = False
+                    elif d == "/" and not in_cls:
+                        i += 1
+                        while i < n and js[i].isalpha():
+                            i += 1
+                        break
+                    i += 1
+                prev_sig = "/"
+                continue
+            if c in "\"'":
+                q = c
+                i += 1
+                while i < n:
+                    if js[i] == "\\":
+                        i += 2
+                        continue
+                    if js[i] == q:
+                        i += 1
+                        break
+                    if js[i] == "\n":
+                        break
+                    i += 1
+                prev_sig = q
+                continue
+            if c == "`":
+                i += 1
+                while i < n:
+                    if js[i] == "\\":
+                        i += 2
+                        continue
+                    if js[i] == "`":
+                        i += 1
+                        break
+                    if js[i] == "$" and i + 1 < n and js[i + 1] == "{":
+                        bal["{"] += 1
+                        i, prev_sig = walk(i + 2, "", "}")
+                        if i < n and js[i] == "}":
+                            bal["}"] += 1
+                            i += 1
+                        prev_sig = "}"
+                        continue
+                    i += 1
+                prev_sig = "`"
+                continue
+            if c in openers:
+                bal[c] += 1
+            elif c in closers:
+                bal[c] += 1
+            if not c.isspace():
+                prev_sig = c
+            i += 1
+        return i, prev_sig
+
+    walk(0, "", None)
+    return {k: bal[k] - bal[v] for k, v in (("(", ")"), ("{", "}"), ("[", "]"))}
+
+
 class TestFrontendMainFlowBound(unittest.TestCase):
     """index.html 必须包含主流程的全部绑定代码。"""
 
@@ -85,15 +187,20 @@ class TestFrontendMainFlowBound(unittest.TestCase):
         )
 
     def test_inline_script_parses(self):
-        """内联 <script> 必须能抽出且括号配平（粗筛结构性损坏）。"""
+        """内联 <script> 必须能抽出且「真代码」括号配平（粗筛结构性损坏）。
+
+        配平统计跳过字符串/注释（见 _js_balance）：i18n 词典等纯数据串
+        合法带 ASCII 括号，raw count 会误报；真配平只筛代码结构损坏。
+        """
         html = _read_index()
         m = re.search(r"<script>([\s\S]*?)</script>", html)
         self.assertIsNotNone(m, "index.html 内联 script 块缺失或标签不匹配")
         js = m.group(1)
-        for left, right in (("{", "}"), ("(", ")"), ("[", "]")):
+        bal = _js_balance(js)
+        for left in ("(", "{", "["):
             self.assertEqual(
-                js.count(left), js.count(right),
-                "内联脚本 %s/%s 不配平，疑似编辑截断" % (left, right),
+                bal[left], 0,
+                "内联脚本 %s 真代码计数不配平（%d），疑似编辑截断" % (left, bal[left]),
             )
 
     def test_world_entry_ui_preserves_hidden_flags(self):
