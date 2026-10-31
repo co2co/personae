@@ -307,6 +307,36 @@ class TestFrontendMainFlowBound(unittest.TestCase):
                 "JS 仍引用已移除的 #%s" % pid,
             )
 
+    def test_ui_lang_defaults_to_english(self):
+        """界面语言出厂默认必须是英文，且持久化键名完整。
+
+        守卫两件事：
+        1. 默认值回归——曾出现「国际化做了但默认仍中文」，英文用户开箱看到中文界面；
+        2. 键名字面量完整性——曾出现 `'personae_ui_lang'` 被误写成含省略号的
+           `'personae_…e'`，读写仍自洽所以功能「看起来正常」，但换键后旧偏好静默丢失。
+        """
+        html = _read_index()
+        self.assertRegex(html, r"const UI_LANG_KEY = 'personae_ui_lang';")
+        self.assertIn("let UI_LANG = 'en';", html, "出厂默认界面语言应为英文")
+        self.assertIn("localStorage.getItem(UI_LANG_KEY) || 'en'", html,
+                      "localStorage 缺省回退应为英文")
+
+    def test_secret_states_have_english_entries(self):
+        """秘密簿记的状态词与括号说明必须有英文词条/模板。
+
+        秘密四态由后端以中文字面量下发（潜伏/起疑/暴露/已公开），前端直接渲染。
+        漏词条时英文界面会显示「甲：潜伏（已知者：乙）」——半中半英，且不报错，
+        属静默退化。这里锁死词条与三条模板的存在。
+        """
+        html = _read_index()
+        for zh, en in (("潜伏", "Latent"), ("起疑", "Suspected"),
+                       ("暴露", "Exposed"), ("已公开", "Public")):
+            self.assertIn('"%s": "%s"' % (zh, en), html,
+                          "秘密状态「%s」缺英文词条" % zh)
+        for frag in ("/^（已知者：(.+)）$/, '(known to: $1)'",
+                     "/^（起疑：(.+)）$/, '(suspects: $1)'"):
+            self.assertIn(frag, html, "秘密簿记括号说明缺英文模板：%s" % frag)
+
 
 @unittest.skipIf(shutil.which("node") is None, "node 不可用，跳过 JS 沙箱执行")
 class TestFrontendSandbox(unittest.TestCase):

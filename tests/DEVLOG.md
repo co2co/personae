@@ -9,6 +9,31 @@
 
 ---
 
+## 2026-10-31 开发中（未发版）：界面语言默认英文 + 秘密簿记英文化
+
+### 默认语言
+
+- 出厂默认由中文改为 **英文**（`UI_LANG` 初值与 localStorage 缺省回退双处改）；`localStorage(personae_ui_lang)` 一旦写入即以用户选择为准，中文用户切一次「中文」即长期保持，换浏览器 / 清缓存回到默认英文。
+- 修掉一处字面量损坏：`UI_LANG_KEY` 曾被写成 `'personae_…e'`（含 U+2026 省略号）。读写同键，所以功能「看起来正常」，但键名是坏的、且与 DEVLOG 记录不符；已改回 `'personae_ui_lang'`。
+
+### 秘密簿记英文化（左栏「秘密」面板）
+
+- 状态词入词典：潜伏 / 起疑 / 暴露 / 已公开 / 全曝光 → Latent / Suspected / Exposed / Public / Public。后端仍以中文字面量下发，前端只译显示，`s.state === '潜伏'` 之类的逻辑比较不受影响（DOM 层方案 A 的既有约束）。
+- 括号说明改「逐段独立节点」：原先把「（未揭露）」与「（起疑：甲）」拼进同一文本节点，整串匹配不到任何词条，英文态出现半中半英。改为每段一个 `<span class="sec-tag">`，各命中词条或模板。
+- 新增两条正则模板：`（已知者：…）` → `(known to: …)`、`（起疑：…）` → `(suspects: …)`（角色名是变量，走捕获组）。
+- 新增标点归一 `_enPunct()`：命中词条后的译文再统一把 `、`→`, `、`：`→`: `、`（）`→` ( )`、`｜`→` | `，避免「Roster: 甲、乙」这类混排。
+- 补齐三处纯文本空态词条（尚未确立任何状态 / 尚未记录任何位置 / 选择世界后显示本剧本的全部角色）——它们此前只有「整块 HTML」版词条，纯文本节点匹配不到。
+- 布局补偿：`.sec-state`、`.loc-missing i` 各加 `margin-left:2px`（中文全角冒号自带间距，英文半角没有）。
+
+### 验证
+
+- Chrome headless 实机（本地引擎实例 + `--dump-dom`）：首屏英文态可见 CJK 只剩 2 处——语言切换按钮「中文」与剧本名「终局曙光」，均属数据/固定标签，非漏译；属性（placeholder / title / aria-label）残留 0。
+- 探针页注入 `renderSnapshot` 造四态秘密数据：英文态输出 `顾言:Latent (unrevealed)` / `林晚晚:Suspected (unrevealed) (suspects: 赵铁)` / `陆沉:Exposed (known to: 顾言)` / `赵铁:Public (known to: 林晚晚)`；再 `setUILang('zh')` 切回，秘密行、场景行、位置行全部逐字还原，无残留英文。
+- 全量 381 passed, 1 skipped（较上基线 +2：新增 `test_ui_lang_defaults_to_english`、`test_secret_states_have_english_entries` 两条守卫，锁默认语言、键名完整性与秘密词条/模板存在性）。
+- 未 bump VERSION，随 v2.3.0 一并发版。
+
+---
+
 ## 2026-10-31 文档：README 双语化（中文版 / 英文版各配本地语言截图）
 
 - `README.md`（中文版）：顶部加语言行 `简体中文 | [English](README.en.md)`；原「英文界面四张截图」整段移除——中文页不夹英文 UI 图，改为一行文字指向英文版。
