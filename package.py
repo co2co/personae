@@ -61,7 +61,7 @@ EXCLUDE_SUBPATHS = {
 }
 
 # 说明：开发类文档（DEVLOG / TODO / FACT-MEMO）已于 2026-10-08 移出引擎本体，
-# 现存于 tests/（开发工作树），engine/ 仅保留面向用户的 README.md 与 INSTALL.md。
+# 现存于 tests/（开发工作树），engine/ 仅保留面向用户的 README.md / INSTALL.md / INSTALL.en.md。
 # 故此处不再需要它们各自的排除项——EXCLUDE_DIRS 已覆盖引擎内的一切子目录。
 # 引擎面向任意剧本，任何剧本内容（角色名/关系/题材词）都不该出现在分发物里；
 # 该约束现由 EXCLUDE_SUBPATHS 承担（data/characters、data/worlds、player-cast）。

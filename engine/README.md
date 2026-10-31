@@ -1,71 +1,72 @@
-# 引擎本体（engine/）
+# 群像弈（Personae） · 引擎本体 / Engine
 
-群像弈（Personae）【暂定】的核心——一个 Flask 服务，用大模型驱动**多角色关系沙盘**的剧情推演。
-基于开放的角色卡 / 世界书设计思路精简而来，去掉了插件体系、多用户、
-TTS/图生图等冗余，保留了最关键的：多角色沙盘、世界书、秘密机制、关系网演化。
+本目录是**纯引擎本体**：只含运行所需的一切，以及面向使用者的说明文档。安装步骤见 [`INSTALL.md`](INSTALL.md)（中文）/ [`INSTALL.en.md`](INSTALL.en.md)（English）。
 
-## 技术栈
+This directory is the **engine proper**: everything needed to run it, plus user-facing documentation. For setup see [`INSTALL.md`](INSTALL.md) (Chinese) or [`INSTALL.en.md`](INSTALL.en.md) (English).
 
-- 后端：Python 3.12 + Flask 3
-- 模型：OpenAI 兼容接口（默认对接本地推理服务如 llama.cpp / Qwen 系列；亦可接任意云端 OpenAI 兼容服务）
-- 前端：单页 `static/index.html`（原生 JS，无构建步骤）
-- 数据：本地 JSON / JSONL，无数据库
+## 这是什么 / What This Is
 
-## 目录
+群像弈是一个 Flask + 大模型驱动的**多角色关系沙盘**：把一组角色卡与一本世界书交给模型，引擎负责关系网、秘密状态、分场与终局判定，使用者只以「导演」身份向场景注入扰动，不登场、不扮演角色。
 
-```
+开发用的测试、打包脚本、作者态剧本源都不在包内。
+
+Personae is a Flask + large-language-model driven **multi-character relationship sandbox**: give the model a cast of character cards and a worldbook, and the engine owns the relationship network, secret states, location staging, and ending detection, while the user only injects perturbations into the scene as an off-stage "director".
+
+Developer tests, packaging scripts, and author-side drama sources are not shipped in the package.
+
+## 技术栈 / Stack
+
+| | |
+|---|---|
+| 后端 / Backend | Python 3.10+（推荐 3.12）· Flask 3 |
+| 模型 / Model | 任意 OpenAI 兼容接口 / any OpenAI-compatible endpoint |
+| 前端 / Frontend | 单页 `static/index.html`，原生 JS，无构建 / vanilla JS, no build step |
+| 数据 / Data | 本地 JSON / JSONL 文件，无数据库 / local files, no database |
+
+## 目录 / Layout
+
+```text
 engine/
-├── app.py          服务入口：路由 + SSE 流式转发（创作管理 + 多角色沙盘两类接口）
-├── director.py     导演简报：秘密状态机 / present 名单校验 / 关系与镜头推断
-├── world.py        世界书 scan（constant / depth / position / recursive）
-├── prompter.py     提示词分层组装
-├── memory.py       会话 / 快照 / 秘密种子 / 行动状态
-├── store.py        角色卡 / 世界书 / 聊天 的本地文件读写
-├── llm.py          后端接入（base_url / model / 采样参数）
-├── scene.py        场景自动切换（时间 / 天气 / 在场名单）
-├── hooks.py        钩子（prompt_ready / message_received）
+├── app.py              entry point: routes + SSE streaming
+├── director.py         director briefing: secret state machine / roster checks / relations and focus
+├── world.py            worldbook scan (constant / depth / position / recursive)
+├── prompter.py         layered prompt assembly
+├── memory.py           sessions / snapshots / secret seeds / action state
+├── store.py            local file I/O for cards, worldbook, chats
+├── llm.py              model backend (base_url / model / sampling params)
+├── scene.py            automatic scene switching (time / weather / presence)
+├── hooks.py            hooks (prompt_ready / message_received)
 ├── data/
-│   ├── characters/ 角色卡（开放格式 JSON，含核心渴望/恐惧/关系种子等）
-│   ├── worlds/     世界书（条目数组：keys/content/constant/position/depth/name/secret）
-│   ├── examples/   随包 demo 剧本（官方示例：世界书 + 角色卡，首次运行时播种到 data/）
-│   └── config.json 系统配置（出厂为空连接）；用户自创的角色卡/世界书不进分发包
-├── static/index.html  单页前端
-├── static/worldbook-guide.html  世界书用户手册（由 `/docs/worldbook` 提供）
-├── run.bat         启动（默认端口 5051；先 install.bat）
-├── install.bat     建 venv + pip 装 requirements.txt
-├── requirements.txt  Flask / requests
-├── INSTALL.md        安装指南（面向分发用户，先看这个）
-└── VERSION         版本号
+│   ├── characters/     character cards (open JSON format)
+│   ├── worlds/         worldbooks (entry arrays)
+│   ├── examples/       bundled demo drama, seeded on first run
+│   └── config.json     ships with empty connection settings
+├── static/             single-page frontend + worldbook manual (/docs/worldbook)
+├── run.bat  install.bat  requirements.txt
+├── README.md  INSTALL.md  INSTALL.en.md
+└── VERSION             version
 ```
 
-> 本目录是**纯引擎本体**：只含运行所需的一切，以及面向使用者的说明文档。
+你创作的角色卡、世界书、会话记录，以及 `data/config.json` 里的连接信息，永远不会被打进分发包。
 
-## 运行
+Your cards, worldbooks, and session records — along with the connection settings in `data/config.json` — are never packaged.
 
-**首次部署请先读 `INSTALL.md`（安装指南）。**
+## 运行 / Run
 
 ```bash
 cd engine
-python app.py          # 默认 http://127.0.0.1:5000
-# 或双击 run.bat（端口 5051；首次需先运行 install.bat 创建 venv 并装依赖）
+install.bat                      # 首次：建 venv 并装依赖 / first run: create venv, install deps
+run.bat                          # http://127.0.0.1:5051
+python app.py                    # http://127.0.0.1:5000
+export PORT=8080 && python app.py   # 换端口 / custom port（cmd 用 set PORT=8080）
 ```
 
-浏览器打开对应地址。顶部四个面板：
+`run.bat` 固定 5051，端口被占用时先释放再启动；直接跑 `app.py` 默认 5000，端口由 `PORT` 环境变量决定。
 
-- **角色库**：新建 / 编辑 / 删除角色卡（或「导入 JSON」从外部导入，未识别字段保留）
-- **世界书**：编辑世界书条目（`/docs/worldbook` 有完整使用说明）
-- **会话**：列出 / 继续 / 放弃进行中的剧本（会话）
-- **系统设置**：模型与生成（LLM 后端设置），以及世界书说明书内链
+`run.bat` pins port 5051 and frees it if occupied; running `app.py` directly defaults to 5000, with the port taken from the `PORT` environment variable.
 
-## 核心机制速览
+## 再往上读 / Further Reading
 
-- **世界书**：关键词命中注入；`constant` 每轮必注；`depth` 条目级扫描深度；
-  `position` 注入位置（before 系统层 / after 历史后）；`#name#` 递归拉入依赖条目。
-- **秘密机制**：每个秘密绑定 `owner`（角色），初始「潜伏」；剧情真写出"发现动作 + 事实"
-  才翻「暴露」，并驱动后续博弈。
-- **关系网 / 目标**：由 director 在每轮 reflect 中从叙事回写（actions / goals / relations）。
-- **名册与分场**：开局名册固定为剧本**全部角色**（不提供挑选，少人会让关系网、秘密归属、
-  亲缘、目标出现指向无卡角色的悬空引用），生成后剥离名册外角色与环境推手的台词块；
-  「谁在场」由 `locations` 分场表达，不靠名册收缩。
-
-世界书用法见浏览器 `/docs/worldbook`（由 `static/worldbook-guide.html` 提供）；版本以 `VERSION` 文件为准。
+- 完整项目说明、机制设计与界面截图 / full project docs and screenshots: <https://github.com/co2co/personae>（首页英文，顶部语言栏可切中文 / English homepage, language switch at the top）
+- 世界书用法 / worldbook manual：启动引擎后浏览器打开 `/docs/worldbook`（serve it, then open `/docs/worldbook`）
+- 版本 / version：见 `VERSION`

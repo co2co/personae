@@ -1,3 +1,7 @@
+<p align="center">
+  <b>简体中文</b> | <a href="INSTALL.en.md">English</a>
+</p>
+
 # 群像弈（Personae）【暂定】安装指南
 
 本指南面向**拿到分发包的用户**：你只需要 `engine/` 这一份目录即可独立运行，无需 Python 工程经验。
@@ -136,4 +140,4 @@ pip install -r requirements.txt
 
 ---
 
-更完整的机制说明见浏览器 `/docs/worldbook`（世界书）；版本以 `VERSION` 文件为准。
+更完整的机制说明见浏览器 `/docs/worldbook`（世界书）；引擎结构与各文件职责见 [`README.md`](README.md)；版本以 `VERSION` 文件为准。
