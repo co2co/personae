@@ -10,6 +10,22 @@
 
 ---
 
+## 2026-10-31 文档：README 首页改回默认中文（撤销同日「英文占首页」裁决）
+
+> 本条推翻同日「README 语言栏（英文版占首页）」条目首页方向的裁决，该条目保留原文备查、不回改。
+
+- 改判依据（simon）：主要初始受众是国内中文群体，仓库首页应默认中文；英文 README 此前「面向 GitHub 国际访客」的定位权重让位于实际受众。
+- 结构调整：`git mv README.md README.en.md`（英文版退居二级页）、`git mv README.zh-CN.md README.md`（中文版回归首页）。仍是「GitHub 只认根 README.md 当首页、靠换名实现默认语言」的同一条机制，只是方向反转。
+- 语言栏：中文页顶栏 `<b>简体中文</b> | [English](README.en.md)`；英文页 `<a href="README.md">简体中文</a> | <b>English</b>`。当前语言加粗非链接的既有形态不变。
+- 正文互链跟随改名：中文页「英文界面形态见 [English README](README.en.md)」，英文页「the [Chinese README](README.md) shows the Chinese UI」。两页全部相对链接逐条校验命中（16 条全 OK）。
+- 上一轮的「`README.en.md` 已删除、旧路径不留 stub」裁决随本条反转自然恢复——`README.en.md` 重新存在；`README.zh-CN.md` 路径自本次起 404，仓库公开仅一日、无外部引用，不留 stub（同上次口径）。
+- engine 内文档零改动：`engine/README.md` 目录树与 `INSTALL` 双语页引用的都是包内 `engine/` 的 README/INSTALL，与根目录三文件无关（此前 grep 已核实零引用）。
+- 分发零影响：`package.py` 只打 `engine/`，根三页与 `docs/assets/` 不进 zip；v2.3.0 包无需重出，`dist/personae-v2.3.0.zip` 维持原样（新包纪律：旧包全量保留，本条亦不产生新包）。
+- GitHub Release v2.3.0 描述里「英文版占首页」一句同步 PATCH 为「中文版占首页」（与仓库实际形态一致，避免对外口径漂移）。
+- 未 bump VERSION（纯文档，且不在包内）。
+
+---
+
 ## 2026-10-31 版本 v2.3.0（发版记账：文档分层 + 引擎自述瘦身 + INSTALL 双语）
 
 > 本条兑现下方三条「开发中（未发版）」条目里「随 v2.3.0 一并发版」的约定；那些句子保留原文，不回改。

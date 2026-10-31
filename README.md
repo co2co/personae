@@ -1,99 +1,99 @@
 <p align="center">
-  <b>English</b> | <a href="README.zh-CN.md">简体中文</a>
+  <b>简体中文</b> | <a href="README.en.md">English</a>
 </p>
 
-# Personae（群像弈）
+# 群像弈（Personae）
 
-An original **multi-character relationship sandbox** engine: a story-simulation tool driven by Flask and a large language model, with a built-in worldbook, secret mechanics, relationship-network evolution, and multi-character narrative simulation.
+一个原创的**多角色关系沙盘**引擎：Flask + 大模型驱动的剧情推演工具，自带世界书、秘密机制、关系网演化与多角色叙事推演。
 
-This engine is an original Python/Flask implementation. Its design draws on the open character-card and worldbook concepts; no third-party source code such as SillyTavern is used.
+本引擎为原创 Python/Flask 实现，设计参考开放的角色卡 / 世界书理念，未使用 SillyTavern 等任何第三方源代码。
 
-## Interface Preview
+## 界面预览
 
-Setup screen — pick a drama and an opening scene, and the director takes over from there:
+开局首屏——选择剧本与开场场景，导演由此入场：
 
-![Setup](docs/assets/setup-en.png)
+![开局首屏](docs/assets/setup.png)
 
-Sandbox view — world state on the left (roster / current state / locations / secret ledger), multi-character narrative stream in the center, environment perturbation input at the bottom:
+推演主界面——左栏世界状态（名册 / 现状 / 人物位置 / 秘密簿记），中央多角色叙事流，底部注入环境扰动：
 
-![Sandbox](docs/assets/board-en.png)
+![推演主界面](docs/assets/board.png)
 
-Drama library — one drama is one worldbook plus all the characters in that drama; entries support constant / secret / recursive dependency settings:
+剧本库——一本剧本 = 一本世界书 + 该剧本全部角色，条目支持常量 / 秘密 / 递归依赖设定：
 
-![Drama Library](docs/assets/dramas-en.png)
+![剧本库](docs/assets/dramas.png)
 
-Mobile layout (single-column on narrow screens):
+移动端适配（窄屏单列布局）：
 
-![Mobile](docs/assets/mobile-en.png)
+![移动端](docs/assets/mobile.png)
 
-The interface follows your system language by default (Chinese systems get Chinese, everything else English). You can override it under System Settings → Interface Language — 中文 / English / Auto, where Auto goes back to following the system. This covers the whole UI, including the left rail's world state, roster, and secret ledger. These screenshots use the UI in English; the [Chinese README](README.zh-CN.md) shows the Chinese UI.
+界面语言跟随系统：中文系统显示中文，其它系统显示英文。可在「系统设置 → 界面语言」手动指定中文 / English，或选 Auto 恢复跟随系统（含左侧世界状态、名册、秘密簿记在内的全部界面文字）。英文界面形态见 [English README](README.en.md)。
 
-Screenshots are taken from the bundled official demo drama and show the interface only; actual simulation content depends on the connected model.
+截图基于随包官方 demo 剧本，仅展示界面形态；实际推演内容由所接模型决定。
 
-## Positioning and Design Principles
+## 定位与设计理念
 
-- **Ensemble conflict, no protagonist**: the engine does not serve a single lead. The opening roster is every character in the drama; tension comes from the relationship network, conflicting goals, and secret maneuvering among characters, not from raising one character.
-- **Secrets are a first-class mechanic**: every secret is bound to a holder and starts as "latent". It only flips to "exposed" when the narrative actually writes a discovery action plus a fact, and that state change keeps driving later play. Bookkeeping of relationships and secrets — rather than the model's own long-range memory — is the engine's core capability.
-- **The worldbook is an environmental lever**: keyword matching, constant injection, injection position (before the system layer / after history), and recursive dependencies feed the model exactly the setting it needs, leveraging position rather than force.
-- **External director paradigm**: the user is a director who never enters the scene and only injects perturbations; characters decide their own actions through the model.
-- **Model-agnostic**: any OpenAI-compatible endpoint works (local llama.cpp or a cloud service).
-- **No dependency burden**: data lives in local JSON / JSONL files, no database; the frontend is a single page of vanilla JavaScript with no build step.
+- **群像缠斗，没有主角**：引擎不为单一主角服务。开局名册即剧本全部角色，张力来自角色之间的关系网、目标冲突与秘密博弈，而非单人养成。
+- **秘密是一等机制**：每个秘密绑定持有者，初始「潜伏」；剧情真正写出"发现动作 + 事实"才翻「暴露」，状态变化持续驱动后续博弈。关系与秘密的簿记（而非模型自身的长程记忆）是引擎的核心能力。
+- **世界书是环境杠杆**：通过关键词命中、常量注入、注入位置（系统层前 / 历史后）与递归依赖，把设定精确投喂给模型，用"位置"而非"力度"撬动叙事。
+- **外部导演范式**：使用者是不登场的导演，只向场景注入扰动；角色由模型自主决策行动。
+- **模型无关**：任何 OpenAI 兼容接口皆可对接（本地 llama.cpp / 云端服务均可）。
+- **零依赖负担**：数据为本地 JSON / JSONL，无数据库；前端单页原生 JS，无构建步骤。
 
-## Quick Start
+## 快速开始
 
-Full installation steps are in [`engine/INSTALL.md`](engine/INSTALL.md). Shortest path:
+完整安装步骤见 [`engine/INSTALL.md`](engine/INSTALL.md)。最简路径：
 
 ```bash
 cd engine
-install.bat            # create venv and install deps (Flask / requests)
-run.bat                # start, default http://127.0.0.1:5051
+install.bat            # 建 venv 并装依赖（Flask / requests）
+run.bat                # 启动，默认 http://127.0.0.1:5051
 ```
 
-Open the address in a browser; the top bar has four panels:
+浏览器打开对应地址，顶部四个面板：
 
-- **Character Library**: create / edit / delete character cards (imports external JSON, preserving unrecognized fields)
-- **Worldbook**: edit worldbook entries (a full user manual is at `/docs/worldbook` in the browser)
-- **Sessions**: list / resume / abandon dramas in progress
-- **System Settings**: LLM backend connection and generation parameters, plus a link to the worldbook manual
+- **角色库**：新建 / 编辑 / 删除角色卡（支持导入外部 JSON，未识别字段保留）
+- **世界书**：编辑世界书条目（浏览器内 `/docs/worldbook` 有完整用户手册）
+- **会话**：列出 / 继续 / 放弃进行中的剧本
+- **系统设置**：LLM 后端连接与生成参数，世界书说明书内链
 
-The engine ships with an official demo drama (`engine/data/examples/`); it is seeded automatically on first run, so you can start playing right away.
+引擎自带官方 demo 剧本（`engine/data/examples/`），首次运行自动播种，可直接开局体验。
 
-## Core Mechanics at a Glance
+## 核心机制速览
 
-- **Worldbook**: keyword-triggered injection; `constant` entries are injected every round; `depth` sets per-entry scan depth; `position` sets the injection point (before the system layer / after history); `#name#` recursively pulls in dependent entries.
-- **Secret mechanic**: four secret states (latent / suspected / exposed / public), with transitions driven by narrative channels such as seeing, overhearing, being told, finding evidence, self-disclosure, and admission.
-- **Relationship network / goals**: every round the director module writes back actions / goals / relations from the narrative; kinship is frozen separately and is never overwritten by long conversations.
-- **Roster and location staging**: the opening roster is fixed to every character in the drama (dropping anyone leaves dangling references in the relationship network, secret ownership, kinship, and goals); lines from characters outside the roster are stripped after generation; "who is present" is expressed through `locations` staging, not by shrinking the roster.
+- **世界书**：关键词命中注入；`constant` 每轮必注；`depth` 条目级扫描深度；`position` 注入位置（before 系统层 / after 历史后）；`#name#` 递归拉入依赖条目。
+- **秘密机制**：秘密四态（潜伏 / 起疑 / 暴露 / 已公开），由剧情中的看见、听见、被告知、发现物证、自述、承认等通道驱动状态迁移。
+- **关系网 / 目标**：每轮由导演模块从叙事回写（actions / goals / relations）；亲缘关系独立冻结，不被长轮对话覆盖。
+- **名册与分场**：开局名册固定为剧本全部角色（少人会让关系网、秘密归属、亲缘、目标出现悬空引用）；生成后剥离名册外角色的台词；「谁在场」由 `locations` 分场表达，不靠名册收缩。
 
-## Engine Layout
+## 引擎目录
 
 ```
 engine/
-├── app.py          entry point: routes + SSE streaming passthrough
-├── director.py     director briefing: secret state machine / roster checks / relations and focus inference
-├── world.py        worldbook scanning (constant / depth / position / recursive)
-├── prompter.py     layered prompt assembly
-├── memory.py       sessions / snapshots / secret seeds / action state
-├── store.py        local file I/O for character cards / worldbook / chats
-├── llm.py          model backend integration (OpenAI-compatible)
-├── scene.py        automatic scene switching (time / weather / present roster)
-├── hooks.py        hooks (prompt_ready / message_received)
-├── data/           character cards / worldbook / config / bundled demo drama
-├── static/         single-page frontend + worldbook user manual
+├── app.py          服务入口：路由 + SSE 流式转发
+├── director.py     导演简报：秘密状态机 / 名册校验 / 关系与镜头推断
+├── world.py        世界书扫描（constant / depth / position / recursive）
+├── prompter.py     提示词分层组装
+├── memory.py       会话 / 快照 / 秘密种子 / 行动状态
+├── store.py        角色卡 / 世界书 / 聊天 的本地文件读写
+├── llm.py          模型后端接入（OpenAI 兼容）
+├── scene.py        场景自动切换（时间 / 天气 / 在场名单）
+├── hooks.py        钩子（prompt_ready / message_received）
+├── data/           角色卡 / 世界书 / 配置 / 随包 demo 剧本
+├── static/         单页前端 + 世界书用户手册
 ├── run.bat  install.bat  requirements.txt
-├── INSTALL.md      install guide (for users, read this first)
-├── README.md       engine documentation
-└── VERSION         version number
+├── INSTALL.md      安装指南（面向使用者，先看这个）
+├── README.md       引擎说明
+└── VERSION         版本号
 ```
 
-The engine is the `engine/` directory itself and is self-contained: it holds everything needed to run plus the documentation written for its users.
+引擎即 `engine/` 目录本身，独立自足：只含运行所需的一切与面向使用者的说明。
 
-## Version
+## 版本
 
-See [`engine/VERSION`](engine/VERSION) for the current version.
+当前版本见 [`engine/VERSION`](engine/VERSION)。
 
-## License
+## 许可证
 
-This project (engine source and bundled drama content) is released under the **GNU GPL v3 or later** (GPL-3.0-or-later); the full text is in [`LICENSE`](LICENSE). Use, copy, modify, and redistribute freely; derivative works must be open-sourced under the same license.
+本项目（含引擎源码与随包剧本内容）采用 **GNU GPL v3 或更高版本**（GPL-3.0-or-later）开源，全文见 [`LICENSE`](LICENSE)。自由使用、复制、修改与再分发，衍生作品须以相同许可证开源。
 
 Copyright (C) 2026 co2co
