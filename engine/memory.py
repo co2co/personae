@@ -28,7 +28,7 @@ def new(cast, scene_place="", world_name="", scene_time="", opening_demo=""):
 
     scene_place / scene_time：开场地点的纯地点名与时间锚，已由 session_new 经
     scene.parse_initial_scene 拆分（混写「傍晚，客厅」时，时间词进 time、地点进 place）。
-    时间锚缺失会让模型只能靠世界书反向脑补时间（会话 256d924c 事故），故单独保留 time。
+    时间锚缺失会让模型只能靠世界书反向脑补时间（一次真实事故），故单独保留 time。
     """
     sid = _new_id()
     folder = SESS_DIR / sid

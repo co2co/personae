@@ -204,10 +204,6 @@ ORIGIN_ENGINE = "engine"
 # 引擎不再随新建 / 导入剧本播种「亲密描写标准」世界书条目——尺度完全交回各剧本的
 # 世界书与剧情推进决定。既有磁盘剧本里的同名条目原样保留（引擎改动只影响今后的播种，
 # 不回填、不清理旧条目）；作者想给某剧本加亲密写法标准，正路是在本剧世界书里自建一条。
-# 回滚蓝本（唯一权威）：git tag `nsfw-on-v2.1.7`（→ 提交 a6e1280），
-# _STANDARD_ENTRY_CONTENT（六分层 + 器官词正反示例）在该 tag 的 engine/store.py 内。
-# 重新上架：git checkout nsfw-on-v2.1.7 -- <13文件>，清单见 DEVLOG 2026-10-23 条目。
-# 注：早期使用的目录快照 _backup_offshelf_nsfw_* 已于 2026-10-23 晚手工清理，勿再引用。
 
 
 # ---- 写法示范（few-shot，对标酒馆 first message / example messages）----

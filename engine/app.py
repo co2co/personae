@@ -8,7 +8,7 @@
 
 注：旧版单角色生成接口（/api/generate、/api/message、/api/state、/api/persona、
 /api/nsfw/confirm、/api/state/reset）已于 2026-09-30 移除，「玩家」机制一并下线，
-NSFW 支持已于 v0.8.0 整体废弃（见开发工作树 tests/DEVLOG.md）。
+NSFW 支持已于 v0.8.0 整体废弃。
 
 生成流程：读角色卡 -> 组装提示词（prompter）-> 发请求 -> 回写快照（关系 / 目标 / 秘密揭露）。
 """
@@ -537,7 +537,7 @@ def session_new():
     scene_raw = body.get("scene", "")
     # 把玩家混写的「傍晚，公寓的客厅」拆成 (place, time)：时间词进 time、地点进 place。
     # 旧实现整体塞进 place、time 恒空，时间锚丢失后正文只能靠世界书反向脑补时间
-    # （会话 256d924c 事故）。拆分后前端「场景：{place}（{time}）」展示保持不变。
+    # （一次真实事故）。拆分后前端「场景：{place}（{time}）」展示保持不变。
     scene_place, scene_time = scene.parse_initial_scene(scene_raw)
     # 开局写法示范由引擎静默使用中性默认：它是「怎么写」的格式范例，不作为使用者输入。
     opening_demo = store._FIRST_ROUND_DEMO
