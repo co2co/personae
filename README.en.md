@@ -24,7 +24,7 @@ Mobile layout (single-column on narrow screens):
 
 ![Mobile](docs/assets/mobile-en.png)
 
-The interface ships with a Chinese / English switch (System Settings → Interface Language). These screenshots use the UI in English; the Chinese README shows the Chinese UI.
+The interface defaults to English and ships with a Chinese / English switch (System Settings → Interface Language). These screenshots use the UI in English; the Chinese README shows the Chinese UI.
 
 Screenshots are taken from the bundled official demo drama and show the interface only; actual simulation content depends on the connected model.
 

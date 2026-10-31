@@ -24,7 +24,7 @@
 
 ![移动端](docs/assets/mobile.png)
 
-界面语言内置中文 / English 切换（系统设置 → 界面语言），英文界面形态见 [English README](README.en.md)。
+界面语言默认英文，可在「系统设置 → 界面语言」切为中文；英文界面形态见 [English README](README.en.md)。
 
 截图基于随包官方 demo 剧本，仅展示界面形态；实际推演内容由所接模型决定。
 
