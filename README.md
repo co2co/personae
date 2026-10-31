@@ -87,3 +87,9 @@ python tests/run_playthrough.py     # 不依赖 pytest，直接跑一局走查�
 ## 版本
 
 当前版本见 `engine/VERSION`（唯一真相源，此处不再复写版本号以免日志漂移）。各版本备份 zip 与提交记录见 `tests/DEVLOG.md`。
+
+## 许可证
+
+本项目（含引擎源码与随包剧本内容）采用 **GNU GPL v3 或更高版本**（GPL-3.0-or-later）开源，全文见 [`LICENSE`](LICENSE)。自由使用、复制、修改与再分发，衍生作品须以相同许可证开源。
+
+Copyright (C) 2026 co2co
