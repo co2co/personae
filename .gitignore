@@ -23,6 +23,9 @@ audit/
 engine/data/sessions/
 engine/data/state.json
 
+# pytest 临时根目录（会话垃圾）
+.tmp-pytest-*/
+
 # 运行展示截图（2026-10-09 simon 裁定：不再随分发包提供，整体挪到项目根，仅留工作树）
 # package.py 只 os.walk(engine/)，根目录天然不进包；此处 ignore 防止误提交
 screenshots/
