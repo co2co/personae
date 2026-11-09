@@ -158,8 +158,7 @@ def script_guide_doc():
 # 秘密条目只对外暴露「谁藏了什么、露到哪一步」，不含内容与后果。
 _SECRET_PUBLIC_FIELDS = ("owner", "state", "known_by", "suspicions")
 
-# 快照顶层字段白名单：未列出的一律不外发（含 relations_base / kinship_base /
-# address / recent 等内部字段）。
+# 快照顶层字段白名单：未列出的一律不外发（如 address / recent 等内部字段）。
 # relations / ledger 当前**没有 UI 消费者**（v0.16.1 起左栏刻意不展示它们：那些是
 # 引擎的中间产物，摆出来会让玩家照着面板核对而不是读故事）。仍留在白名单里，因为
 # 它们是引擎的核心状态，导出、复盘、二次开发都要用；白名单的职责是「哪些字段可以
@@ -562,13 +561,13 @@ def session_new():
                     + str(memory.MAX_KEPT_SESSIONS) + " 条）")
     # 关系网：角色卡手填 relations 为权威基线（已在 memory.new 播种）。
     # 缺口推断：任一在场角色在基线中完全无关系边即调用纪官补全（见 director.fill_relation_gaps）。
-    # 推断关系一并纳入 relations_base（受 v0.7.6 亲属冻结保护）；手填齐全则零 LLM 开销。
+    # 推断只补缺：卡片手填的关系优先，LLM 不得覆盖；手填齐全则零 LLM 开销。
     snap = memory.load(sid)
     gap_chars = director.fill_relation_gaps(snap)
     if gap_chars:
         memory.save(sid, snap)
         logger.info("director",
-            "缺口推断补全关系网（" + "、".join(gap_chars) + " 缺边）：已固化 relations_base")
+            "缺口推断补全关系网（" + "、".join(gap_chars) + " 缺边）")
     else:
         logger.info("director", "关系基线已齐全，跳过 LLM 推断")
     # 称呼速查：关系只说明「是什么关系」，称呼才决定正文里怎么开口叫人。

@@ -540,15 +540,10 @@ def validate_present(reply, present, known_names):
 def seed_relations_from_cards(cards_present):
     """从角色卡自带的 relations 字段确定性地构建初始关系表（"源 → 目标": 描述）。
 
-    这是剧本作者在角色卡里**显式写下**的关系网，作为权威基线（relations_base），
-    优先级高于 LLM 自由生成——避免 LLM 把"小姨子"推成"妻子"之类漂移。
+    这是剧本作者在角色卡里**显式写下**的关系网，优先级高于 LLM 自由生成——
+    避免 LLM 把"小姨子"推成"妻子"之类漂移。
     卡片 relations 字段形如 { "角色A": "丈夫…", "角色B": "妹妹…" }，
     逐条转成 "{卡名} → {目标}": 描述。
-
-    可选的 relations_kinship 字段形如 { "角色B": "小姨子" }，供引擎精确冻结血缘身份：
-    它绕过词表猜测，作者直接声明「A 对 B 的亲属身份是什么」。写了这个字段，
-    它固化进快照 kinship_base。纪官瘦身后（见本文件 reflect 段）引擎不再改写关系，
-    原先据此做的冻结闸已一并删除，该字段目前只作数据保留、无消费方。
     """
     out = {}
     for c, card in (cards_present or {}).items():
@@ -561,93 +556,6 @@ def seed_relations_from_cards(cards_present):
             out[f"{c} → {target}"] = desc
     return out
 
-
-def seed_kinship_from_cards(cards_present):
-    """从角色卡可选的 relations_kinship 字段提取显式亲属身份声明。
-
-    返回 { "源 → 目标": 身份词 }，只含在 _KINSHIP_TOKENS 里出现的合法身份词。
-    血缘事实是作者定义的固定事实，不该靠从描述句里猜词——本字段让作者直说。
-
-    ⚠ 本函数只服务「关系缺口补全」路径（fill_relation_gaps）；真实会话的显式声明
-    走memory.new → kinship_base，那条链路**不过滤此表**，故本表缺词并不影响
-    真实会话的冻结（v0.18.6 实测确认：姨父不在表时冻结照样生效）。
-
-    注意：非法词是**静默丢弃**的（无报错、无日志）。作者声明了表外身份词后会以为
-    冻结已生效、实则没有兜底，排查极难。故 v0.18.6 已把中国亲属称谓的常见缺项补齐。
-    """
-    out = {}
-    for c, card in (cards_present or {}).items():
-        rels = card.get("relations_kinship") or {}
-        if not isinstance(rels, dict):
-            continue
-        for target, kin in rels.items():
-            if not target or not kin:
-                continue
-            kin = str(kin).strip()
-            if kin in _KINSHIP_TOKENS:
-                out[f"{c} → {target}"] = kin
-    return out
-
-
-# 亲属身份词表：关系定性里出现这些词即代表一种「亲属身份定位」。
-# 引擎强制冻结其身份——作者定义的血缘/姻亲关系（父子、母子等）是固定事实，
-# 模型只能演化情感/状态修饰，不得把「父亲」改写成「姐夫/嫂子」之类导致乱伦逻辑崩塌。
-# 注意：恋人/情人等「关系状态」不在冻结之列（沙盘本就要演好感→恋人），只冻结亲属身份。
-#
-# 词表只收**双字及以上**的完整身份词。早期版本混入「母」「子」「夫」「弟」等单字，
-# 而单字在中文里几乎只作为长词的碎片出现（母子/母性/夫人/兄弟），实测在 demo 的
-# 12 条关系里造成 8 条误判（如「A母子的生死」被判为「子」的身份声明），
-# 冻结机制反而把正确的「妻子」改写成「子，关系紧张」。故单字一律不作为身份词。
-#
-# 【覆盖范围】按中国亲属称谓的完整体系补齐（v0.18.6）：原表 45 词只覆盖直系 +
-# 少数旁系与姻亲，缺姨父/姑父/堂表兄弟姐妹/侄女外甥女/岳父岳母/继子女养子女等，
-# 这些缺口让「妻姐之夫」「堂哥」等常见设定拿不到冻结保护——作者在
-# relations_kinship 里显式声明了也会被seed_kinship_from_cards 静默丢弃。
-#
-# 【社会关系词为何一律不进表】同事/邻居/房东/医生/领导/上司/下属等一律不收：
-#   1. 本引擎的核心能力是「关系演化」，社会关系正是演化主体（同事→恋人、
-#      下属上位、房东变盟友）。入表即把这些演化冻死，等于关掉引擎的主要功能
-#      （守护用例见 test_relation_gate.py：test_kinship_excludes_social_relations、
-#       test_reflect_does_not_rewrite_relations）。
-#   2. 职业/称谓类词在中文里大量作状语与口语称呼（「大哥别说」「领导在场」）
-#      句首声明规则会大面积误判，把叙述句当身份声明反过来改坏关系。
-#   若某个社会身份确需固定（如"法官/医生不得被改写成亲属"），
-#   走 relations_kinship 显式声明通道——memory.new 写入 kinship_base 时不过滤此表，
-#   该通道对任意身份词都生效。
-_KINSHIP_TOKENS = [
-    # ── 直系长辈 ──
-    "父亲", "母亲", "祖父母", "曾祖父", "曾祖母", "高祖父", "高祖母",
-    "外祖父", "外祖母", "外公", "外婆", "爷爷", "奶奶",
-    "伯父", "伯母", "伯伯", "伯娘", "叔父", "叔母", "叔叔", "婶婶", "婶母",
-    "姑母", "姑父", "姑妈", "姑姑", "舅舅", "舅妈", "舅母", "姨妈", "姨母", "姨父", "阿姨",
-    # ── 直系晚辈 ──
-    "儿子", "女儿", "孙子", "孙女", "外孙", "外孙女", "曾孙", "曾孙女",
-    # ── 兄弟姐妹与同辈旁系 ──
-    "哥哥", "弟弟", "姐姐", "妹妹", "兄长",
-    "堂兄", "堂弟", "堂姐", "堂妹", "堂哥", "堂嫂",
-    "表兄", "表弟", "表姐", "表妹", "表哥", "表嫂",
-    "姨姐", "姨妹", "小姨子", "大姨子",
-    # ── 侄辈 ──
-    "侄子", "侄女", "外甥", "外甥女", "甥男", "甥女",
-    # ── 核心姻亲（配偶）──
-    "丈夫", "妻子", "老公", "老婆",
-    # ── 核心姻亲（长辈/平辈/晚辈）──
-    "岳父", "岳母", "岳丈",
-    "公公", "婆婆", "儿媳", "媳妇", "女婿", "孙媳", "孙女婿",
-    "姐夫", "妹夫", "弟夫", "嫂子", "弟媳", "弟妹", "连襟", "妯娌",
-    "亲家", "亲家公", "亲家母",
-    # ── 继嗣与收养 ──
-    "养父", "养母", "养子", "养女", "义父", "义母",
-    "继父", "继母", "继子", "继女", "继兄", "继弟", "继姐", "继妹",
-    # ── 义亲与师承 ──
-    "干爹", "干妈", "教父", "教母",
-    # ── 口语与尊称（常见同义写法）──
-    "爸爸", "妈妈", "爹爹", "娘亲", "老爸", "老妈",
-]
-_KINSHIP_TOKENS = sorted(set(_KINSHIP_TOKENS), key=len, reverse=True)
-assert not [t for t in _KINSHIP_TOKENS if len(t) < 2], "身份词表混入单字词"
-assert "同事" not in _KINSHIP_TOKENS and "恋人" not in _KINSHIP_TOKENS, \
-    "社会关系/关系状态词不得进冻结表（会冻死关系演化，见词表注释）"
 
 def init_relations(cards_present):
     """构建初始关系网：以角色卡 relations 字段为权威基线，LLM 仅补卡片未覆盖的空缺。
@@ -674,7 +582,9 @@ def init_relations(cards_present):
     ]
     try:
         # 卡组越大关系对越多（n 人最多 n*(n-1) 对），额度按人数放宽，避免截断后整体丢失。
-        raw = llm.complete(prompt, max_tokens=max(700, 180 * max(len(present), 4)),
+        # 额度口径用 cards_present 的人数：本函数没有 present 这个局部名，早先写错成
+        # len(present) 会抛 NameError，被外层 except 吞掉——缺口推断因此从未真正调用过模型。
+        raw = llm.complete(prompt, max_tokens=max(700, 180 * max(len(cards_present), 4)),
                            temperature=0.4, timeout=60)
         data = _extract_json(raw)
         if data and isinstance(data.get("relations"), dict):
@@ -691,8 +601,8 @@ def fill_relation_gaps(snap):
 
     返回触发推断的角色列表（空列表 = 无需推断，手填齐全）。
     若检测到缺口，调用纪官(init_relations)从同场角色描述推断缺失的双向关系，
-    推断结果写回 snap["relations"] 与 snap["relations_base"]；写回后即为最终口径，
-    纪官不再改写关系（见 reflect 的字段归属注释）。
+    推断结果写回 snap["relations"]；写回后即为最终口径，纪官不再改写关系
+    （见 reflect 的字段归属注释）。
 
     旧逻辑仅在「全部卡的 relations 合并为空」时才推断，导致「大部分有、个别缺」的剧本
     （如某张卡 relations 为空、且不被他人提及）漏网；本函数改为按「单个在场角色是否缺边」触发，
@@ -713,7 +623,6 @@ def fill_relation_gaps(snap):
     gen = init_relations(cards)
     if gen:
         snap["relations"] = gen
-        snap["relations_base"] = dict(gen)
     return gap_chars
 
 
@@ -986,7 +895,7 @@ def reflect(sid, reply, directive=""):
             # 人物位置（location_updates）、物件现状（state_updates）。删掉五样：
             #   relations——纪官把关系压成 ≤30 字标签覆盖作者手写的细部（审计 P3：
             #     「他知道台阶是他递的」这类戏剧信息从 R2 起再也看不到）。关系归作者，
-            #     由角色卡 relations 固化为 relations_base，恒定回注、不再被模型改写。
+            #     由角色卡 relations 固化进 snap["relations"]，恒定回注、不再被模型改写。
             #   goals——短期目标是引擎替角色想的意图，与角色卡的核心渴望/恐惧重复供给；
             #   actions——只为「久未登场提醒」服务，提醒机器一并删除；
             #   scene_shift——场景由导演指令决定，见 scene.resolve；
@@ -1043,8 +952,8 @@ def reflect(sid, reply, directive=""):
         logger.warn("director", "纪官输出疑似被截断，已抢救回写部分字段（末尾条目可能丢失）")
         _log_reflect_failure(sid, (snap.get("scene") or {}).get("round", 0), "truncated")
 
-    # 关系定性不再由纪官改写（2026-11-08 引擎瘦身）：snap["relations"] 建局时即等于
-    # relations_base（作者从角色卡固化的口径），此后不变。旧版它先被压成 ≤30 字标签、
+    # 关系定性不再由纪官改写（2026-11-08 引擎瘦身）：snap["relations"] 建局时即由
+    # 角色卡 relations 固化（作者口径），此后不变。旧版它先被压成 ≤30 字标签、
     # 再过两道冻结闸，作者手写的戏剧细部只活一轮（审计 P3）；闸本身就是为堵模型的
     # 越权改写而建的，源头撤掉后闸也不再需要。亲属身份漂移（"小姨子"→"妻子"）同理消失。
     # 举证窗口：纪官的「谁在哪里」只认正文（与 secret_exposures 的 evidence 核验同一

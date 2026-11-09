@@ -10,6 +10,7 @@
 - 本报告针对「推演质量与簿记正确性如何被证明」这一层，即证据体系，不是功能面扩张。
 - 分析材料：`tests/DEVLOG.md`、`tests/TODO.md`、`tests/FACT-MEMO.md`、`engine/{director,world,prompter,store,llm,scene}.py`、`scripts/` 与 `tests/` 下的探针脚本、`dist/` 产物清单。
 - 复核限制：本机 `engine/venv` 的基础解释器路径已失效（`...\Programs\Python\Python312\python.exe` 不存在），`pytest` 未能运行。结论来自代码阅读与 §8 的两段独立复核脚本。测试基线是否仍为 381 passed 未由本次复核确认。
+  - 2026-11-09 勘误：上一条的「解释器路径已失效」不成立。`...\Programs\Python\Python312\python.exe` 一直在盘上，当时未能启动是执行沙箱拒绝该路径，不是环境损坏。同日已实测：`tests\venv\Scripts\python.exe -m pytest -q` 在瘦身前锚点 381 passed，引擎瘦身后 301 passed / 1 skipped（见 `tests/DEVLOG.md` 2026-11-09 两条）。本报告其余结论是方法论判断，不受此勘误影响。
 
 ---
 

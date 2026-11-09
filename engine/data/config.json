@@ -2,7 +2,6 @@
   "base_url": "",
   "api_key": "",
   "model": "",
-  "budget": 4096,
   "max_tokens": 4096,
   "temperature": 0.9,
   "top_p": 0.95,

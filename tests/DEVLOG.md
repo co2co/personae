@@ -10,6 +10,27 @@
 
 ---
 
+## 2026-11-09 清理补记（发版同日：死键与失效字段裁净 + `cc1504b` 回填 master + retag）
+
+> 触发：simon 裁定两条——「`cc1504b` 还没进 master，要回填」「遗留死键与失效字段仍在原处等裁，清掉」。
+> 仍属 v2.4.0 号段（未 push，`VERSION` 不再 bump，tag 重打见末条）。
+
+- **回填 nsfw 侧提交**：`git cherry-pick -x cc1504b` → `b20a15c`（`.gitignore` 补 `.tmp-pytest-*/` 兜底 + `tests/EVALUATION.md` 381 行 v1 深度评估标准入库）。回填前全文扫过：无 NSFW 正文、无密钥与个人信息，内容是证据体系方法论加文献条目；`package.py` 排除 `tests/`，不进分发包。就地补一条 2026-11-09 勘误：该文档 §0「本机解释器路径已失效」不成立，是执行沙箱拒绝启动该路径，不是环境损坏。
+- **清 `budget` 死键**：入库版 `engine/data/config.json` 删 `"budget": 4096`。引擎零读取方——`llm.DEFAULTS` 与 `_WRITABLE` 都不含该键（实测 grep 全仓 `engine/`、`package.py`、`tests/` 无 Python 消费方）。该文件在开发机带 `assume-unchanged`（`git ls-files -v` 显 `h`），故走 git plumbing 清提交态：`hash-object -w` 造新 blob（194→176 字节）+ `update-index --cacheinfo`，事后重新 `--assume-unchanged`；工作区那份本地运行配置（providers / 模型绝对路径）一字未动。分发包侧 `package.py` 洗白本就剔除该键，用户侧无变化。
+- **撤 kinship 层（`relations_base` / `kinship_base` / `relations_kinship` / `_KINSHIP_TOKENS`）**：
+  - `memory.new` 不再读角色卡 `relations_kinship`、不再写快照 `relations_base` 与 `kinship_base`（净 −19 行）。
+  - `director` 删 `seed_kinship_from_cards` 与 `_KINSHIP_TOKENS` 词表（含 60 行词表注释与两条自检 assert）；`fill_relation_gaps` 不再回写 `relations_base`。
+  - demo 6 张角色卡删 `relations_kinship` 字段。信息不丢：陆沉↔陆芷的「父亲 / 女儿」在两卡 `relations` 描述句里本就写着（「他的女儿」「父亲。她认得他脚步声的节拍」）。
+  - 判据：v2.4.0 撤掉关系回写后，两道冻结闸已一并删除，这条链只剩「落盘、无消费方」；前端卡表已知字段集（`index.html` 的 `KNOWN` 白名单）从不认这个键，作者填了既不显示也不生效——留着等于教作者去用一个死字段。
+  - 兼容性：老快照、老角色卡带这些键不报错（读取方全撤，多余键被忽略），未做数据迁移。属可选字段收缩，不另开版本号。
+  - 措辞去悬空引用：`README.md` / `README.en.md`「名册与分场」条去掉「亲缘 / kinship」；`index.html` 名册注释同改。
+- **顺带修一条潜伏缺陷（主动审查发现）**：`director.init_relations` 的额度行写作 `len(present)`，而本函数没有 `present` 这个局部名、模块层也没有该全局 [静态检查 依据:`symtable` 旧版 director.py——`init_relations` 自由引用 `present`，模块层无名为 `present` 的赋值]，`NameError` 被外层 `except Exception: pass` 吞掉。后果：**「关系缺口推断」自那次改动起从未真正调用模型**，只返回卡片手填的部分；既有 `fill_relation_gaps` 用例把 `init_relations` 整个 mock 掉，所以这条静默失效在测试里完全看不见。修：额度口径改 `len(cards_present)`；新增 `test_init_relations_actually_calls_llm`（断言模型确实被调一次，旧代码必挂）与 `test_init_relations_card_relations_win_over_llm`（手填不被模型覆盖）锁死。
+  - 行为变化提示：新建会话时若名册里有人完全无关系边，现在会真的发起一次 `init_relations` 调用（此前永远不发）。导演指令与手填齐全的剧本仍零开销。
+- 测试：`tests\venv\Scripts\python.exe -m pytest -q -p no:cacheprovider` → **298 passed / 1 skipped / 1 deselected**，退出码 0。同日改前 301 passed [实测]，净 −3 = 删 5 条词表/血缘用例、新增 2 条缺口推断用例。
+- tag 与包：`v2.4.0` 重打到清理后的 HEAD（`git tag -f`），使 tag 内容 = 分发包内容；旧 tag 未 push，无外部影响。清理版 `dist/personae-v2.4.0.zip` 按「旧包一律保留」移入 `dist/_retired/personae-v2.4.0-pre-cleanup.zip`，重新打包并复验。
+
+---
+
 ## 2026-11-09 版本 v2.4.0（发版记账：引擎瘦身移植 master 落地）
 
 > 版本号取 MINOR。判据：数据文件形状未变（角色卡 / 世界书 / 会话 JSON 结构照旧，旧会话可继续读），
@@ -27,7 +48,7 @@
   - 为什么必须跳守卫：本机作者源 `dramas/` 目前只有 nsfw 分支的「深夜寄宿」，master 的随包 demo 是「终局曙光」。`scripts/sync_drama.py check` 会锁定「深夜寄宿」并报 8 处差异（demo 世界书缺失、4 张 demo 卡缺失、运行态 6 张卡多余、demo 6 张卡在作者源没有）。**此时 `install` 会把 NSFW 剧本数据写进 master 的入库 demo**，属分发红线，故不 install、只跳守卫。
   - 以包内校验代替守卫（实测，脚本读 zip）：条目 32 项、无 `data/characters|worlds|sessions`、无 `venv/__pycache__/tests`、无「深夜寄宿」及其角色卡（周晓杰 / 周牧野 / 林梦雅 / 林泽宇）残留；`engine/data/config.json` 已洗白（`base_url` / `api_key` / `model` 空、`providers: []`，采样参数取自 `llm.DEFAULTS`，`budget` 死键随洗白自然消失）；随包 demo 世界书 = 「终局曙光」21 条，含新增作者条目「叙事纪律·镜头轮换」（`constant=true` / priority 84 / `origin` 空＝作者条目）；demo 角色卡 6 张（林晚晚 / 苏梅 / 赵铁 / 陆沉 / 陆芷 / 顾言）；`engine/VERSION` = v2.4.0；`hooks.py` 已不在包内。
   - 覆盖风险核对：`dist/` 下此前只有 `personae-v2.3.0-nsfw.zip` 与 `personae-v2.3.0-nsfw-slim.zip`，无 `personae-v2.3.0.zip`，本次新包未覆盖任何旧包（旧包一律保留纪律不破）。
-- 遗留（发版后待裁）：`engine/data/config.json`（工作区那份）里的 `budget` 死键仍未清——该文件在开发机带 `assume-unchanged` 位（`git ls-files -v` 显 `h`），清它要在提交态改 blob 并会牵动本地运行配置；分发包侧已由 `package.py` 洗白自动剔除，不影响用户。另：`relations_base` / `kinship_base` 与角色卡 `relations_kinship` 在关系回写撤除后只剩落盘无消费方，去留等裁决。
+- 遗留（发版后待裁）：`engine/data/config.json`（工作区那份）里的 `budget` 死键仍未清——该文件在开发机带 `assume-unchanged` 位（`git ls-files -v` 显 `h`），清它要在提交态改 blob 并会牵动本地运行配置；分发包侧已由 `package.py` 洗白自动剔除，不影响用户。另：`relations_base` / `kinship_base` 与角色卡 `relations_kinship` 在关系回写撤除后只剩落盘无消费方，去留等裁决。**［已结：同日「清理补记」条目两项都清了，工作区那份本地配置照旧不动。］**
 - 若要 master 的 `sync_drama` 守卫恢复可用，需要把「终局曙光」的作者源放回 `dramas/`（`dramas/` 不入库，本机只有 nsfw 作者源）。
 
 ---
@@ -44,7 +65,7 @@
 - 下沉作者层（三档之二）：`prompter._NARRATIVE_DISCIPLINE`（104 字镜头轮换纪律）从引擎层删除，唯一承载位改为世界书——随包 demo「终局曙光」新增作者条目「叙事纪律·镜头轮换」（constant / before / priority 84），并加 `test_example_drama_carries_lens_discipline` 锁住接盘方，防「引擎不再说、也没人接」。称呼速查仍只在建局时推一次。
 - 死代码（三档之一）：删 `engine/hooks.py`（全仓 0 监听者）与两处 `hooks.emit`；`ending.py` 只留 `secrets_resolved`（`all_left` 自 v2.1.0 起 `present` 永不收缩，条件永不命中）；`narrative_clean` 只留元标题外移 / 尾部截断 / 分隔线 / 引擎自述四类正则（`场景[：:]`、行首编号、`我将/鉴于` 整句删除全部撤除，它们清的是已不存在的旧提示失败形态，代价是吞正常台词与编号行）。
 - **master 口径校正（不跟 nsfw 的四件事）**：① 「己、法律底线」未成年红线留在引擎层 `_LAWS_PREFIX`，恒定注入、不可由世界书覆盖（nsfw 删了，master 不删），`tests/test_narrative_discipline.py` 重写为「引擎不再立法 + 红线仍在」双断言；② 铁律⑧ / 写手 / 「亲密描写标准」在 master 上本就不存在（2026-10-21 下架），不新建、不回填，尺度措辞本轮零新增；③ `llm.py` 五级参数协商链不动——master 面向外部任意云网关，`test_llm_primary_only.py` / `test_llm_repeat_penalty.py` 是它的守护；④ 前端 i18n 撤掉只剩词典残留的死键（`到场` / `离开`）与 nsfw 的「写手」描述句，`·主镜头` 标签保留（`[本轮场面]` 按 locations 分场仍在）。
-- 遗留（未做，需裁决）：`engine/data/config.json` 里无人读取的 `budget` 字段——该文件在开发机上带 `assume-unchanged` 位（本地运行配置与出厂默认同一个路径），本轮不碰，清它要在提交态改 blob、会把运行配置带进版本库；nsfw 侧同样未清。
+- 遗留（未做，需裁决）：`engine/data/config.json` 里无人读取的 `budget` 字段——该文件在开发机上带 `assume-unchanged` 位（本地运行配置与出厂默认同一个路径），本轮不碰，清它要在提交态改 blob、会把运行配置带进版本库；nsfw 侧同样未清。**［已结：2026-11-09 清理补记用 git plumbing 只改提交态，工作树未动；nsfw 分支侧仍未清。］**
 - 连带缺陷（主动审查，只报告未实施）：关系回写撤掉后，`relations_kinship` → `kinship_base` 与 `relations_base` 只剩落盘、没有消费方，角色卡的 `relations_kinship` 字段因此对外失效。本轮先把指向已删函数 / 已删用例的注释改口（`director.py` 三处、`memory.py` 两处），字段本身留与不留等裁决。
 - 文档同步：根 `README.md` / `README.en.md` 的「核心机制速览」把「每轮回写 actions / goals / relations」改为纪官三件事；两处目录树删 `hooks.py` 行、改写 `director.py` / `scene.py` 注释；`engine/README.md` 目录树同步（中英同页只有一份目录树，改一处即两语生效）。
 - 测试账（同口径 `-m "not integration"`，`-p no:cacheprovider --basetemp=`）：改前 master 基线 **381 passed / 1 skipped / 1 deselected**（worktree 检出 `checkpoint-pre-slim-master-20261109` 实测）→ 改后 **301 passed / 1 skipped / 1 deselected**，退出码 0。净减 80 项来自删 `test_focus_follow.py` / `test_pressure_force.py` / `test_stale_cast.py` 与 `test_director.py` / `test_relation_gate.py` 收缩，`test_narrative_discipline.py` 重写为 6 项（新增两条 master 专属哨兵：红线仍在、随包剧本必须带镜头纪律）。环境说明：仓库自带 `tests/venv` 已废（`pyvenv.cfg` 指向已不存在的 `Python312`，且 venv 建自旧目录名 `my-st`），本轮用临时 venv 跑测，未修 `tests/venv`。

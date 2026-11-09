@@ -41,14 +41,6 @@ def new(cast, scene_place="", world_name="", scene_time="", opening_demo=""):
         for other, desc in (cards[c].get("relations") or {}).items():
             relations[f"{c} → {other}"] = desc
 
-    # 作者显式声明的亲属身份（角色卡可选字段 relations_kinship）。血缘是固定事实，
-    # 不从 relations 描述句里猜词——那里的身份词常指第三方，猜错会把正确关系改坏。
-    kinship = {}
-    for c in present:
-        for other, kin in (cards[c].get("relations_kinship") or {}).items():
-            if other and kin:
-                kinship[f"{c} → {other}"] = str(kin).strip()
-
     secrets = []
     for e in store.load_world(world_name):
         if e.get("secret") and e.get("character"):
@@ -83,17 +75,6 @@ def new(cast, scene_place="", world_name="", scene_time="", opening_demo=""):
         # 开局写法示范：由引擎静默注入的中性格式范例。首轮 act 时注入一次，之后不再出现。
         "opening_demo": (opening_demo or "").strip(),
         "relations": relations,
-        # 权威关系基线：与 relations 一同固化自角色卡 relations 字段，作作者口径的备份
-        # （玩家视图不外发，?debug=1 可见）。纪官瘦身（2026-11-08）后引擎不再改写关系，
-        # 原先以它为可信源的两道冻结闸已一并删除，因此它当前无消费方：保留是为了兼容
-        # 旧快照与作者工具，不构成引擎行为。删关系回写这条因果见 director.reflect 注释。
-        "relations_base": dict(relations),
-        # 作者显式声明的亲属身份（来自角色卡可选字段 relations_kinship）：
-        # { "源 → 目标": "母亲" }。血缘是作者定义的固定事实，不该靠从描述句里猜词——
-        # 句中的身份词常指第三方，据此冻结会把正确关系改坏。
-        # 缺省为空 dict。纪官瘦身后此字段同样只落盘、不被消费（冻结闸已随关系回写一起删）；
-        # 角色卡的 relations_kinship 因此暂无实际效果，若要恢复保护须回到关系改写那条链路上。
-        "kinship_base": dict(kinship),
         "secrets": secrets,
         "ledger": [],
         # 称呼速查：{ "源 → 目标": "称呼" }，新建会话时由纪官从角色卡与关系表一次性推导。

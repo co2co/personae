@@ -1,7 +1,7 @@
 """快照的玩家视图投影测试（防剧透 + 内部字段不外发）。
 
 背景：引擎内部快照含大量「不该给用户看」的东西——秘密的完整真相与暴露后果、
-发酵压力数字、命中词表、关系冻结基准、称呼速查表。/api/snapshot 与
+命中词表、称呼速查表、已退役的关系冻结基准。/api/snapshot 与
 /api/session/new 原本把整个快照发给前端，打开 DevTools 即可见全部真相，
 与引擎对 LLM 的信息分级标准不一致（prompter 明确写「pressure 只存在于快照，
 模型永远看不到」）。v0.16.1 起对外出口一律走 app.player_view 投影。
@@ -30,7 +30,7 @@ from fixtures import A, B  # noqa: E402
 # 秘密的内部字段：这些都不该出现在玩家视图里
 SECRET_INTERNAL = ("content", "bottom_line", "keys", "pressure", "exposures")
 # 快照顶层内部字段：同上。
-SNAP_INTERNAL = ("relations_base", "kinship_base", "address", "recent")
+SNAP_INTERNAL = ("address", "recent")
 
 
 def _snap():
@@ -48,8 +48,6 @@ def _snap():
         }],
         "ledger": [{"account": f"{A} 的秘密已被 {B} 知晓（R2）：x", "round": 2}],
         "states": {"某物": {"value": "已封死", "round": 2}},
-        "relations_base": {f"{A} → {B}": "母亲"},
-        "kinship_base": {f"{A} → {B}": "母亲"},
         "address": {f"{A} → {B}": "妈妈"},
         "recent": {},
     }
@@ -98,7 +96,7 @@ def test_player_view_debug_returns_full():
     """?debug=1 保留完整快照，供开发排障（与右栏日志的调试定位一致）。"""
     d = app_module.player_view(_snap(), debug=True)
     assert "content" in d["secrets"][0]
-    assert "address" in d and "kinship_base" in d
+    assert "address" in d and "recent" in d
 
 
 def test_player_view_empty_snapshot():
@@ -152,9 +150,11 @@ def test_player_view_no_relation_lock_marker():
 
     v0.16.1 起左栏不展示关系定性（那是引擎的中间产物，摆出来会让玩家照着
     面板核对而不是读故事），锁标记因此没有消费者，连带派生字段一并删除——
-    避免留下「有字段没消费者」的死代码。冻结机制本身在引擎侧照常工作。
+    避免留下「有字段没消费者」的死代码。关系定性本身照旧由作者（角色卡）决定，
+    只是不再摆在面板上。
     """
     v = app_module.player_view(_snap())
     assert "relation_locked" not in v
-    # 内部冻结基准照样不外发
-    assert "kinship_base" not in v
+    # 已退役的关系冻结基准不得回来（冻结闸随纪官瘦身撤除，2026-11-08）
+    for gone in ("relations_base", "kinship_base", "address"):
+        assert gone not in v, "已退役的内部字段又出现：%s" % gone
