@@ -10,6 +10,28 @@
 
 ---
 
+## 2026-11-09 版本 v2.4.0（发版记账：引擎瘦身移植 master 落地）
+
+> 版本号取 MINOR。判据：数据文件形状未变（角色卡 / 世界书 / 会话 JSON 结构照旧，旧会话可继续读），
+> 但运行时能力面与快照语义对外收缩（快照不再有 `goals` / `actions` / `silent_rounds`；关系不再回写；
+> 镜头跟随、提醒机器、场景导演 LLM 调用整条撤除）。作者侧需要自己接管镜头与尺度措辞，
+> 属能力面变化而非单纯修 bug，故不用 PATCH。若 simon 按 v2.1.4「机制下架放在 2.1.x 内」旧例
+> 想降成 PATCH，改 `engine/VERSION` 与本条标题即可（未 push，可改）。
+
+- 兑现同日「2026-11-09 架构：引擎瘦身移植到 master」条目：提交 `255c333`，`codex/engine-slim` → `master` 快进合并（`merge --ff-only`，无 merge commit）。回滚锚点 tag `checkpoint-pre-slim-master-20261109` → `d860515` 保留。
+- VERSION：`v2.3.0` → `v2.4.0`。tag `v2.4.0` 打在本发版记账提交上（不再重演 v2.0.0 漏打 tag 补录）。
+- 未做的外部动作：`git push`、GitHub Release 均未执行（`origin/master` 仍停在 `d860515`，本地 master ahead 1）。分发包已出但对外发布等 simon。
+- 测试：`tests\venv\Scripts\python.exe -m pytest -q`（= 双击 `tests/run_tests.bat`）→ **301 passed / 1 skipped / 1 deselected**，退出码 0。改前 master 基线 381 passed 见上一条目的实测记录。
+- 测试环境重建：`tests/venv` 由本机 Python 3.12.10 重建，pip 26.3 / pytest 9.2.0 / Flask 3.1.3 / requests 2.34.2（= `tests/requirements.txt`）。旧 venv 移到 `backup/venv-tests-pre-rebuild-20261109`（31.2 MB，gitignore 内，可回滚）。**更正一条判断**：旧 venv 并非损坏——`pyvenv.cfg` 的 `home` 所指 `Python312` 仍在盘上，先前 `Unable to create process using …Python312\python.exe` 是执行沙箱拒绝启动该解释器路径所致。本轮仍重建，是为了让 venv 位置与 `tests/install.bat`、`tests/requirements.txt` 三方对齐、可复现；结论口径改为「venv 位置重建 + 依赖刷新」，不是「修复损坏环境」。
+- 分发包：`dist/personae-v2.4.0.zip`（32 条目，224.8 KB），命令 `python package.py --skip-demo-check`。
+  - 为什么必须跳守卫：本机作者源 `dramas/` 目前只有 nsfw 分支的「深夜寄宿」，master 的随包 demo 是「终局曙光」。`scripts/sync_drama.py check` 会锁定「深夜寄宿」并报 8 处差异（demo 世界书缺失、4 张 demo 卡缺失、运行态 6 张卡多余、demo 6 张卡在作者源没有）。**此时 `install` 会把 NSFW 剧本数据写进 master 的入库 demo**，属分发红线，故不 install、只跳守卫。
+  - 以包内校验代替守卫（实测，脚本读 zip）：条目 32 项、无 `data/characters|worlds|sessions`、无 `venv/__pycache__/tests`、无「深夜寄宿」及其角色卡（周晓杰 / 周牧野 / 林梦雅 / 林泽宇）残留；`engine/data/config.json` 已洗白（`base_url` / `api_key` / `model` 空、`providers: []`，采样参数取自 `llm.DEFAULTS`，`budget` 死键随洗白自然消失）；随包 demo 世界书 = 「终局曙光」21 条，含新增作者条目「叙事纪律·镜头轮换」（`constant=true` / priority 84 / `origin` 空＝作者条目）；demo 角色卡 6 张（林晚晚 / 苏梅 / 赵铁 / 陆沉 / 陆芷 / 顾言）；`engine/VERSION` = v2.4.0；`hooks.py` 已不在包内。
+  - 覆盖风险核对：`dist/` 下此前只有 `personae-v2.3.0-nsfw.zip` 与 `personae-v2.3.0-nsfw-slim.zip`，无 `personae-v2.3.0.zip`，本次新包未覆盖任何旧包（旧包一律保留纪律不破）。
+- 遗留（发版后待裁）：`engine/data/config.json`（工作区那份）里的 `budget` 死键仍未清——该文件在开发机带 `assume-unchanged` 位（`git ls-files -v` 显 `h`），清它要在提交态改 blob 并会牵动本地运行配置；分发包侧已由 `package.py` 洗白自动剔除，不影响用户。另：`relations_base` / `kinship_base` 与角色卡 `relations_kinship` 在关系回写撤除后只剩落盘无消费方，去留等裁决。
+- 若要 master 的 `sync_drama` 守卫恢复可用，需要把「终局曙光」的作者源放回 `dramas/`（`dramas/` 不入库，本机只有 nsfw 作者源）。
+
+---
+
 ## 2026-11-09 架构：引擎瘦身移植到 master（三档全执行，与 nsfw 分支 7284909 同源裁决）
 
 > 回滚锚点：tag `checkpoint-pre-slim-master-20261109` → `d860515`（v2.3.0 发版后的 master HEAD）。
