@@ -1,242 +1,151 @@
-"""scene.apply 的确定性测试。
+"""scene 的确定性测试：场景只由导演指令明说的内容变化，且完全不依赖模型。
 
-不调真实 LLM：monkeypatch scene.llm.complete 返回受控 JSON。
-覆盖：
-- 名册不因离场收缩（v2.1.0）：present 是「建局角色名册」，scene.apply 只改场景
-  （地点/时间/天气）；纪官/场景导演即便吐 leave/arrive 也不消费——「谁在哪」由
-  locations 维护，由 [本轮场面] 段按位置分场渲染
-- 场景防僵死：指令含触发词但 LLM 判定无变化时，停留计数必须累加（不得清零）
-- 停留超时触发时必须带"强制推进"提示，且失败后进入冷却而非每轮调 LLM
+旧版这里测的是「场景导演」（一次 LLM 调用）+ AUTO_TIME_THRESHOLD 强制推进，
+2026-11-08 引擎瘦身后 scene.py 是纯规则（旧文件另存
+backup/removed-20261108/test_scene_pre_slim_20261108.py）。
 """
+import sys
+from pathlib import Path
 
-import json
+ENGINE = Path(__file__).resolve().parent.parent / "engine"
+if str(ENGINE) not in sys.path:
+    sys.path.insert(0, str(ENGINE))
 
-import pytest
-
-import scene
-
-
-def _fake_complete(messages, **kw):
-    # 危险响应：LLM 把"全员突围撤离"误填成 leave=全员、arrive=空
-    return json.dumps({
-        "changed": True,
-        "place": "城东",
-        "time": "",
-        "weather": "（未设定）",
-        "leave": ["角色甲", "角色丙", "角色戊", "角色丁", "角色乙"],
-        "arrive": [],
-        "reason": "全员突围撤离，各自离开便利店",
-    })
+import scene  # noqa: E402
 
 
-@pytest.fixture
-def patched(monkeypatch):
-    monkeypatch.setattr(scene.llm, "complete", _fake_complete)
+def _snap(place="便利店后仓", time="", weather=""):
+    return {"scene": {"place": place, "time": time, "weather": weather, "round": 3},
+            "present": ["角色甲", "角色乙"]}
 
 
-def _snap():
-    return {
-        "scene": {"place": "便利店后仓", "time": "", "weather": "", "round": 1, "same_scene": 3},
-        "present": ["角色甲", "角色丙", "角色戊", "角色丁", "角色乙"],
-        "secrets": [], "relations": {}, "goals": {}, "ledger": [],
-    }
+# ---------------------------------------------------------------------------
+# 零模型依赖：模块里不再有 llm，任何调用都不该发请求
+# ---------------------------------------------------------------------------
+
+def test_scene_module_has_no_llm_dependency():
+    assert not hasattr(scene, "llm"), "scene 不应再导入 llm（场景导演已删）"
+    assert not hasattr(scene, "apply"), "旧入口 scene.apply 应已被 scene.resolve 取代"
 
 
-def test_scene_apply_keeps_present_on_move_together(patched):
-    snap = _snap()
-    changed, prop = scene.apply("sid", "角色甲带所有人从后窗突围撤离，目标城东", snap)
+def test_resolve_works_without_any_backend():
+    """没有任何后端可用时场景照样能按指令更新——它压根不调模型。"""
+    snap = _snap(time="傍晚")
+    changed, prop = scene.resolve(snap, "第二天，外面下起雨来")
     assert changed is True
-    # v2.1.0：名册是建局 cast，不随场景切换收缩
-    assert snap["present"] == ["角色甲", "角色丙", "角色戊", "角色丁", "角色乙"]
+    assert snap["scene"]["time"] == "第二天"
+    assert snap["scene"]["weather"] == "雨"
+    assert "时间 → 第二天" in prop["reason"]
 
 
-def test_scene_apply_does_not_shrink_roster_on_leave(patched):
-    """场景导演吐 leave 也不再改名单：名册恒定，「谁在哪」交给 locations。
+# ---------------------------------------------------------------------------
+# 地点：只认明确的位移句式
+# ---------------------------------------------------------------------------
 
-    原行为（v2.1.0 前）：leave 只含部分在场者时把该角色移出 present。实测后果是
-    名册与「本轮可写范围」被绑死——同处一室的角色被踢出、支线角色整条消失。
-    """
-    def _fake2(messages, **kw):
-        return json.dumps({"changed": True, "place": "便利店后仓", "time": "",
-                           "weather": "（未设定）", "leave": ["角色丁"], "arrive": [],
-                           "reason": "角色丁出去找女儿"})
-    scene.llm.complete = _fake2
+def test_place_changes_on_explicit_switch():
     snap = _snap()
-    changed, prop = scene.apply("sid", "角色丁出去找女儿", snap)
-    assert snap["present"] == ["角色甲", "角色丙", "角色戊", "角色丁", "角色乙"]
-    assert prop and prop.get("leave") == ["角色丁"], "字段可留在响应里，但不得被消费"
+    changed, _ = scene.resolve(snap, "切换到阳台，众人跟过去")
+    assert changed is True
+    assert snap["scene"]["place"] == "阳台"
 
 
-def _no_change_complete(messages, **kw):
-    """场景导演判定"无变化"的响应。"""
-    return json.dumps({"changed": False, "place": "便利店后仓", "time": "",
-                       "weather": "", "leave": [], "arrive": [], "reason": "无变化"})
-
-
-def test_same_scene_accumulates_when_llm_reports_no_change(patched):
-    """回归锁定：指令含触发词但 LLM 判定无变化时，停留计数必须累加而非清零。
-
-    原实现在 `changed=false` 分支把 same_scene 清零，导致指令常含"去/天亮"等
-    触发词时每轮触发、每轮清零，same_scene 永远达不到 AUTO_TIME_THRESHOLD，
-    防僵死保护彻底失效（30 轮压测实测：场景连续 23 轮不变，与叙事脱节）。
-    """
-    scene.llm.complete = _no_change_complete
+def test_place_cuts_at_action_word():
+    """中文没有空格，「走到门口看看」不能把「门口看看」整个当景点。"""
     snap = _snap()
-    snap["scene"]["same_scene"] = 0
-    seen = []
-    for _ in range(4):
-        # "去" 命中 MOVE_KEYS：每轮都会触发一次场景判定
-        scene.apply("sid", "角色甲带人去城东", snap)
-        seen.append(snap["scene"]["same_scene"])
-    # 前三轮累加到阈值；第四轮因超时触发强制推进，失败后冷却归零
-    assert seen[:3] == [1, 2, 3], f"停留计数未累加（防僵死保护失效）：{seen}"
-    assert seen[3] == 0, f"强制推进失败后应冷却归零，实际：{seen}"
+    scene.resolve(snap, "角色乙走到门口看看外面的雨")
+    assert snap["scene"]["place"] == "门口"
 
 
-def test_force_hint_used_on_timeout_and_cooldown_after_failure(patched):
-    """停留超时触发时（无触发词也须触发），提示须要求强制推进。"""
-    captured = {}
+def test_single_char_move_words_do_not_trigger():
+    """审计 P2 的过度触发：单字「去 / 回」不再当位移信号（去年、进去、回去）。"""
+    for d in ("去年那场雨还没说完", "角色甲进去倒水", "回去睡觉吧", "众人转移阵地"):
+        snap = _snap(place="堂屋")
+        changed, _ = scene.resolve(snap, d)
+        assert snap["scene"]["place"] == "堂屋", d
+        assert changed is False, d
 
-    def _capture(messages, **kw):
-        captured["prompt"] = messages[0]["content"]
-        return _no_change_complete(messages, **kw)
 
-    scene.llm.complete = _capture
-    snap = _snap()          # same_scene=3，已达 AUTO_TIME_THRESHOLD
-    # 指令不含任何触发词，仅靠停留超时触发
-    changed, _ = scene.apply("sid", "角色甲沉默地握紧螺丝刀", snap)
-    assert captured.get("prompt"), "已超时却未调用场景导演"
-    assert "强制推进" in captured["prompt"], "超时触发未追加强制推进提示"
+def test_non_place_capture_ignored():
+    snap = _snap(place="堂屋")
+    changed, _ = scene.resolve(snap, "角色甲回到从前那种信任里")
+    assert snap["scene"]["place"] == "堂屋"
     assert changed is False
-    assert snap["scene"]["same_scene"] == 0, "强制推进失败后应冷却归零，避免每轮调 LLM"
 
 
-def test_triggered_on_spatial_door_split():
-    """T2 根因修复：空间分隔指令（门内/门外/分开）应触发场景判定，而非静默跳过。
+# ---------------------------------------------------------------------------
+# 时间：明确时段词才推，将来时预告不算
+# ---------------------------------------------------------------------------
 
-    原 R16「角色丁挤进门内找家人，角色甲被挡在门外，两边分开」不命中任一触发词，
-    _triggered 返回 (False, False) -> scene LLM 不调 -> present 恒为全员。
-    """
-    snap = _snap()
-    snap["scene"]["same_scene"] = 0
-    triggered, force = scene._triggered(
-        "角色丁挤进门内找家人，角色甲被挡在门外，两边分开", snap)
-    assert triggered is True
-    assert force is False
-
-
-def test_leave_ignored_on_door_split(patched):
-    """门内门外不再是「离场」：场景照常更新，名册不变。
-
-    v2.1.0 前这里断言「被挡在门外的角色应从在场名单移除」，靠 LEAVE_KEYS 与
-    leave 字段把空间分隔塞进名单。现在空间分隔由 locations 的 place 表达
-    （角色甲在门外、其余人在门内），名单不承担这件事。
-    """
-    def _fake_door(messages, **kw):
-        return json.dumps({"changed": True, "place": "门内", "time": "",
-                           "weather": "（未设定）", "leave": ["角色甲"], "arrive": [],
-                           "reason": "角色甲被挡在门外，与角色丁分开"})
-    scene.llm.complete = _fake_door
-    snap = _snap()
-    changed, prop = scene.apply(
-        "sid", "角色丁挤进门内找家人，角色甲被挡在门外，两边分开", snap)
+def test_time_advances_only_on_clean_time_word():
+    snap = _snap(time="傍晚")
+    changed, _ = scene.resolve(snap, "入夜后楼道很安静")
     assert changed is True
-    assert snap["scene"]["place"] == "门内"
-    assert "角色甲" in snap["present"], "被挡在门外不等于从名册移除"
+    assert snap["scene"]["time"] == "入夜"
 
 
-def test_scene_apply_clears_goals_on_place_change(patched):
-    """方案 A：场景地点变化即短期目标作废，清空 goals，避免残留目标把角色锚定在原场景。
+def test_future_tense_does_not_advance_time():
+    for d in ("夜晚快到了", "天快黑了", "明天会下雨之前我们先谈谈"):
+        snap = _snap(time="傍晚")
+        scene.resolve(snap, d)
+        assert snap["scene"]["time"] == "傍晚", d
 
-    对应会话 9f2e16e9 R14：角色旧目标「贴身照看某人伤口」在撤离、与被照看者分离后
-    仍残留，被拽回电梯口抢戏。地点一变，情境即变，旧目标应作废，下轮纪官重写。
-    """
+
+def test_same_time_word_is_not_a_change():
+    snap = _snap(time="入夜")
+    changed, prop = scene.resolve(snap, "入夜的走廊没人")
+    assert changed is False and prop is None
+
+
+def test_no_time_words_leaves_time_untouched():
+    """引擎不再猜时间：没有时段词就不动（旧版 AUTO_TIME_THRESHOLD 会硬推一次）。"""
+    snap = _snap(time="入夜")
+    changed, _ = scene.resolve(snap, "角色甲沉默地握紧螺丝刀")
+    assert changed is False
+    assert snap["scene"]["time"] == "入夜"
+    assert "same_scene" not in snap["scene"]
+
+
+# ---------------------------------------------------------------------------
+# 天气
+# ---------------------------------------------------------------------------
+
+def test_weather_normalized_from_directive():
     snap = _snap()
-    snap["goals"] = {
-        "角色甲": "照看角色丁的伤口",
-        "角色乙": "寻找物资",
-    }
-    # _fake_complete 返回 place=城东，与初始 place=便利店后仓 不同 -> 地点变了
-    changed, prop = scene.apply("sid", "众人转移", snap)
+    changed, _ = scene.resolve(snap, "外面下起雨来")
     assert changed is True
-    assert snap["goals"] == {}, "地点变化后旧短期目标应被清空"
+    assert snap["scene"]["weather"] == "雨"
 
 
-def test_scene_apply_keeps_goals_when_place_unchanged(patched):
-    """方案 A 反例：地点未变（同场景内的小变化）时 goals 应保留，不误伤。"""
-    def _same_place(messages, **kw):
-        return json.dumps({"changed": True, "place": "便利店后仓", "time": "",
-                           "weather": "（未设定）", "leave": [], "arrive": [],
-                           "reason": "仍在原地"})
-    scene.llm.complete = _same_place
-    snap = _snap()
-    snap["goals"] = {"角色甲": "照看角色丁的伤口"}
-    changed, prop = scene.apply("sid", "原地等待", snap)
-    assert changed is True
-    assert snap["goals"] == {"角色甲": "照看角色丁的伤口"}, "地点未变时目标应保留"
+def test_weather_needs_a_verb_not_a_bare_noun():
+    """叙述里提到「那场雨」不等于本轮天气变化——天气改动要「动词 + 天气名」。"""
+    for d in ("那场雨他记得清楚", "去年那场雨还没说完", "风吹散了纸片但天气没变"):
+        snap = _snap()
+        changed, _ = scene.resolve(snap, d)
+        assert snap["scene"]["weather"] == "", d
+        assert changed is False, d
 
 
-# ---- 开场场景拆分（v0.17.3：时间锚从混写字符串里识别出来）----
+def test_no_change_returns_none_prop():
+    snap = _snap(place="堂屋", time="入夜", weather="雨")
+    changed, prop = scene.resolve(snap, "角色乙把伞收起来")
+    assert (changed, prop) == (False, None)
+
+
+# ---------------------------------------------------------------------------
+# 开场场景解析（沿用旧契约）
+# ---------------------------------------------------------------------------
 
 def test_parse_initial_scene_splits_time_and_place():
-    """「傍晚，公寓的客厅」应拆成 place=公寓的客厅、time=傍晚。"""
     assert scene.parse_initial_scene("傍晚，公寓的客厅") == ("公寓的客厅", "傍晚")
 
 
-def test_parse_initial_scene_time_only():
-    """只有时间、没有地点：place 为空、time 为时间词。"""
-    assert scene.parse_initial_scene("深夜") == ("", "深夜")
+def test_parse_initial_scene_longest_match():
+    assert scene.parse_initial_scene("第二天早上，楼道")[1] == "第二天早上"
 
 
 def test_parse_initial_scene_place_only():
-    """没有时间词：place 为原文本、time 为空（与旧行为一致）。"""
-    assert scene.parse_initial_scene("公寓的客厅") == ("公寓的客厅", "")
-
-
-def test_parse_initial_scene_longest_match():
-    """最长匹配：「第二天早上」应整体命中，不被短词「第二天」截断。"""
-    assert scene.parse_initial_scene("第二天早上，仓库") == ("仓库", "第二天早上")
+    assert scene.parse_initial_scene("便利店后仓") == ("便利店后仓", "")
 
 
 def test_parse_initial_scene_empty():
-    """空串与空白：返回两个空串。"""
-    assert scene.parse_initial_scene("") == ("", "")
     assert scene.parse_initial_scene("   ") == ("", "")
-
-
-# ---- 时间语义承接（v0.17.3：time 清洗成干净名词 + 将来时不推进）----
-
-def test_norm_time_keeps_clean_word():
-    """干净时间词原样保留。"""
-    assert scene._norm_time("夜晚", "", "傍晚") == "夜晚"
-
-
-def test_norm_time_extracts_from_desc():
-    """描述串里夹带时间词 → 提取出来（如「无（室内，窗外夜色浓稠）」不含词则回退）。"""
-    assert scene._norm_time("天色暗沉", "", "傍晚") == "傍晚"  # 无时间词 → 回退
-
-
-def test_norm_time_falls_back_on_descriptive_phrase():
-    """「夜幕降临」「天色暗沉」这类描述句 → 回退原 time，不写废话。"""
-    assert scene._norm_time("夜幕降临", "夜晚快到了", "傍晚") == "傍晚"
-
-
-def test_norm_time_takes_directive_word():
-    """value 无时间词、指令含确定时间词 → 采用指令里的词。"""
-    assert scene._norm_time("", "入夜后气温更低", "傍晚") == "入夜"
-
-
-def test_is_future_time_detects_future():
-    """「夜晚快到了」是将来时，不该推进。"""
-    assert scene._is_future_time("夜晚快到了，得趁这之前找蜡烛")
-
-
-def test_norm_time_ignores_future_marker():
-    """「明天会下雨」无时段词，_norm_time 不应推进（回退原 time）。"""
-    assert scene._norm_time("", "明天会下雨", "傍晚") == "傍晚"
-
-
-def test_is_future_time_not_future():
-    """确定的当前时间词不是将来时。"""
-    assert not scene._is_future_time("入夜后气温更低")
-    assert not scene._is_future_time("第二天，某角色第一个醒来")

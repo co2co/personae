@@ -52,19 +52,21 @@ def session():
         pass
 
 
-def test_evaluate_all_left():
-    snap = {"present": [], "secrets": [{"state": "潜伏"}], "scene": {"round": 5}}
-    c = ending.evaluate(snap)
-    assert c and "all_left" in c["reasons"]
-    assert c["severity"] == "high"
-
-
 def test_evaluate_secrets_resolved():
     snap = {"present": ["A", "B"], "secrets": [{"state": "暴露"}, {"state": "全曝光"}],
             "scene": {"round": 3}}
     c = ending.evaluate(snap)
     assert c and "secrets_resolved" in c["reasons"]
-    assert "all_left" not in c["reasons"]
+    # 2026-11-08 引擎瘦身：present 是永不收缩的名册，「全员离场」与
+    # 「剧本 ending_flag」两条死分支已删，终局条件只剩秘密全曝光一条。
+    assert c["reasons"] == ["secrets_resolved"]
+    assert set(ending.ENDING_TRIGGERS) == {"secrets_resolved"}
+
+
+def test_evaluate_present_empty_no_longer_triggers():
+    """空 present 不再命中任何终局条件（旧 all_left 分支已删）。"""
+    snap = {"present": [], "secrets": [{"state": "潜伏"}], "scene": {"round": 5}}
+    assert ending.evaluate(snap) is None
 
 
 def test_evaluate_none():
@@ -73,23 +75,23 @@ def test_evaluate_none():
 
 
 def test_evaluate_dismissed_suppressed():
-    snap = {"present": [], "secrets": [{"state": "潜伏"}], "scene": {"round": 5},
-            "ending_dismissed_reasons": ["all_left"]}
+    snap = {"present": ["A"], "secrets": [{"state": "暴露"}], "scene": {"round": 5},
+            "ending_dismissed_reasons": ["secrets_resolved"]}
     assert ending.evaluate(snap, snap["ending_dismissed_reasons"]) is None
 
 
 def test_evaluate_new_reason_after_dismiss():
-    snap = {"present": [], "secrets": [{"state": "暴露"}], "scene": {"round": 5},
-            "ending_dismissed_reasons": ["all_left"]}
+    snap = {"present": ["A"], "secrets": [{"state": "暴露"}], "scene": {"round": 5},
+            "ending_dismissed_reasons": ["别的条件"]}
     c = ending.evaluate(snap, snap["ending_dismissed_reasons"])
-    assert c and "all_left" in c["reasons"]
-    assert "secrets_resolved" in c["new_reasons"]
+    assert c and c["reasons"] == ["secrets_resolved"]
+    assert c["new_reasons"] == ["secrets_resolved"]
 
 
 def test_mark_dismissed():
     snap = {}
-    ending.mark_dismissed(snap, ["all_left", "secrets_resolved"])
-    assert snap["ending_dismissed_reasons"] == ["all_left", "secrets_resolved"]
+    ending.mark_dismissed(snap, ["secrets_resolved"])
+    assert snap["ending_dismissed_reasons"] == ["secrets_resolved"]
 
 
 def test_end_endpoint_generates_summary(session, monkeypatch):
@@ -121,14 +123,14 @@ def test_ending_dismiss_endpoint(session, monkeypatch):
 
     monkeypatch.setattr(llm, "complete", fake_complete)
     snap = memory.load(session)
-    snap["ending_last_reasons"] = ["all_left"]
+    snap["ending_last_reasons"] = ["secrets_resolved"]
     memory.save(session, snap)
 
     r = client.post("/api/ending/dismiss", json={"session": session})
     assert r.status_code == 200 and r.get_json().get("ok") is True
 
     snap2 = memory.load(session)
-    assert snap2["ending_dismissed_reasons"] == ["all_left"]
+    assert snap2["ending_dismissed_reasons"] == ["secrets_resolved"]
     # 抑制验证：dismiss 后 evaluate 不再弹出该条件
-    snap2["present"] = []
+    snap2["secrets"] = [{"state": "暴露"}]
     assert ending.evaluate(snap2, snap2.get("ending_dismissed_reasons")) is None

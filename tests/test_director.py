@@ -592,44 +592,6 @@ def test_reflect_survives_string_list_fields(monkeypatch):
     assert any("木门" in k for k in out["states"]), out["states"]
 
 
-# ---- 场景信号并联纪官（v0.17.2）----
-
-def test_reflect_records_scene_shift(monkeypatch):
-    """纪官读出叙事里场景已变化则记入快照，供下轮 scene.apply 追平场景状态。"""
-    import json as _json
-    snap = {"scene": {"round": 7}, "present": [A], "relations": {},
-            "actions": {}, "silent_rounds": {}, "secrets": [],
-            "facts": [], "states": {}, "goals": {}, "ledger": [], "aux": []}
-    payload = {"actions": {A: "望向窗外"},
-               "scene_shift": {"changed": True, "place": "公寓楼道",
-                               "time": "入夜", "weather": "雨"}}
-    monkeypatch.setattr(director.llm, "complete",
-                        lambda *a, **k: _json.dumps(payload, ensure_ascii=False))
-    monkeypatch.setattr(director.memory, "load", lambda sid: snap)
-    monkeypatch.setattr(director.memory, "save", lambda sid, s: None)
-    monkeypatch.setattr(director.store, "list_characters", lambda: [])
-    out = director.reflect("sid", "他们摸黑下楼，雨声从楼道外传来。")
-    assert out["scene_shift"] == {"changed": True, "place": "公寓楼道",
-                                  "time": "入夜", "weather": "雨"}
-
-
-def test_reflect_clears_scene_shift_when_unchanged(monkeypatch):
-    """本轮无场景变化时清除上一轮标记，避免信号永久挂着。"""
-    import json as _json
-    snap = {"scene": {"round": 8}, "present": [A], "relations": {},
-            "actions": {}, "silent_rounds": {}, "secrets": [],
-            "facts": [], "states": {}, "goals": {}, "ledger": [], "aux": [],
-            "scene_shift": {"changed": True, "place": "旧地点", "time": "", "weather": ""}}
-    payload = {"actions": {A: "沉默"}, "scene_shift": {"changed": False}}
-    monkeypatch.setattr(director.llm, "complete",
-                        lambda *a, **k: _json.dumps(payload, ensure_ascii=False))
-    monkeypatch.setattr(director.memory, "load", lambda sid: snap)
-    monkeypatch.setattr(director.memory, "save", lambda sid, s: None)
-    monkeypatch.setattr(director.store, "list_characters", lambda: [])
-    out = director.reflect("sid", "他沉默了很久。")
-    assert "scene_shift" not in out
-
-
 # ---- 人物位置兜底（v0.31.1）----
 # 纪官偶发漏报 location_updates（relations/goals 膨胀把该字段顶出截断区）时，
 # 兜底用 scene.place 给仍无位置记录的在场角色填最小正确值，避免左栏整片「位置未记录」。
@@ -825,43 +787,6 @@ def test_repeat_intra_round_self_repeat_still_detected():
     assert kind == "self"
 
 
-# ----------------------------------------------------------------------------
-# 复读重生成择优（pick_less_repetitive）回归守护
-# ----------------------------------------------------------------------------
-# v0.31.7（会话 035503b8 R13）：复读检测的「降温度重生成」闭环存在帮倒忙缺陷——
-# 第一版正常输出被误判复读触发重生成，重生成的第二版反而回卷历史（0.815），却因
-# max_regen 上限无条件覆盖落盘，用户看到更差的一版。修复=重生成后择优，只保留
-# 复读率更低的一版。pick_less_repetitive 是该择优的纯函数内核，以下用例锁死其契约。
-# ============================================================================
-
-
-def test_pick_less_repetitive_returns_lower_overlap_candidate():
-    """候选版复读率更低时选候选版（重生成真的更好）。"""
-    chosen, ov = director.pick_less_repetitive("好版", 0.05, "差版", 0.8)
-    assert chosen == "好版"
-    assert ov == 0.05
-
-
-def test_pick_less_repetitive_keeps_incumbent_when_candidate_worse():
-    """候选版复读率更高时保留过程最优版（修「帮倒忙」的核心场景）。"""
-    chosen, ov = director.pick_less_repetitive("重生成的差版", 0.815, "第一版好版", 0.03)
-    assert chosen == "第一版好版"
-    assert ov == 0.03
-
-
-def test_pick_less_repetitive_tie_keeps_incumbent():
-    """重叠率相等时保留过程最优版，避免无谓替换。"""
-    chosen, _ = director.pick_less_repetitive("第二版", 0.3, "第一版", 0.3)
-    assert chosen == "第一版"
-
-
-def test_pick_less_repetitive_none_incumbent_returns_candidate():
-    """尚无过程最优版（首版）时直接返回候选版。"""
-    chosen, ov = director.pick_less_repetitive("首版", 0.2, None, 1.0)
-    assert chosen == "首版"
-    assert ov == 0.2
-
-
 # 秘密真相回喂（reflect 提示词）回归守护
 # ----------------------------------------------------------------------------
 # 会话 f3fab11e：reflect 喂给纪官的「秘密与把柄现状」只回喂 owner 名 + 状态，
@@ -900,55 +825,6 @@ def test_reflect_feeds_secret_content_and_keys_to_clerk(monkeypatch):
     assert "事实锚点词：旧队、覆灭" in prompt
 
 
-# ---- 静默计数口径（v2.1.2）----
-# 数字从「纯展示」变成「提示词里 [提醒·久未登场] 的触发依据」后，焦点豁免
-# 就不能再留：导演连续点名同一批人时，镜头外角色的数字长期停在 0，提醒永不触发。
-
-def test_silent_rounds_count_offscreen_in_focus_rounds():
-    """焦点轮里镜头外的角色也要累加——否则最该被提醒的人恰好被免罚。"""
-    snap = {"actions": {A: "说话"}, "silent_rounds": {A: 0, B: 0},
-            "focus": {"subjects": [A]}}
-    director._update_silent_rounds(snap, [A, B])
-    assert snap["silent_rounds"][A] == 0     # 有行为摘要即归零
-    assert snap["silent_rounds"][B] == 1     # 镜头外但确实没有行为：累加
-
-
-def test_silent_rounds_reset_on_action():
-    """纪官给了行为摘要就归零，包括「有意的沉默」（纪官会写成摘要）。"""
-    snap = {"actions": {A: "闭口不语，背过身去"}, "silent_rounds": {A: 4}}
-    director._update_silent_rounds(snap, [A])
-    assert snap["silent_rounds"][A] == 0
-
-
-def test_reflect_prompt_forbids_placeholder_actions(monkeypatch):
-    """actions 只记真出场的角色：占位摘要会让静默计数永久失效（v2.1.2）。
-
-    v2.1.1 把 present 改成名册后，reflect prompt 里「actions 覆盖本轮所有在场角色」
-    等于要求纪官给六个人各编一句——实测（_probe_stale R7）正文只写了两人，
-    actions 却报满六人，其中四条是「维持现状」「保持北境稳定」这类空话，
-    于是 silent_rounds 全员归零，[提醒·久未登场] 永远不会触发。
-    """
-    import json as _json
-    snap = {"scene": {"round": 3}, "present": [A, B], "relations": {},
-            "actions": {}, "silent_rounds": {}, "secrets": [], "facts": [],
-            "states": {}, "goals": {}, "ledger": []}
-    captured = {}
-
-    def _capture(*a, **k):
-        for m in (a[0] if a else []):
-            if m.get("role") == "user":
-                captured["user"] = m.get("content", "")
-        return _json.dumps({}, ensure_ascii=False)
-
-    monkeypatch.setattr(director.llm, "complete", _capture)
-    monkeypatch.setattr(director.memory, "load", lambda sid: snap)
-    monkeypatch.setattr(director.memory, "save", lambda sid, s: None)
-    director.reflect("sid", f"{A}翻看卷宗。")
-
-    prompt = captured.get("user", "")
-    assert "占位摘要" in prompt
-    assert "只写本轮正文里" in prompt
-
 
 def _reflect_payload(monkeypatch, snap, reply, payload):
     import json as _json
@@ -965,20 +841,6 @@ def _bare_snap(round_no=5, present=None):
             "present": present or [A, B], "relations": {}, "actions": {},
             "silent_rounds": {}, "secrets": [], "facts": [], "states": {},
             "goals": {}, "ledger": []}
-
-
-def test_actions_drop_names_absent_from_reply(monkeypatch):
-    """纪官给正文未出现的名册成员编「维持现状」式摘要时，引擎按正文举证丢弃。
-
-    v2.1.2 实测（_probe_stale R7）：正文只写两人，actions 报满六人，四条是
-    「维持现状」「保持北境稳定」——silent_rounds 因此全员归零，久未登场提醒
-    永远不会触发。举证过滤后，被编的 B 正常累加静默。
-    """
-    snap = _bare_snap()
-    payload = {"actions": {A: "翻看卷宗", B: "维持现状，按兵不动"}}
-    out = _reflect_payload(monkeypatch, snap, f"{A}翻看卷宗。", payload)
-    assert out["actions"] == {A: "翻看卷宗"}
-    assert out["silent_rounds"][B] == 1
 
 
 def test_locations_drop_names_absent_from_reply(monkeypatch):
@@ -1008,20 +870,6 @@ def _bare_snap(round_no=5, present=None):
             "goals": {}, "ledger": []}
 
 
-def test_actions_drop_names_absent_from_reply(monkeypatch):
-    """纪官给正文未出现的名册成员编「维持现状」式摘要时，引擎按正文举证丢弃。
-
-    v2.1.2 实测（_probe_stale R7）：正文只写两人，actions 报满六人，四条是
-    「维持现状」「保持北境稳定」——silent_rounds 因此全员归零，久未登场提醒
-    永远不会触发。举证过滤后，被编的 B 正常累加静默。
-    """
-    snap = _bare_snap()
-    payload = {"actions": {A: "翻看卷宗", B: "维持现状，按兵不动"}}
-    out = _reflect_payload(monkeypatch, snap, f"{A}翻看卷宗。", payload)
-    assert out["actions"] == {A: "翻看卷宗"}
-    assert out["silent_rounds"][B] == 1
-
-
 def test_locations_drop_names_absent_from_reply(monkeypatch):
     """同理，没出场的角色不得被写进 locations（虚报会把下一轮分场带偏）。"""
     snap = _bare_snap()
@@ -1031,18 +879,4 @@ def test_locations_drop_names_absent_from_reply(monkeypatch):
     assert A in out["locations"]
     assert B not in out["locations"]      # 正文没提到 B，不许替他占位
 
-
-def test_silent_rounds_fall_back_to_reply_mention():
-    """纪官漏抽某人时用正文兜底：名字在正文里出现过，就不算「这一轮没戏」。
-
-    v2.1.2 实证（_probe_stale d827692f R9）：正文写了高天，actions 里没有他，
-    静默照涨到 8 → 下一轮提醒位又被刚写过的人占掉，真正被冷落的轮不到。
-    """
-    snap = {"actions": {A: "翻看卷宗"}, "silent_rounds": {A: 5, B: 7}}
-    director._update_silent_rounds(snap, [A, B], reply=f"{A}翻看卷宗，提到{B}在城外。")
-    assert snap["silent_rounds"][A] == 0
-    assert snap["silent_rounds"][B] == 0     # 正文提到 → 归零
-    # 正文完全没提的角色照常累加
-    snap2 = {"actions": {}, "silent_rounds": {B: 3}}
-    director._update_silent_rounds(snap2, [B], reply=f"{A}独自翻看卷宗。")
-    assert snap2["silent_rounds"][B] == 4
+

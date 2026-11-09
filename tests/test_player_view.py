@@ -39,8 +39,7 @@ def _snap():
         "present": [A, B],
         "scene": {"place": "某处", "time": "夜", "weather": "", "round": 3},
         "relations": {f"{A} → {B}": "母亲，独占欲"},
-        "actions": {A: "翻看物资"},
-        "goals": {A: "守住入口"},
+        "locations": {A: {"place": "门口", "round": 2}},
         "secrets": [{
             "owner": A, "content": "秘密真相", "bottom_line": "暴露后果",
             "keys": ["触发词"], "state": "潜伏",
@@ -49,7 +48,6 @@ def _snap():
         }],
         "ledger": [{"account": f"{A} 的秘密已被 {B} 知晓（R2）：x", "round": 2}],
         "states": {"某物": {"value": "已封死", "round": 2}},
-        "silent_rounds": {A: 1, B: 0},
         "relations_base": {f"{A} → {B}": "母亲"},
         "kinship_base": {f"{A} → {B}": "母亲"},
         "address": {f"{A} → {B}": "妈妈"},
@@ -61,8 +59,12 @@ def test_player_view_keeps_playable_fields():
     """玩家视图须保留「导演判断局势」所需的全部字段。"""
     v = app_module.player_view(_snap())
     for k in ("present", "scene", "relations", "states", "ledger",
-              "actions", "goals", "secrets", "silent_rounds"):
+              "locations", "secrets"):
         assert k in v, "玩家视图缺字段 %s" % k
+    # 纪官瘦身后不再有的字段不得回来（2026-11-08）：它们一旦出现在白名单里，
+    # 就等于对外承诺引擎还在维护一套它已经不产出的账。
+    for gone in ("actions", "goals", "silent_rounds"):
+        assert gone not in v, "玩家视图不应再外发 %s" % gone
 
 
 def test_player_view_strips_secret_truth():

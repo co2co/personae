@@ -5,7 +5,7 @@
 
 build_session 的分层：
     1 世界设定       非秘密的世界书命中（before 段=系统层；after 段置历史之后）
-    2 角色名册       description + personality + 当前意图 + 秘密分层提示（底牌/逼近/发酵）
+    2 角色名册       description + personality + 开局意图 + 秘密分层提示（底牌/已公开/握柄/起疑）
     3 导演指令       声明环境推手不登场、不代写其台词
     4 关系·状态·旧账  关系图 / 状态 / 旧账 / 回合 / 场景
     5 输出格式       多说话人叙事约定
@@ -15,7 +15,7 @@ build_session 的分层：
 import re
 
 import store
-from director import ENV_PUSHER, pressure_targets
+from director import ENV_PUSHER
 
 _START = re.compile(r"<START>", re.I)
 _LINE = re.compile(r"^\s*(?:\{\{user\}\}|<USER>|[Uu]ser)\s*[:：]\s*(.*)$")
@@ -128,22 +128,6 @@ def parse_examples(raw):
     return pairs
 
 
-def _ferment_hint(secret):
-    """秘密发酵压力的分档短句（每句 ≤15 字）。
-
-    数字（pressure）只存在于快照，模型永远看不到——这里只按档位给递进短句。
-    执行细节（怎么露痕迹）由全局段 [提醒·秘密发酵] 统一给出；角色块内不再
-    重复长文案、也不写「具体要求见…」这类跨段指针——跨段指针会留下找不到
-    出处的指引，长文案则把角色块撑肥（P1 角色块分层改造，2026-10-21）。
-    """
-    p = secret.get("pressure") or 0
-    if p >= 5:
-        return "沉寂过久，宜露痕迹"
-    if p >= 3:
-        return "沉寂已久，可露痕迹"
-    return ""
-
-
 # 位置记录超过这么多轮未更新，就当作「位置不确定」而不是「还在原处」：
 # 纪官按叙事重点报位置，支线角色可能连续多轮不被提及，硬按旧位置分场会把
 # 早已离开的人钉在原地（v2.1.0 拆职责时定）。
@@ -239,124 +223,6 @@ def scene_roster_block(snap, roster):
     return "\n".join(lines)
 
 
-def _global_pressure_block(snap, cards_present):
-    """高压秘密的全局提醒段：与导演指令同级，位于输出格式之后（近因最强）。
-
-    角色块内的分档文案只是「该角色诸多提示中的一句」，会被导演指令与镜头约束压掉——
-    压测实证：pressure 连续 7 轮封顶仍无碰撞。故高压档单独提级为全局提醒段：
-    点名双方、给出碰撞方向。
-
-    注（v0.18.4）：镜头层的高压强制（_merge_pressure_into_focus）已移除——镜头只由导演指令
-    指令驱动，高压不再抢镜头。本段随之软化为「软提醒」：只提示「这条秘密沉太久了、若有
-    自然机会可让它在行为层面露头」，不再强令「必须撞出结果、不得略过」。导演指令优先，
-    碰撞交由小空间群像的叙事自然命中。
-    """
-    targets = pressure_targets(snap, list(cards_present))
-    if not targets:
-        return ""
-    lines = []
-    for owner, rival in targets:
-        if rival:
-            lines.append(
-                "- " + owner + " 与 " + rival + " 之间有条秘密已经沉得太久。"
-                  "若本轮叙事自然把他们带到同一场景，让它在行为层面露个头——"
-                  "一次当面追问、一份被发现的物证、或一句半招供。")
-        else:
-            lines.append(
-                "- " + owner + " 有条秘密已经沉得太久，眼前无人逼近。"
-                  "若本轮有自然机会，让它自己露出痕迹——一次失态、一句说漏嘴、"
-                  "或一件可被发现的物证。")
-    # 优先级声明只在铁律丁出现一次。此处不再写「仅为可选」「优先级低于导演指令」
-    # 「可完全略过」——v2.1.2 实证：段末给出「可以完全略过」的台阶，模型整轮无视该段；
-    # 同一约束在四处重复声明（铁律丁 / 本段首 / 本段末 / 角色块）只会互相稀释。
-    return ("[提醒·秘密发酵]\n以下秘密已经沉寂多轮。若与导演指令不冲突、且叙事自然，"
-            "让它们在本轮行为层面露出一点痕迹：\n"
-            + "\n".join(lines))
-
-
-# 久未登场提醒（v2.1.2）：silent_rounds 由 director 按纪官行为摘要累加，原本只有前端 chip
-# 一个消费方（面板写「引擎已在关注」），提示词里一个字都没有——面板在承诺，引擎什么也不做。
-# 实测：导演连续 6 轮只推一条线，另一条线的四名角色全程零出场，
-# 某配角的静默数字涨到 5，叙事却没有任何回流。
-#
-# 这里把数字接回提示词，但只作「可选提醒」：最多点名两人、必须留在各自位置、不给整段对白、
-# 不打断主镜头。触发条件是整数阈值，不做任何语义判断——语义检测终成穷举（v2.1.0 删
-# _GROUP_WORDS 的教训），谁该有戏由导演指令与叙事决定，引擎只负责让「被冷落」这件事可见。
-STALE_ROUNDS = 2        # 与前端 chip 阈值一致：连续 2 轮无行为即提示
-STALE_MAX_NAMES = 2     # 一轮最多点名两人，防止又变成「人人有份」
-
-
-def stale_cast_block(snap, cards_present, focus=None):
-    """渲染「久未登场」可选提醒段：谁已经连续多轮没有任何行为。
-
-    分两类，措辞不同：
-    - 别处（位置与当前场景不同）：给一两句交代，留在自己位置上；
-    - 就在当前这一场：不是「不在场」而是「被写成背景」，让他对眼前的事有个具体反应。
-    后者才是面板数字最难解释的情形——人明明在屋里，却连续几轮一句不吭。
-    """
-    silent = snap.get("silent_rounds") or {}
-    if not silent:
-        return ""
-    sc = snap.get("scene") or {}
-    cur = sc.get("round") or 0
-    place = (sc.get("place") or "").strip()
-    locs = snap.get("locations") or {}
-    hot = [(n, int(s)) for n, s in silent.items()
-           if n in cards_present and isinstance(s, int) and s >= STALE_ROUNDS]
-    if not hot:
-        return ""
-    # 静默最久的优先（数字相同按名字定序，保证提示词可复现）。
-    hot.sort(key=lambda x: (-x[1], x[0]))
-    here, away = [], []
-    for n, s in hot[:STALE_MAX_NAMES]:
-        rec = locs.get(n) or {}
-        p = (rec.get("place") or "").strip()
-        rnd = rec.get("round")
-        stale_loc = (isinstance(rnd, int) and isinstance(cur, int)
-                     and cur - rnd >= _ROSTER_STALE_ROUNDS)
-        # 位置陈旧时不能断言「他就这一场」——陈旧位置本来就不可信。
-        if p and place and p == place and not stale_loc:
-            here.append("- " + n + "：连续 " + str(s) + " 轮没有任何动作。")
-            continue
-        # 位置陈旧或未记录时给「落位自由」而不是「位置不确定」：前者是授权，后者是犹疑。
-        # v2.1.2 第三次实机：写成「上次在 X，位置已多轮未更新」时，被点名的两人连续
-        # 三轮一个字都没写——模型不知道该把人放在哪，于是干脆不碰。提示要求「留在
-        # 自己的位置上」却不给确定位置，是自相矛盾的指令。
-        if p and stale_loc:
-            where = "原先在 " + p + "，可按他的身份与处境自行落定一处，写清在哪"
-        elif p:
-            where = "在 " + p
-        else:
-            where = "位置未记录，可按他的身份与处境自行落定一处，写清在哪"
-        away.append("- " + n + "：连续 " + str(s) + " 轮没有戏（" + where + "）。")
-    if not here and not away:
-        return ""
-    # 有镜头跟随时，镜头外的额度本来就只有「一句无说话人的旁白」，提醒不得越过它。
-    quota = ("本轮有【镜头跟随】，镜头外只能用一句无说话人的旁白带过"
-             if (focus or {}).get("subjects")
-             else "给一两句话交代即可——他做了什么、收到什么、做了个什么决定"
-                  "（可以像切镜头一样另起一小段，如「与此同时，某处。」）")
-    lines = ["[提醒·久未登场]"]
-    if away:
-        lines.append("以下角色已经连续多轮没有戏。别让一条线把整部戏占满：")
-        lines += away
-        # v2.1.2 措辞实证：写成「若叙事允许，从中挑一处」时，模型在 R8 整轮无视——
-        # 空指令轮它会自己挑一条线写完就收，压根不再回头。改成「请给出至少一处」后
-        # 仍保留「实在腾不出篇幅」的豁免，但不再主动提供「可以完全略过」的台阶。
-        lines.append("本轮请给出其中至少一处的交代（不必都写）：" + quota + "。"
-                     "留在他们自己的位置上——不搬进当前场景、不打断主镜头、"
-                     "不给整段「角色名：」对白，一轮最多一处；"
-                     "除非导演指令要求写完一整场冲突、实在腾不出篇幅。")
-    if here:
-        lines.append("以下角色就在当前这一场里，却连续多轮没有任何动作"
-                     "（不是不在场，而是被写成了背景）：")
-        lines += here
-        lines.append("本轮若场景仍在此处，让其中一人对眼前发生的事有个具体反应——"
-                     "一个动作、一句应答或一次拒绝，不要只让他站在那儿。")
-    # 段末不再写「优先级仍低于导演指令」——声明统一收在铁律丁一次。
-    return "\n".join(lines)
-
-
 _LAWS_PREFIX = (
     "你在写一场多人角色扮演的戏，是在场的多个角色之间的实时互动。你是叙事者，"
     "写的是「此刻正在发生的事」，不是复述规则、不是解说、不是预告。\n"
@@ -382,30 +248,25 @@ _LAWS_PREFIX = (
     "己、法律底线（不可破）：未成年角色的性化描写、以及任何真实未成年人的相关内容，一律禁止。"
 )
 
-# 亲密/性内容的尺度**不由引擎预设**（2026-10-21 下架，对齐 v0.29.0）。
-# 引擎不再注入「正面写实/不预设上限/不强制克制」等尺度措辞，也不再承担时机层
-#（何时写/未到位不硬写）——尺度完全交回各剧本的世界书与剧情推进决定。
-# 唯一红线（未成年法律硬红线）由 _LAWS_PREFIX 的「己、法律底线」承载，永远生效，
-# 不可由世界书覆盖。
-
-# 叙事纪律：引擎侧只保留与题材无关的通用内核（镜头轮换），其余（具体冲突手段清单、
-# 具体剧情线名、具体职业腔调、套话禁用词）属题材特异设定，一律下沉到各剧本世界书——
-# 世界书里已有更详细、更贴合题材的版本，引擎不再重复堆料。
-_NARRATIVE_DISCIPLINE = (
-    "叙事纪律（通用，覆盖所有剧本）："
-    "本剧没有唯一主角，任一角色都只是关系网中的一环：主镜头要在多条剧情线之间轮换，"
-    "不要被单一强势角色一直吸住；主镜头只落在与本轮情节最相关的那条线上，"
-    "无关的角色与剧情线不硬拉入镜。"
-)
-
+# 尺度与镜头措辞的归属（2026-11-09 引擎瘦身，与 nsfw 分支同源裁决）
+# 「叙事纪律（镜头轮换）」已从引擎层删除：引擎只描述世界与角色，不再替作者定镜头规矩、
+# 也不注入「必须发生什么」。这类措辞的唯一承载位是世界书引擎默认条目
+# （store.STANDARD_EXAMPLE_NAME「写法示范·常驻」，constant + position=before + priority 100，
+# 作者可改写可停用可恢复）；镜头纪律那句已并入该条目内容。
+# 亲密与性内容的尺度在 master 上本就不由引擎预设（2026-10-21 下架，对齐 v0.29.0），
+# 本次不再重复供给，也不新增尺度措辞。
+# 唯一保留在引擎层的红线是「己、法律底线」：它永远生效、不可由世界书覆盖，
+# 这一条与上面的收口方向相反，属于边界而非剧情决策。
+# 回滚：git checkout checkpoint-pre-slim-master-20261109 -- engine/prompter.py
 def _build_laws():
-    # 2026-10-21 下架铁律⑧（亲密尺度）后，laws = 创作铁律前缀（含未成年红线）+ 叙事纪律。
-    # 不再有 _LAW8_DEFAULT / _law8_override 拼接——引擎不预设亲密尺度。
-    return _LAWS_PREFIX + "\n" + _NARRATIVE_DISCIPLINE
+    # laws = 创作铁律前缀（写作基调①②③ + 机制投影甲乙丙丁戊己）。
+    # 2026-11-09 起不再有其后的「叙事纪律」拼接；红线「己」保留。
+    return _LAWS_PREFIX
+
 
 
 def build_session(cards_present, directive, world_hits, snap,
-                  history=None, after_hits=None, focus=None,
+                  history=None, after_hits=None,
                   active_consequences=None, demo_hits=None):
     """多角色沙盘模式（环境推手作为外部导演，不登场）：返回 messages 列表。
 
@@ -422,17 +283,11 @@ def build_session(cards_present, directive, world_hits, snap,
         blocks.append("[世界设定]\n" + "\n".join("- " + e["content"] for e in world_hits))
 
     char_blocks = []
-    # 镜头外角色降权：本轮有镜头焦点时，不在焦点内的角色的旧短期目标不再作为驱动力注入，
-    # 否则其残留目标（如「贴身照看某人伤口」）会把角色拽回镜头里抢戏（一次真实会话 R14）。
-    focus_subs = set((focus or {}).get("subjects") or [])
     for name, card in cards_present.items():
-        goal = snap["goals"].get(name, "")
-        if focus_subs and name not in focus_subs:
-            goal = ""  # 镜头外：本轮不展开，旧目标不驱动其行动
         sec_lines = []
         # 秘密提示：逐条检查本角色相关的秘密状态，注入对应提示（须嵌套在 per-character 循环内）。
-        # P1 分层：底牌 / 逼近 / 发酵各自独立成行（「·」引导），不再用「｜」串成一坨
-        # 挂在「当前意图」行尾——单卡最长曾达 1208 字，行尾从句里的提示会被整体淹没。
+        # 分层：每种状态各自独立成行（「·」引导），不用「｜」串成一坨挂在意图行尾
+        # ——单卡最长曾达 1208 字，行尾从句里的提示会被整体淹没。
         for s in snap["secrets"]:
             owner = s["owner"]
             knowers = [k for k in s.get("known_by", []) if k != ENV_PUSHER and k != owner]
@@ -469,21 +324,10 @@ def build_session(cards_present, directive, world_hits, snap,
                     sec_lines.append(line)
                     if knowers:
                         sec_lines.append("· 已被 " + "、".join(knowers) + " 知晓，须应对其反应。")
-                    if susp:
-                        # 逼近警告：有人已经在摸到边了，但还没证实。给归属者可演的应对空间
-                        # （掩饰、转移视线、反制、抢先开口），把曝光前的过程变成戏。
-                        names = "、".join(x["by"] for x in susp)
-                        clue = (susp[0].get("clue") or "").strip()[:60]
-                        line = "· 正在逼近：" + names
-                        if clue:
-                            line += "（疑点：\"" + clue + "\"）"
-                        line += "。他们尚未证实；你可掩饰、转移视线或反制，不得主动交出底牌。"
-                        sec_lines.append(line)
-                    # 发酵压力：沉寂过久则一句短提示（≤15 字），执行细节统一交
-                    # [提醒·秘密发酵] 段，角色块内不再重复长文案。
-                    ferm = _ferment_hint(s)
-                    if ferm:
-                        sec_lines.append("· " + ferm)
+                    # 「正在逼近」不再注入归属者（2026-11-08）：谁在心里起疑，归属者无从
+                    # 得知，这是 in-world 不可知的信息，等于引擎替角色感知别人的心理。
+                    # suspicions 照常记账——它是秘密四态（潜伏/起疑/已公开）的状态机输入，
+                    # 也是起疑者本人那一行提示（下方 elif 分支）的来源；只是不再向归属者点名。
             elif name in holders:
                 # 握把柄者已知情，故拿到完整事实（此前截断到 80 字会造成信息缺口，
                 # 与归属者拿全文不一致）；同时告知揭开的后果，使其能权衡是否使用这张牌。
@@ -499,12 +343,6 @@ def build_session(cards_present, directive, world_hits, snap,
                 sec_lines.append(
                     "· 你对 " + owner + " 起了疑：" + (clue or "有说不通的地方")
                     + "。这只是疑点、尚未证实，可试探、观察、追问，但不得当作事实断言。")
-                # 起疑者与归属者双向加压：只压一边会变成「一直掩饰」或「无凭据乱猜」，
-                # 两边同时施压才会撞出戏。搪塞也算推进，但必须留下没被说服的痕迹。
-                if (s.get("pressure") or 0) >= 3:
-                    sec_lines.append(
-                        "· 这份怀疑本轮必须推进一格：试探、找新佐证，"
-                        "或被搪塞——搪塞也算推进，但要留下你并未被说服的痕迹。")
         # 人设块：描述 + 性格 + 核心渴望（驱动力）+ 核心恐惧（底线），分层明确
         block = "【" + name + "】\n" + card.get("description", "")
         if card.get("personality"):
@@ -513,7 +351,10 @@ def build_session(cards_present, directive, world_hits, snap,
             block += "\n核心渴望（驱动力）：" + card["core_desire"]
         if card.get("core_fear"):
             block += "\n核心恐惧（底线）：" + card["core_fear"]
-        block += "\n当前意图：" + (goal or "（待生成）")
+        # 开局意图：角色卡作者手填的 short_goal，全程不变（引擎不再替角色改写意图）。
+        # 没填就不给这一行——留空位等于让模型自己编，那正是被砍掉的 goals 在做的事。
+        if (card.get("short_goal") or "").strip():
+            block += "\n开局意图（作者设定）：" + card["short_goal"].strip()
         if sec_lines:
             block += "\n" + "\n".join(sec_lines)
         char_blocks.append(block)
@@ -585,7 +426,8 @@ def build_session(cards_present, directive, world_hits, snap,
     # 时间锚缺失时的兜底：不给「时间未明」这种会诱导模型自行脑补时间的字眼，
     # 而是明确约束「本轮不得自行推进/杜撰时间」。旧版写「时间未明」，模型会为了
     # 让环境自洽而自由补一段时间推进（如一轮内从傍晚推到入夜），正是真实会话里
-    # 「颠三倒四」的来源之一。时间推进权应归场景导演（scene.apply），叙事层不越权。
+    # 「颠三倒四」的来源之一。时间推进权归导演指令：scene.resolve 只认指令里明写的时段词，
+    # 引擎自己不推时间，叙事层更不越权。
     scene_time = sc.get("time") or ""
     if scene_time:
         time_clause = "（" + scene_time + "）"
@@ -625,31 +467,14 @@ def build_session(cards_present, directive, world_hits, snap,
     present_names = "、".join(cards_present.keys())
 
 
-    focus_block = ""
-    if focus and focus.get("subjects"):
-        subs = "、".join(focus["subjects"])
-        others = [n for n in cards_present if n not in focus["subjects"]]
-        others_s = "、".join(others) if others else "（无）"
-        fplace = (focus.get("place") or "").strip()
-        present_clause = (
-            "本回合主镜头：" + subs
-            + ("（位于 " + fplace + "）" if fplace else "")
-            + "。其余角色 " + others_s + " 不在本回合镜头内；"
-            + "除非指令明确把他们带进来，否则不要写他们的「角色名：」段落、也不要展开描写，"
-            + "最多用一句无说话人的旁白带过（他们在哪儿见 [本轮场面]）。"
-            + "叙事中只可出现名册内角色，不得发明新角色，也不要写环境推手（导演）台词。"
-        )
-        focus_block = (
-            "\n【镜头跟随】导演指令将镜头引向 " + subs
-            + ("（" + fplace + "）" if fplace else "")
-            + "；" + others_s + " 在镜头之外，本轮不展开。"
-        )
-    else:
-        present_clause = (
-            "本剧角色名册（有卡、可出场）：" + present_names + "。"
-            + "叙事中只可出现名册内角色，不得发明新角色；"
-            + "也绝对不要写环境推手（导演）台词或让任何角色对环境推手说话。"
-        )
+    # 镜头跟随（focus）已删：它只由「指令里有没有出现某个名字字符串」决定，
+    # 判不出语义（「避开众人」曾被当成群体点名），却会在生成后按焦点裁剪正文。
+    # 谁与谁同场、主镜头落在哪一处，已由 [本轮场面] 按 locations 分场说清（确定性规则）。
+    present_clause = (
+        "本剧角色名册（有卡、可出场）：" + present_names + "。"
+        + "叙事中只可出现名册内角色，不得发明新角色；"
+        + "也绝对不要写环境推手（导演）台词或让任何角色对环境推手说话。"
+    )
 
     # 「点名角色必须出场」只在本段（[导演指令] 的 focus_note）说一次。
     # 此前同一约束在四处重复（本节 / [输出格式] / [镜头跟随] / 铁律①），约 700 字：
@@ -667,32 +492,20 @@ def build_session(cards_present, directive, world_hits, snap,
             "[写法示范]\n以下是本剧的写法范例，照着它的风格与节奏写（不要复述示范本身的内容）：\n"
             + demo_text
         )
-    # 输出纪律：硬性禁止任何元信息混入可见正文（与 narration_clean 兜底双保险）
+    # 输出纪律：硬性禁止任何元信息混入可见正文（与 narrative_clean 兜底双保险）。
+    # 2026-11-08 瘦身：六条并成四条，删掉与②重复的「自我分析阶段」条与举例长尾。
+    # 保留的锚点措辞：技法 / 描写标准 / 复述 / 正文（test_prompter 绑这几词，不绑整句）。
     blocks.append(
         "[输出纪律]\n你的回复就是这一轮的叙事正文本身，除此之外不许输出任何东西：\n"
-        "① 禁止在正文前加任何前言、警告、声明或安全提示（如「根据系统安全准则……」）；\n"
-        "② 禁止复述「铁律」或任何系统指令，禁止以导演 / 系统 / AI 口吻发言；\n"
-        "③ 禁止出现「策略调整 / 推演执行 / 后果留痕 / 下一回合预览 / 当前局势 / 关系改写」之类的元标题或工作笔记；\n"
-        "④ 禁止在文末追加后果清单、关系改写表或下回合预告；\n"
-        "⑤ 禁止以导演 / 系统口吻自我分析当前阶段（如自称「事后余韵阶段」「当前局势是…」）"
-        "或声明「我将以…规避 / 我将聚焦…」这类创作策略；这类自我说明一律禁止，直接写叙事；\n"
-        "⑥ 世界书里的「写作技法 / 描写标准 / 尺度要求」类条目是给作者的执行约束、不是剧情内容——"
-        "只按它要求的方式去写，严禁把这些条目的名称、要求文字或技法标签复述进正文"
-        "（例如「心理通过身体写出」「把外部压力重新压回来」「谁先动 / 事前犹豫」之类的方法说明或自我批注句）；\n"
-        "直接以叙事开场（环境描写或角色的动作 / 台词 / 内心活动），用多说话人叙事写完这一轮即结束。"
+        "① 正文前不得有前言、警告、声明或安全提示；\n"
+        "② 不得复述铁律或任何系统指令，不得以导演 / 系统 / AI 口吻发言，"
+        "不得自我分析写作策略（「我将聚焦…」「当前阶段是…」）；\n"
+        "③ 不得出现「策略调整 / 推演执行 / 后果留痕 / 当前局势 / 关系改写 / 下一回合预览」"
+        "之类的元标题或工作笔记，文末不得追加后果清单与预告；\n"
+        "④ 世界书里的写作技法 / 描写标准 / 尺度要求是给你的执行约束、不是剧情内容——"
+        "按它要求的方式写，严禁把条目的名称、要求文字或技法标签复述进正文。\n"
+        "直接以叙事开场，用多说话人叙事写完这一轮即结束。"
     )
-    if focus_block:
-        blocks.append(focus_block)
-    # 高压秘密的全局提醒段（软提醒，导演指令优先）
-    pressure_block = _global_pressure_block(snap, cards_present)
-    if pressure_block:
-        blocks.append(pressure_block)
-    # 久未登场提醒（v2.1.2）：置**最后**，近因最强。它管的是「本轮怎么写」的执行约束，
-    # 与上面那条「本轮可以撞出什么」的内容机会不同——R7 实证模型只接住了这一段的
-    # 「北境」切场，因此把它放在全块最末，避免被秘密发酵段挤掉近因权重。
-    stale_block = stale_cast_block(snap, cards_present, focus=focus)
-    if stale_block:
-        blocks.append(stale_block)
 
     fixed = "\n\n".join(blocks)
     messages = [{"role": "system", "content": fixed}]

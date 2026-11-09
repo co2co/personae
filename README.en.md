@@ -62,22 +62,21 @@ The engine ships with an official demo drama (`engine/data/examples/`); it is se
 
 - **Worldbook**: keyword-triggered injection; `constant` entries are injected every round; `depth` sets per-entry scan depth; `position` sets the injection point (before the system layer / after history); `#name#` recursively pulls in dependent entries.
 - **Secret mechanic**: four secret states (latent / suspected / exposed / public), with transitions driven by narrative channels such as seeing, overhearing, being told, finding evidence, self-disclosure, and admission.
-- **Relationship network / goals**: every round the director module writes back actions / goals / relations from the narrative; kinship is frozen separately and is never overwritten by long conversations.
-- **Roster and location staging**: the opening roster is fixed to every character in the drama (dropping anyone leaves dangling references in the relationship network, secret ownership, kinship, and goals); lines from characters outside the roster are stripped after generation; "who is present" is expressed through `locations` staging, not by shrinking the roster.
+- **Ledger (the clerk)**: each round records only three things — changes in who knows / suspects / holds leverage over each secret, character locations, and object states. Relationships and intentions are no longer written back by the engine: relations stay as the author wrote them on the cards, and opening intent is read straight from the card's `short_goal` (unchanged across the whole run).
+- **Roster and location staging**: the opening roster is fixed to every character in the drama (dropping anyone leaves dangling references in the relationship network, secret ownership, and kinship); lines from characters outside the roster are stripped after generation; "who is present" is expressed through `locations` staging, not by shrinking the roster.
 
 ## Engine Layout
 
 ```
 engine/
 ├── app.py          entry point: routes + SSE streaming passthrough
-├── director.py     director briefing: secret state machine / roster checks / relations and focus inference
+├── director.py     clerk ledger: secret state machine / roster checks / location and state bookkeeping
 ├── world.py        worldbook scanning (constant / depth / position / recursive)
 ├── prompter.py     layered prompt assembly
 ├── memory.py       sessions / snapshots / secret seeds / action state
 ├── store.py        local file I/O for character cards / worldbook / chats
 ├── llm.py          model backend integration (OpenAI-compatible)
-├── scene.py        automatic scene switching (time / weather / present roster)
-├── hooks.py        hooks (prompt_ready / message_received)
+├── scene.py        scene-change resolution (pure rules, only the director's directive triggers it; no LLM call)
 ├── data/           character cards / worldbook / config / bundled demo drama
 ├── static/         single-page frontend + worldbook user manual
 ├── run.bat  install.bat  requirements.txt

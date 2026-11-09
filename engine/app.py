@@ -23,7 +23,6 @@ from flask import Flask, Response, jsonify, request, send_from_directory, stream
 
 import director
 import scene
-import hooks
 import llm
 import narrative_clean
 import logger
@@ -73,8 +72,7 @@ def _scene_change_payload(changed, prop, snap):
         "changed": True,
         "place": snap["scene"].get("place", ""),
         "time": snap["scene"].get("time", ""),
-        "leave": prop.get("leave", []),
-        "arrive": prop.get("arrive", []),
+        "weather": snap["scene"].get("weather", ""),
         "reason": prop.get("reason", ""),
     }
 
@@ -162,13 +160,15 @@ _SECRET_PUBLIC_FIELDS = ("owner", "state", "known_by", "suspicions")
 
 # 快照顶层字段白名单：未列出的一律不外发（含 relations_base / kinship_base /
 # address / recent 等内部字段）。
-# relations / actions / goals / ledger 当前**没有 UI 消费者**（v0.16.1 起左栏
-# 刻意不展示它们：那些是引擎的中间产物，摆出来会让玩家照着面板核对而不是
-# 读故事）。仍留在白名单里，因为它们是引擎的核心状态，导出、复盘、二次开发
-# 都要用；白名单的职责是「哪些字段可以外发」，不是「哪些字段当前在渲染」。
+# relations / ledger 当前**没有 UI 消费者**（v0.16.1 起左栏刻意不展示它们：那些是
+# 引擎的中间产物，摆出来会让玩家照着面板核对而不是读故事）。仍留在白名单里，因为
+# 它们是引擎的核心状态，导出、复盘、二次开发都要用；白名单的职责是「哪些字段可以
+# 外发」，不是「哪些字段当前在渲染」。
+# actions / goals / silent_rounds 已随纪官瘦身移除（2026-11-08）：引擎不再替角色想
+# 意图、不再抽行为摘要、不再数静默轮数，快照里不再有这三样。
 _SNAPSHOT_PUBLIC_FIELDS = (
-    "present", "scene", "relations", "actions", "goals",
-    "secrets", "ledger", "states", "silent_rounds", "locations",
+    "present", "scene", "relations",
+    "secrets", "ledger", "states", "locations",
 )
 
 
@@ -634,14 +634,9 @@ def act():
 
     logger.info("session", "收到导演扰动：" + (directive or "（无，自然推演）"))
     try:
-        # 场景自动切换：生成前先决定，使新场景/天气进入提示词；同时更新在场名单
-        scene_changed, scene_prop = scene.apply(sid, directive, snap)
-        # 镜头跟随：导演指令把扰动引向某子集时，镜头跟随该子集，其余在场者视为镜头外
-        focus = director.compute_focus(directive, snap)
-        snap["focus"] = focus
+        # 场景解析：生成前先决定，使新场景/天气进入提示词（纯规则，不调模型）
+        scene_changed, scene_prop = scene.resolve(snap, directive)
         memory.save(sid, snap)
-        if focus and focus.get("forced"):
-            logger.info("director", "镜头让位于高压秘密：强制并入 " + "、".join(focus["subjects"]))
         present = snap["present"]                  # 全部为 NPC，环境推手不在场
         cards_present = {c: store.load_card(c) for c in present}
 
@@ -651,15 +646,10 @@ def act():
                     + (" ｜ 新揭露秘密：" + "、".join(brief["revealed_secrets"]) if brief["revealed_secrets"] else "")
                     + (" ｜ 激活旧账 " + str(len(brief["active_consequences"])) + " 条" if brief["active_consequences"] else ""))
 
-        # 场景切换日志
         if scene_changed and scene_prop:
-            logger.info("scene", "场景切换 → " + (scene_prop.get("place", "") or "")
-                        + ("（" + (scene_prop.get("time", "") or "时间未明") + "）" if scene_prop.get("place") or scene_prop.get("time") else "")
-                        + (" ｜ 天气 " + scene_prop["weather"] if scene_prop.get("weather") else "")
-                        + (" ｜ " + "、".join(scene_prop.get("leave", [])) + " 离开" if scene_prop.get("leave") else "")
-                        + (" ｜ " + "、".join(scene_prop.get("arrive", [])) + " 到场" if scene_prop.get("arrive") else ""))
+            logger.info("scene", "场景按指令更新：" + (scene_prop.get("reason", "") or "已更新"))
         else:
-            logger.debug("scene", "场景无变化，沿用当前场景")
+            logger.debug("scene", "指令未明说场景变化，沿用当前场景")
 
         # 世界书：剔除潜伏秘密条目（秘密不进 prompt，只在角色块里按已知状态提示）
         world_name = cards_present[present[0]].get("world", "") if present else ""
@@ -696,11 +686,9 @@ def act():
             cards_present, directive, before_hits, snap,
             history=history,
             after_hits=after_hits,
-            focus=focus,
             active_consequences=brief.get("active_consequences") or [],
             demo_hits=demo_hits,
         )
-        messages = hooks.emit("prompt_ready", messages=messages, snap=snap)["messages"]
         tok = sum(prompter.count_tokens(m.get("content", "")) for m in messages)
         # 计算世界书落点标注：before 命中全部进首条 system 段；after 命中并入末尾 user 消息
         # 的「【世界设定·当前环境】」块（生成点前最后一瞥，近因最强）。高级用户可据此逐段核对。
@@ -734,20 +722,12 @@ def act():
         model = llm.setting("model")
         logger.info("model", "远程模型开始生成（" + str(model) + "）…")
 
-        # 复读检测 + 自动重生成（v0.22.x，与后端采样参数解耦的泛用防复读）。
-        # 最多重试 1 次：首次命中复读即降温度重生成，再次命中则照常落盘（避免死循环）。
-        max_regen = 1
-        regen_count = 0
-
-        def _generate_once(cur_params, box, msgs=None):
-            """单次流式生成，逐块回传；全文累积进 box[0]。
-
-            msgs：可选，覆盖默认的 messages（重生成时用于注入反照抄约束）。
-            """
+        def _generate_once(cur_params, box):
+            """单次流式生成，逐块回传；全文累积进 box[0]。"""
             reply_text = []
             first = True
             try:
-                for chunk in llm.stream(messages if msgs is None else msgs, **cur_params):
+                for chunk in llm.stream(messages, **cur_params):
                     if first:
                         first = False
                         logger.success("model", "首 token 已到达，模型正在输出…")
@@ -767,92 +747,39 @@ def act():
         # 首 token 前先发「思考中」状态
         yield "data: " + json.dumps({"status": "模型思考中…"}, ensure_ascii=False) + "\n\n"
 
-        full = None
-        best_full = None          # 择优保留：记录当前复读率最低的一版
-        best_overlap = 1.0        # 该版的重叠率（越小越不重复，初始 1.0 表示「无限差」）
-        gen_params = dict(params)
-        regen_msgs = None         # 重生成时追加了反照抄约束的 messages（首次为 None，走原 messages）
-        while True:
-            box = [""]
-            for item in _generate_once(gen_params, box, msgs=regen_msgs):
-                yield item
-            full = box[0]
-            if not full:
-                # 流异常已 yield error，直接终止
-                return
+        box = [""]
+        for item in _generate_once(params, box):
+            yield item
+        full = box[0]
+        if not full:
+            # 流异常已 yield error，直接终止
+            return
 
-            # 复读检测：轮内自重复 或 与最近历史轮重复
-            is_repeat, overlap, kind = director.detect_narrative_repeat(
-                full, history_texts)
-            # 择优记录：无论是否判为复读，都跟踪「重叠率最低」的那一版。
-            # 这样即使重生成出的第二版反而更复读，也能回退到第一版，避免「用更差的输出替换更好的输出」。
-            best_full, best_overlap = director.pick_less_repetitive(
-                full, overlap, best_full, best_overlap)
-
-            if not is_repeat or regen_count >= max_regen:
-                if is_repeat:
-                    logger.warn("model", "复读检测命中（" + (kind or "?") +
-                                "，重叠率 " + str(round(overlap, 3)) +
-                                "），已达重试上限，照常落盘")
-                else:
-                    logger.info("model", "复读检测通过（最大重叠率 " +
-                                str(round(overlap, 3)) + "）")
-                break
-
-            # 命中复读：降温度 + 注入显式反照抄约束后重生成。
-            # 关键：降温度只能抑制「采样随机性」导致的重复，治不了「历史正文就躺在上下文里、
-            # 模型照着抄」的内容级复读。故追加一条硬约束，明确禁止复述/改写历史已有情节与动作。
-            regen_count += 1
-            logger.warn("model", "复读检测命中（" + (kind or "?") +
-                        "，重叠率 " + str(round(overlap, 3)) +
-                        "），降温度并注入反照抄约束重生成（第 " + str(regen_count) + " 次）")
-            yield "data: " + json.dumps(
-                {"status": "检测到重复，正在重新生成…", "regenerate": True},
-                ensure_ascii=False) + "\n\n"
-            gen_params = dict(gen_params)
-            # 温度减半并封底，抑制复读
-            gen_params["temperature"] = max(0.4, gen_params.get("temperature", 1.0) * 0.5)
-            # 反照抄约束：按复读类型给对症措辞，追加到 messages 末尾（近因最强）。
-            if kind == "self":
-                anti_clause = (
-                    "刚才那版叙事出现了同一段文字/动作在文内反复重复的问题。"
-                )
-            else:
-                anti_clause = (
-                    "刚才那版叙事与历史里已经写过的情节、动作、台词高度重复，近乎照抄。"
-                )
-            anti_hint = (
-                anti_clause
-                + "请重写这一轮：不得复述、重复或改写历史正文中已经出现过的任何具体情节、"
-                "身体动作、台词或收束段；必须把剧情推进到一个新的节点，写出新的具体信息"
-                "（新的动作、新的对话推进、新的处境变化或关系进展），而不是把上一轮的内容换几个字再演一遍。"
-            )
-            regen_msgs = list(messages) + [{"role": "user", "content": anti_hint}]
-
-        # 择优落地：best_full 已在循环中记录了全程重叠率最低的一版。
-        # 若最终落盘的这一版（full）比它更复读，则回退到更不重复的那一版，
-        # 修「复读检测帮倒忙」——第一版正常、重生成第二版反而复读时，无条件覆盖会让用户看到更差的一版。
-        full, _ = director.pick_less_repetitive(full, director.detect_narrative_repeat(
-            full, history_texts)[1], best_full, best_overlap)
+        # 复读检测：只检测、只报告，不重写（2026-11-08 引擎瘦身）
+        # 旧版命中即「温度减半 + 追加反照抄约束」整段重生成：那是把作者已经看到的戏丢掉重来。
+        # 一次真实会话里第一版本是正常戏，重生成的第二版回卷历史 0.815，用户看到的反而是差的一版
+        # （为此还专门长出一套「择优保留」机制去兜重生成自己的坑）。
+        # 现在检测仍跑（成本恒定），命中就在运行时日志报警，要不要重写由导演指令决定。
+        is_repeat, overlap, kind = director.detect_narrative_repeat(full, history_texts)
+        if is_repeat:
+            logger.warn("model", "复读检测命中（" + (kind or "?") + "，重叠率 "
+                        + str(round(overlap, 3)) + "）：本轮正文照常保留，需要重写请用导演指令再来一轮")
+        else:
+            logger.info("model", "复读检测通过（最大重叠率 " + str(round(overlap, 3)) + "）")
 
         logger.info("model", "模型输出完成，共 " + str(len(full)) + " 字")
-        result = hooks.emit("message_received", reply=full, snap=snap)
-        full = result["reply"]
         # 叙事净身：剥离模型倒进正文的元信息（安全前言 / 铁律复述 / 导演推演笔记 /
         # 后果清单 / 下回合预告），与 prompter 的「输出纪律」双保险。
         # 必须在 present 校验 / 背景自检 / reflect / 落盘之前，使下游都吃到干净正文。
         full = narrative_clean.clean_narrative(full)
-        # present 名单校验/后处理：剥离非在场角色（含已离场者）的台词块；
-        # 若本轮有镜头焦点，则按焦点子集裁剪，使镜头真正跟随被引向的角色，其余在场者不展开。
-        # 台词校验：v2.1.0 起 present 是「角色名册」（建局 cast，永不收缩），不再是
-        # 「在场白名单」——无焦点轮 keep=名册，等于只剥名册外角色（如串剧本的卡）；
-        # 有焦点轮按焦点子集裁剪，因为那是导演显式指定「本轮只看这几个人」。
-        known = store.list_characters()
-        keep_set = set(focus["subjects"]) if focus else set(present)
+        # 台词校验：只剥「有名有姓但不属于本局名册」的角色台词块（串剧本/幽灵角色）。
+        # 按镜头焦点裁剪正文的行为已撤（2026-11-08）：焦点本身只由「指令里有没有
+        # 这个名字字符串」决定，裁剪却会真删正文——被删的角色既没戏也没进任何记账，
+        # 事后连「他被删了」都无从知道。谁该有戏交给 [本轮场面] 的分场约束与导演指令。
         full, present_violation = director.validate_present(
-            full, present, known, allowed=list(keep_set))
+            full, present, store.list_characters())
         if present_violation:
-            logger.warn("model", "台词校验：剥离了名册/镜头外的台词块（已自动清洗）")
+            logger.warn("model", "台词校验：剥离了名册外的台词块（已自动清洗）")
         else:
             logger.info("model", "台词校验通过")
         # 临时群演（aux）机制已废除（v0.30.0）：临时角色交还 LLM 与使用者自主管理，
@@ -861,8 +788,7 @@ def act():
         # 注：原始 token 已实时流式回传，此处不再回吐整段以免重复；
         # 校验后的 canonical 文本经末尾 done.reply 回传，前端据此对齐（极少剥离时无缝修正）。
 
-        # 状态机回写：把本轮推演产生的后果（关系/目标/秘密揭露/行动状态）落回快照。
-        # 行动状态（主动/无行动）由纪官依据行为摘要判定，见 director._update_silent_rounds。
+        # 状态簿记回写：秘密知情变化 / 人物位置 / 物件现状落回快照。
         # 纪官是非流式 LLM 调用，耗时与正文相当；在进入前先回一条「同步中」状态，
         # 让前端把输入框显式切到「后台同步」提示，避免玩家误以为可输入下一回合。
         yield "data: " + json.dumps({"status": "正在同步本回合状态…"}, ensure_ascii=False) + "\n\n"
@@ -881,8 +807,8 @@ def act():
         # 只有真正揭开的秘密（暴露/已公开）才算数；「起疑」仍是隐藏态（v0.26.0 四态）。
         exposed = [s for s in snap_now.get("secrets", [])
                    if s.get("state") in ("暴露", "已公开", "全曝光")]
-        logger.info("director", "状态回写完成：关系 " + str(len(snap_now.get("relations", {}))) + " 条"
-                    + " ｜ 本轮行动 " + str(len(snap_now.get("actions", {}))) + " 条"
+        logger.info("director", "状态回写完成：位置 " + str(len(snap_now.get("locations", {}))) + " 条"
+                    + " ｜ 现状 " + str(len(snap_now.get("states", {}))) + " 条"
                     + " ｜ 已暴露秘密 " + str(len(exposed)) + " 条")
 
         # 结局判定（软指引，非强制）：命中终局条件则向客户端提议是否终结当前会话

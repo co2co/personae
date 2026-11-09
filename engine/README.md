@@ -28,14 +28,13 @@ Developer tests, packaging scripts, and author-side drama sources are not shippe
 ```text
 engine/
 ├── app.py              entry point: routes + SSE streaming
-├── director.py         director briefing: secret state machine / roster checks / relations and focus
+├── director.py         clerk ledger: secret state machine / roster checks / location + state bookkeeping
 ├── world.py            worldbook scan (constant / depth / position / recursive)
 ├── prompter.py         layered prompt assembly
-├── memory.py           sessions / snapshots / secret seeds / action state
+├── memory.py           sessions / snapshots / secret seeds
 ├── store.py            local file I/O for cards, worldbook, chats
 ├── llm.py              model backend (base_url / model / sampling params)
-├── scene.py            automatic scene switching (time / weather / presence)
-├── hooks.py            hooks (prompt_ready / message_received)
+├── scene.py            scene-change resolution (pure rules; only the director's directive moves the scene)
 ├── data/
 │   ├── characters/     character cards (open JSON format)
 │   ├── worlds/         worldbooks (entry arrays)

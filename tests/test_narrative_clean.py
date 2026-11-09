@@ -45,7 +45,11 @@ def test_meta_stripped():
     assert "关系改写" not in out
     assert "注意：" not in out
     assert "在场角色" not in out
-    assert "场景：暴雨中的街头" not in out
+    # 「场景：」不再是元标题（2026-11-09 引擎瘦身）：正文以「场景：」起句是正常写法，
+    # 旧规则会误删。元标题表只留真正无歧义的那几个。
+    assert "场景：暴雨中的街头" in out
+    # 行首编号列举（旧 _LEADING_SITUATION_RE）已撤：无锚点，正常叙事的编号行也会被吞。
+    assert "1.  **环境**" in out
 
 
 def test_narrative_preserved():
@@ -93,20 +97,21 @@ CONTAMINATED_V2 = (
 )
 
 
-def test_v2_director_voice_stripped_evasion_kept():
-    """下架亲密尺度（对齐 v0.29.0）后：导演自居句 / 铁律复述 / 分隔线仍剥离，
-    但自我审查式规避声明（『鉴于…规避具体的生理…我将以…』）不再剥离——
-    `_GIVEN_EVADE_RE` / `_WILL_EVADE_RE` 已随 NSFW 约束层移除。"""
+def test_v2_director_voice_stripped_but_evasion_lines_survive():
+    """导演自居句仍删；「我将 / 鉴于」整句不再删（会吞台词），分隔线仍删。
+
+    2026-11-09 引擎瘦身：现行提示词从不谈「规避 / 克制」，那两条整句正则清的是
+    已不存在的失败形态，代价是把「我将」「鉴于」开头的正常台词一起吞掉。
+    master 上这两条正则本就随亲密尺度层下架（2026-10-21），此处只锁「不得回流」。
+    「关系推演沙盘的导演引擎」这个措辞保留清理——它在正文里必然是元信息。
+    """
     out = nc.clean_narrative(CONTAMINATED_V2)
-    # 导演自居句 / 铁律复述 / 分隔线 仍由 _DIRECTOR_ENGINE_RE / _HR_RE 清除
     assert "导演引擎" not in out
     assert "铁律" not in out
     assert "***" not in out
-    # 自我审查式规避声明不再剥离（残留原文）
-    assert "事后余韵阶段" in out
-    assert "规避具体的生理" in out
+    # 台词里的「我将…」不得被吞：这是旧正则的误伤面
     assert "我将以" in out
-    # 叙事正文保留（含「却没有真正进入」这种描写性句子）
+    # 叙事正文保留（含「却没有真正进入」这种描写性句子，不属于规避声明）
     assert "角色丁的动作停顿在半空" in out
     assert "他看着母亲那张" in out
     assert "却没有真正进入" in out

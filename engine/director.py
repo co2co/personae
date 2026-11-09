@@ -10,7 +10,6 @@ import memory
 import llm
 import logger
 import store
-import scene
 
 ENV_PUSHER = "环境推手"
 
@@ -353,77 +352,11 @@ def _evidence_transfer(evidence, by, owner):
 #  已随 NSFW 废弃，v0.8.0；把柄/胁迫作为关系张力由 reflect 自然演化，不再映射为内容尺度信号）
 
 
-# ---- 镜头跟随（焦点）----
-# 导演指令把扰动引向某个在场子集时，叙事镜头应跟随该子集，其余在场角色视为"在别处待命、
-# 不在本回合镜头内"，避免模型死守初始位置、只写留下的戏剧性角色（如怀孕/秘密组）。
-# 这是此前"指令指向离开者但叙事不跟随"问题的根因：引擎只有单一 present 名单，
-# 缺少"镜头"概念，导致模型在指令点名子集后仍默认全员出场、并偏爱更戏剧的留存组。
-_FOLLOW_WORDS = ["两人", "俩人", "2人", "他们", "他俩", "这俩", "那俩", "二人",
-                "双方", "两个", "他们俩", "这二人", "那二人"]
-# 群体点名：导演指令显式把镜头交给全体在场者（「众人讨论」「大家商量」）。这类指令是玩家
-# 明确的操控意图，须尊重、不得被高压秘密强制覆盖——否则不了解机制的玩家会以为引擎
-# 不遵循指令（一次真实事故：导演指令「众人讨论去处」被高压镜头压成二人戏）。
-# v2.1.0：原 _GROUP_WORDS（「众人/大家/所有人/全员…」）白名单已删除。
-# 它想解决的是「指令把镜头交给全体 → 不要只盯一个人」，但判据是「指令里有没有这几个字」，
-# 于是「避开众人」被当成群体点名、焦点直接丢失（8 轮探针 R6 实测）。这类白名单只能靠
-# 不断加词去兜语义，加到最后一无所获。真正该决定镜头的是「场上有没有一个明确的人被点名」：
-# 点了一部分人就跟随那一部分；没点名就交给 [本轮场面] 的默认主镜头（由位置算出，确定）。
-
-
-def _focus_place(snap, subjects):
-    """焦点所在地：取焦点角色 locations 的众数（人数相同取先出现者）。
-
-    v2.1.0：不再退回 scene.place——那是「主镜头落点」，多线叙事里会漂到支线甚至空场景，
-    而焦点角色实际在哪由 locations 说话（探针 R7：scene.place 已是空无一人的大营）。
-    """
-    locs = snap.get("locations") or {}
-    cnt = {}
-    for n in subjects:
-        p = ((locs.get(n) or {}).get("place") or "").strip()
-        if p:
-            cnt[p] = cnt.get(p, 0) + 1
-    if not cnt:
-        return ""
-    return max(cnt.items(), key=lambda kv: kv[1])[0]
-
-
-def compute_focus(directive, snap):
-    """计算本轮镜头焦点（被指令点名/引用的角色子集）。
-
-    返回 {"subjects": [...], "place": "...", "sticky": bool} 或 None。
-    - 指令点名一个真子集 -> 镜头跟随该子集（sticky=False）。
-    - 指令无点名但含指代代词（两人/他们/...）且上轮有焦点 -> 延续上轮焦点（sticky=True），
-      避免"2人逐渐深入"这类后续指令丢失焦点、镜头跳回初始位置。
-    - 指令点名全体或无人 -> None，表示自然推演，交由 [本轮场面] 的默认主镜头决定。
-    place 取焦点角色在 locations 里的实际所在地（v2.1.0，不再用 scene.place）。
-
-    导演体验优先（v0.18.3 裁定）：镜头只由导演指令驱动，秘密发酵压力（pressure）不再
-    对镜头施加任何强制——不强制并入、不强制锁定、不兜底撑镜头。引擎定位是小空间群像，
-    空间本就局限，高压双方迟早会在某轮自然同场，碰撞由叙事自然命中，无需镜头层「导演」。
-    压力只剩「提级文案」这一个提示出口（见 prompter），不再抢导演指令的方向盘。
-    """
-    present = snap.get("present", [])
-    if not present or not directive:
-        return None
-    named = [n for n in present if n in directive]
-    prev = snap.get("focus") or {}
-
-    # 导演指令点名具体子集 -> 镜头跟随该子集。
-    if 0 < len(named) < len(present):
-        return {"subjects": named, "place": _focus_place(snap, named), "sticky": False}
-
-    # 导演指令点名全体（列出所有角色名）-> 自然推演。
-    if named:
-        return None
-
-    # 指令完全没点名任何角色：仅指代代词延续上轮焦点（非高压锁定，高压不再有镜头强制）。
-    if prev and any(w in directive for w in _FOLLOW_WORDS):
-        subs = prev.get("subjects", [])
-        if subs and all(s in present for s in subs):
-            return {"subjects": subs, "place": _focus_place(snap, subs), "sticky": True}
-    return None
-
-
+# （镜头跟随 compute_focus 已于 2026-11-08 引擎瘦身删除）
+# 它判「镜头」的唯一依据是「指令字符串里有没有出现某个角色的名字」——判不出语义
+# （「避开众人」曾被当成群体点名），却驱动两件实事：注入【镜头跟随】段压制其余角色、
+# 生成后按焦点裁剪正文（被裁的角色连记账都吃不到）。谁与谁同场、主镜头落在哪一处，
+# 已由 prompter.scene_roster_block 按 locations 分场表达，那是确定性规则。
 def brief(sid, directive):
     """返回 (directives, snap)。会就地更新快照里的秘密状态与回合数。
 
@@ -457,8 +390,6 @@ def brief(sid, directive):
     return {
         "active_consequences": active,
         "revealed_secrets": revealed,
-        "goals": snap["goals"],
-        "relations": snap["relations"],
         "round": snap["scene"]["round"],
     }, snap
 
@@ -571,18 +502,18 @@ def _as_dict_list(val):
 
 
 
-def validate_present(reply, present, known_names, allowed=None):
-    """后处理：剥离不在保留集合内的角色台词块。
+def validate_present(reply, present, known_names):
+    """后处理：只剥「不属于本局名册」的角色台词块（串剧本 / 幽灵角色）。
 
-    reply 是"角色名："分段的多说话人叙事。出现在其中的、已知但不在保留集合内的
-    角色台词块（含其续行）会被移除；无说话人的叙述行与保留集合内角色台词保留。
+    reply 是"角色名："分段的多说话人叙事。出现在其中的、有卡但不属于本局名册的
+    角色台词块（含其续行）会被移除；无说话人的叙述行与名册内角色台词保留。
     返回 (清洗后文本, 是否发生违例)。
 
-    v2.1.0：`present` 已是「角色名册」（建局 cast，永不收缩），不再表示在场——
-    默认 keep=名册，等于只剥「有名有姓但不是本局角色」的台词（串剧本/幽灵角色）；
-    传 `allowed`（焦点子集）时按焦点裁剪，那是导演显式指定「本轮只看这几个人」。
+    v2.1.0：`present` 是「角色名册」（建局 cast，永不收缩），不是在场名单。
+    2026-11-08 起不再接受焦点子集裁剪：焦点只由名字字符串判出，裁剪却会真删正文，
+    被删的角色既没戏也没进任何记账（reflect 在裁剪后的正文上举证），事故无法回溯。
     """
-    keep = set(allowed) if allowed else set(present)
+    keep = set(present)
     if not reply or not known_names or not keep:
         # 保留集合为空（异常态）时无法校验，原样返回，绝不把整段回复剥空
         return reply, False
@@ -594,7 +525,7 @@ def validate_present(reply, present, known_names, allowed=None):
         m = pat.match(ln)
         if m:
             sp = m.group(0).rstrip(" :：")
-            if sp not in keep:            # 不在保留集合（含环境推手、已离场角色、镜头外角色）
+            if sp not in keep:            # 不在名册（含环境推手、别剧本的角色）
                 dropping, violated = True, True
                 continue
             dropping = False
@@ -616,7 +547,8 @@ def seed_relations_from_cards(cards_present):
 
     可选的 relations_kinship 字段形如 { "角色B": "小姨子" }，供引擎精确冻结血缘身份：
     它绕过词表猜测，作者直接声明「A 对 B 的亲属身份是什么」。写了这个字段，
-    该边的身份即被冻结且不再依赖描述文案的写法（见 _preserve_kinship）。
+    它固化进快照 kinship_base。纪官瘦身后（见本文件 reflect 段）引擎不再改写关系，
+    原先据此做的冻结闸已一并删除，该字段目前只作数据保留、无消费方。
     """
     out = {}
     for c, card in (cards_present or {}).items():
@@ -675,7 +607,8 @@ def seed_kinship_from_cards(cards_present):
 # 【社会关系词为何一律不进表】同事/邻居/房东/医生/领导/上司/下属等一律不收：
 #   1. 本引擎的核心能力是「关系演化」，社会关系正是演化主体（同事→恋人、
 #      下属上位、房东变盟友）。入表即把这些演化冻死，等于关掉引擎的主要功能
-#      （守护用例见 test_preserve_kinship_no_baseline_free）。
+#      （守护用例见 test_relation_gate.py：test_kinship_excludes_social_relations、
+#       test_reflect_does_not_rewrite_relations）。
 #   2. 职业/称谓类词在中文里大量作状语与口语称呼（「大哥别说」「领导在场」）
 #      句首声明规则会大面积误判，把叙述句当身份声明反过来改坏关系。
 #   若某个社会身份确需固定（如"法官/医生不得被改写成亲属"），
@@ -715,55 +648,6 @@ _KINSHIP_TOKENS = sorted(set(_KINSHIP_TOKENS), key=len, reverse=True)
 assert not [t for t in _KINSHIP_TOKENS if len(t) < 2], "身份词表混入单字词"
 assert "同事" not in _KINSHIP_TOKENS and "恋人" not in _KINSHIP_TOKENS, \
     "社会关系/关系状态词不得进冻结表（会冻死关系演化，见词表注释）"
-
-# 显式身份声明的形态：值以身份词**开头**，其后紧跟标点/空格/「是/为」等分隔。
-# 只认这种形态是因为关系定性句里通篇都是身份词（叙述某人不敢戳破父亲已死、某人是弟弟云云），
-# 从叙述句中间推断身份在语义上不成立——那句里的「父亲」指的是第三方，不是这条边的两端。
-# 作者想冻结某条边的身份，把身份词写在开头即可（"母亲：…""父亲，…"）；
-# 写在句中的叙述性身份词不触发冻结，交由模型自由演化。
-_KINSHIP_DECL_RE = re.compile(
-    r"^\s*(" + "|".join(re.escape(t) for t in _KINSHIP_TOKENS) + r")\s*[：:，,、。；;｜|—\-]|(?:是|为)\s*"
-)
-# 整值就是一个裸身份词时（模型常输出「父亲」这种极简定性）同样算显式声明。
-_KINSHIP_ONLY_RE = re.compile(
-    r"^\s*(" + "|".join(re.escape(t) for t in _KINSHIP_TOKENS) + r")\s*$"
-)
-
-
-def _first_kinship(text):
-    """返回该关系值**显式声明**的亲属身份词，无则 None。
-
-    只认两种形态（见 _KINSHIP_DECL_RE / _KINSHIP_ONLY_RE）：身份词出现在值开头
-    紧跟分隔符，或整值就是该身份词。不从叙述句中间推断——句中出现的身份词
-    指的是第三方，不是这条边声明的身份。
-    """
-    if not text:
-        return None
-    for rx in (_KINSHIP_DECL_RE, _KINSHIP_ONLY_RE):
-        m = rx.match(text)
-        if m:
-            return m.group(1)
-    return None
-
-
-def _preserve_kinship(base_val, new_val, declared=None):
-    """冻结亲属身份：基线声明了亲属身份时，模型新值不得改写为另一种亲属身份。
-
-    - declared 非空：以该权威身份为基准（作者用 relations_kinship 显式声明的），
-      基线描述里的身份词一律不采信。
-    - 基线未声明身份：放行（叙述句里的身份词不构成声明，模型可自由演化关系定性）。
-    - 基线/新值身份一致：放行（允许情感/状态修饰演化，如「父亲」→「父亲，关系紧张」）。
-    - 新值身份与基线冲突（父亲→姐夫）：用基线身份替换新值里的错误身份，
-      保留模型写出的情感/状态修饰，既守住血缘事实又不丢剧情演化。
-    """
-    bk = declared or _first_kinship(base_val)
-    if not bk:
-        return new_val
-    nk = _first_kinship(new_val)
-    if nk and nk != bk:
-        return new_val.replace(nk, bk, 1)
-    return new_val
-
 
 def init_relations(cards_present):
     """构建初始关系网：以角色卡 relations 字段为权威基线，LLM 仅补卡片未覆盖的空缺。
@@ -807,7 +691,8 @@ def fill_relation_gaps(snap):
 
     返回触发推断的角色列表（空列表 = 无需推断，手填齐全）。
     若检测到缺口，调用纪官(init_relations)从同场角色描述推断缺失的双向关系，
-    推断结果写回 snap["relations"] 与 snap["relations_base"]（受 v0.7.6 亲属冻结保护）。
+    推断结果写回 snap["relations"] 与 snap["relations_base"]；写回后即为最终口径，
+    纪官不再改写关系（见 reflect 的字段归属注释）。
 
     旧逻辑仅在「全部卡的 relations 合并为空」时才推断，导致「大部分有、个别缺」的剧本
     （如某张卡 relations 为空、且不被他人提及）漏网；本函数改为按「单个在场角色是否缺边」触发，
@@ -832,130 +717,13 @@ def fill_relation_gaps(snap):
     return gap_chars
 
 
-# 秘密发酵压力上限：封顶以免长期无进展时无限加压，把剧情逼成机械碰撞。
-PRESSURE_MAX = 5
-# 高压档：达到该值即从「角色块内的一句提示」升级为全局软提醒（提级文案，导演指令优先，不再强制进镜头）。
-PRESSURE_FORCE = PRESSURE_MAX
-# 同时只强制一条碰撞：多条并下达会互相打架，结果是全部僵住（见 pressure_targets）。
-PRESSURE_FORCE_LIMIT = 1
-# 纪官回写的输出额度：条目多（关系/行动/目标/秘密三类/事实两层），给窄了会被截断。
+# 纪官回写的输出额度：纪官字段已收窄（秘密簿记 + 位置 + 状态），额度仍留宽裕——
 # v0.28.4：实测满负荷轮（6 角色）输出 2.6~4.3k 字符（约 2~3k+ token），1800 明显不够，
 # 截断后 JSON 变非法、_extract_json 解析失败、整轮秘密簿记静默丢失（4/6 暗牌全程潜伏）。
-# 上调至 2800 给足余量；配合 reflect 输出字段重排（秘密簿记前置）双保险。
 # v2.1.6：思考链模型把 reasoning 计入 max_tokens（实测 2557/2800 吃光预算致截断），
 # 根因已由 llm 层关思考送达（reasoning_effort）修掉；2800→4096 作双保险，
 # 纯 content 模型不触顶零成本（实测满负荷 content 仅 ~663 token）。
 REFLECT_MAX_TOKENS = 4096
-
-
-def _update_silent_rounds(snap, present, reply=""):
-    """按纪官的行为摘要累加各角色的连续静默轮数。
-
-    消费方有两个（v2.1.2）：前端在场 chip 的轻量展示信号，以及 prompter 的
-    `[可选提醒·久未登场]`（只读数字、只作可选提醒，不抢镜头）。v0.30.1 废除
-    「在场即须留痕」硬性焦点后，它确实不再驱动任何强制焦点——但也不再是纯装饰：
-    数字涨起来，下一轮提示词里就会出现「这个人很久没戏了」的可选提醒。
-
-    判定依据是纪官抽取的 snap["actions"]（每角色本轮一句行为摘要），而非名字是否
-    出现在正文里：躲避、负气不语、被压制这类有意的沉默，纪官同样会写成行为摘要，
-    不会误判为遗忘。
-
-    v2.1.2 改动：焦点轮不再豁免镜头外角色。原「镜头外的人本轮就不该被写，计沉默
-    会误伤」是纯展示时代的顾虑；现在数字要驱动提醒，豁免等于让最该被提醒的人免罚——
-    实测导演连续用指令点名同一批人时，镜头外角色的数字长期停在 0，
-    提醒永不触发，提示词里那一段等于不存在。
-
-    另一处 v2.1.2 实证：R9 正文写了某配角，纪官漏抽他的
-    actions，静默照涨到 8——下一轮又把提醒位浪费在刚写过的人身上，真正被冷落的
-    反而轮不到。故加一层正文兜底：名字出现在正文里，本轮就算有戏。
-    """
-    acts = snap.get("actions") or {}
-    silent = snap.setdefault("silent_rounds", {})
-    text = reply or ""
-    for c in present:
-        if (acts.get(c) or "").strip() or (c and c in text):
-            silent[c] = 0
-        else:
-            silent[c] = silent.get(c, 0) + 1
-
-
-def _update_secret_pressure(snap, touches):
-    """按纪官的 touched 判定更新每条未揭开秘密的发酵压力。
-
-    触及（提及／暗示／回避／物证／追问任一）即归零，未触及则累加并封顶。
-    已揭开的秘密不再需要发酵压力，恒为 0。
-    纪官被要求对每条未揭开的秘密都给出判定；未列出的按未触及处理，与规则一致。
-    """
-    touched = {}
-    for t in touches or []:
-        o = (t or {}).get("owner")
-        if o:
-            touched[o] = bool(t.get("touched"))
-    for s in snap.get("secrets", []):
-        # 仍未揭开（潜伏/起疑）才需要发酵压力；「暴露/已公开」是已揭开态，压力恒 0。
-        # v0.26.0：起疑是中间态而非终态，仍须继续发酵（否则一有疑点就停压、
-        # 张力不再推进）。早前写成 != "潜伏"，起疑出现后会被误判为已揭开。
-        if s.get("state") not in ("潜伏", "起疑"):
-            s["pressure"] = 0
-            continue
-        if touched.get(s.get("owner"), False):
-            s["pressure"] = 0
-        else:
-            s["pressure"] = min(PRESSURE_MAX, s.get("pressure", 0) + 1)
-
-
-def _same_place(snap, a, b):
-    """两人此刻是否同处一地（locations 为唯一真相源）。
-
-    v2.1.0：present 已改为「角色名册」（建局 cast，全员），拿它判「眼前有没有人逼近」
-    等于恒真——千里之外的起疑者也会被当成当场对峙。同场判断改由 locations 承担；
-    任一方位置未记录时不做否定（宁可不夺其资格），避免首轮或支线漏报。
-    """
-    locs = snap.get("locations") or {}
-    pa = ((locs.get(a) or {}).get("place") or "").strip()
-    pb = ((locs.get(b) or {}).get("place") or "").strip()
-    if pa and pb:
-        return pa == pb
-    return True
-
-
-def pressure_targets(snap, present=None):
-    """本轮处在高压档（必须碰撞）的秘密及其在场对手：[(owner, rival|None), ...]。
-
-    只取未揭开的秘密（已曝光者压力恒为 0，不存在发酵问题）。
-    对手优先取已起疑者（最可能撞出戏），其次握把柄/知情者；须与归属者同处一地且非归属者。
-    每条秘密最多配一个对手——对手给多了镜头会被撑成全员，等于取消镜头。
-    """
-    present = list(present if present is not None else (snap.get("present") or []))
-    out = []
-    for s in snap.get("secrets") or []:
-        if (s.get("pressure") or 0) < PRESSURE_FORCE:
-            continue
-        # 同上一处：只有仍未揭开（潜伏/起疑）的秘密才需要强制碰撞推它一把。
-        if s.get("state") not in ("潜伏", "起疑"):
-            continue
-        owner = s.get("owner")
-        if owner not in present:
-            continue
-        rival = None
-        for x in s.get("suspicions") or []:
-            b = (x or {}).get("by")
-            if (b and b != owner and b != ENV_PUSHER and b in present
-                    and _same_place(snap, owner, b)):
-                rival = b
-                break
-        if rival is None:
-            for k in (s.get("holders") or s.get("known_by") or []):
-                if (k != owner and k != ENV_PUSHER and k in present
-                        and _same_place(snap, owner, k)):
-                    rival = k
-                    break
-        out.append(((s.get("pressure") or 0), owner, rival))
-    # 同时最多只逼一条：压测实证四条秘密会在开场几轮一起顶到上限（谁都没被碰），
-    # 全局段同时下达三个「必须碰撞」时模型一个也满足不了，反而三条一起僵住（滞留 11 轮）。
-    # 按压力降序取最久未碰的一条，它一旦撞开归零，下一条自然轮到——串行消化而非一拥而上。
-    out.sort(key=lambda t: -t[0])
-    return [(o, r) for _, o, r in out[:PRESSURE_FORCE_LIMIT]]
 
 
 # 状态层键上限：超出淘汰最久未更新的键（状态是覆盖式的，键数本由对象数决定，此为兜底）。
@@ -1145,10 +913,12 @@ def _log_reflect_failure(sid, round_no, reason):
 
 
 def reflect(sid, reply, directive=""):
-    """生成后状态回写：根据本轮叙事更新关系、短期目标，并检测潜伏秘密被揭露。
+    """生成后状态回写（簿记，不做创意判断）：秘密的知情变化、人物位置、物件现状。
 
-    这是“状态机自动演化”的核心——推演产生的后果必须落回快照，否则次日无痕。
-    任何解析/调用失败都保持快照不变，绝不阻塞主流程。
+    纪官只回答「本轮之后世界里什么是真的」，不回答「接下来该写什么」。
+    2026-11-08 引擎瘦身：原先它还改写关系定性、抽每轮行为摘要、编短期目标、判场景
+    是否变化、判秘密有没有被触及——五者都是记账层越界替叙事层做决定（详见下面
+    prompt 里的注释）。任何解析/调用失败都保持快照不变，绝不阻塞主流程。
 
     directive：本轮导演指令（环境推手本轮的权威设定）。关键事实（如某群演死亡）
     可能只由指令承载、正文未清晰复述甚至被弱化，故退场判定须同时参照它。
@@ -1161,8 +931,6 @@ def reflect(sid, reply, directive=""):
     if not present:
         return snap
 
-    rel_text = "\n".join(f"{k}: {v}" for k, v in snap["relations"].items()) or "（无）"
-    goal_text = "\n".join(f"{k}: {v}" for k, v in snap.get("goals", {}).items()) or "（无）"
     # 秘密全景（含已被谁知情 + 秘密正文真相）：把柄可失去/转手，纪官必须知道当前持有情况；
     # 同时喂 content 与 keys 作为语义锚点——此前只回喂 owner 名 + 状态，纪官蒙眼归档，
     # 会把「出现归属者名字的无关情报」误挂到其秘密上（一次真实会话：把「某角色剥另一角色衣服」
@@ -1204,46 +972,36 @@ def reflect(sid, reply, directive=""):
 
     prompt = [
         {"role": "system",
-         "content": "你是关系沙盘的纪官。根据本轮叙事，更新各角色的关系与短期目标，抽取本轮各角色的具体行为，并归档秘密的知情变化。只输出一个 JSON 对象，不要任何解释或 Markdown 代码块。"},
+         "content": "你是关系沙盘的纪官。只做簿记：归档本轮秘密的知情变化，记录各角色当前位置与物件现状。只输出一个 JSON 对象，不要任何解释或 Markdown 代码块。"},
         {"role": "user", "content": (
             f"在场角色：{', '.join(present)}\n"
-            f"当前关系：\n{rel_text}\n"
-            f"当前短期目标：\n{goal_text}\n"
             f"秘密与把柄现状：\n{secret_text}\n"
             f"既有状态键：{st_text}\n"
             f"既有位置：{loc_text}\n"
             f"当前场景：{scene_text}\n"
             f"{dir_block}"
             f"本轮叙事：\n{reply}\n\n"
-            # 字段顺序即截断优先级：秘密簿记（exposures/suspicions/handle_releases/touches）排最前，
-            # 其次是低成本且脆弱的物理事实字段（location_updates/scene_shift）——它们条目短，
-            # 放在冗长字段之前可保证即便输出被截断也先牺牲 relations/actions/goals 而非位置。
-            # 冗长的 relations/actions/goals 排最后。
-            # 这样即便输出被 max_tokens 截断，也优先牺牲低危的冗长字段，保住核心簿记
-            # （v0.28.4 治：REFLECT_MAX_TOKENS 不足时 JSON 截断→整轮秘密簿记丢失，4/6 暗牌全程潜伏；
-            #  v0.31.1 治：location_updates 被 relations/goals 膨胀长文顶出截断区→左栏【人物位置】整片空）。
+            # 纪官字段的归属（2026-11-08 引擎瘦身，simon 裁决）
+            # 纪官只留三样簿记：秘密知情变化（exposures/suspicions/handle_releases）、
+            # 人物位置（location_updates）、物件现状（state_updates）。删掉五样：
+            #   relations——纪官把关系压成 ≤30 字标签覆盖作者手写的细部（审计 P3：
+            #     「他知道台阶是他递的」这类戏剧信息从 R2 起再也看不到）。关系归作者，
+            #     由角色卡 relations 固化为 relations_base，恒定回注、不再被模型改写。
+            #   goals——短期目标是引擎替角色想的意图，与角色卡的核心渴望/恐惧重复供给；
+            #   actions——只为「久未登场提醒」服务，提醒机器一并删除；
+            #   scene_shift——场景由导演指令决定，见 scene.resolve；
+            #   secret_touches——只为发酵压力服务，压力机器一并删除。
+            # 字段顺序仍是截断优先级：条目短而脆弱的物理事实排在秘密簿记之后，
+            # 保证被 max_tokens 截断时先丢冗长条目而不是丢位置（v0.31.1 的教训）。
             "请输出 JSON：\n"
             "{\n"
             '  "secret_exposures": [{"owner": "秘密归属者", "by": "本轮得知该秘密的角色名", "via": "信息获取方式，只能填「看见/听见/被告知/发现物证/自述/承认」六类之一", "evidence": "本轮叙事原文片段"}],\n'
             '  "secret_suspicions": [{"owner": "秘密归属者", "by": "本轮起了疑心的角色名", "evidence": "本轮叙事原文片段（引发怀疑的那句话/那个细节）"}],\n'
             '  "handle_releases": [{"owner": "秘密归属者", "from": "失去把柄的人", "to": "接过把柄的人（彻底失去则填空字符串）", "evidence": "本轮叙事原文片段"}],\n'
-            '  "secret_touches": [{"owner": "秘密归属者", "touched": true}],\n'
             '  "location_updates": [{"who": "角色名", "place": "该角色本轮结束时所在的具体地点"}],\n'
-            '  "scene_shift": {"changed": false, "place": "本轮主镜头落点的地点（不是全篇末尾换场处）", "time": "主镜头落点时的时间", "weather": "当时的天气"},\n'
-            '  "relations": { "源 → 目标": "关系定性（只写稳定的人物关系定位，如\'妈妈，独占欲\'，不要包含本轮具体动作描写）" },\n'
-            '  "actions": { "角色名": "本轮该角色做的一句具体行为（不含关系定性，只写这回合发生了什么）" },\n'
-            '  "goals": { "角色名": "新的短期目标" },\n'
             '  "state_updates": [{"subject": "对象（如某道门、某件物品、某人的伤）", "value": "当前状态一句话"}]\n'
             "}\n"
             "规则：\n"
-            "- relations 只写跨回合稳定的关系定性，严禁把本轮动作（如\'靠肩头\'\'护送\'\'命令其回房\'）写进关系描述；关系键保持\"源 → 目标\"格式；只更新确实变化的条目，不要删除未提及的关系。\n"
-            "- relations 与 goals 的每条 value **必须 ≤ 30 字**（一句话、一个短语），严禁写成长段小作文——写长会挤占 token 额度，导致排在后面的字段被截断丢弃（这是硬性要求，超长即不合格）。\n"
-            "- 亲属身份（父子/母子/夫妻等血缘姻亲）是作者设定的固定事实，只可演化情感状态，"
-            "不得改写成另一种亲属身份。反例触发词：父亲→姐夫、母亲→嫂子。\n"
-            "- actions 只写本轮正文里**真正做出动作或开口**的角色，一人一句具体行为。"
-            "名册是建局全员，不等于本轮在场：本轮没有出场、只是被提到的角色**不要写进 actions**，"
-            "更**不要写「维持现状」「按兵不动」「静观其变」「暗中盘算」这类占位摘要**——"
-            "引擎用 actions 的空缺判断「这个人已经连续几轮没戏」，虚报会让该判断永久失效。\n"
             "- secret_exposures 只填本轮叙事里**确实发生**了「某人得知了某秘密」的条目；仅凭角色起了疑心、或只是提到相关物品，都不算。\n"
             "- secret_exposures 的「得知」必须是**信息实际发生了跨角色传递**：亲眼看见、亲耳听见、被当面告知、亲手发现物证；除此之外一律不算暴露。\n"
             "- via 填「自述/承认」专指**秘密归属者本人**当众说开，只用于本人真的说开的轮次："
@@ -1253,8 +1011,6 @@ def reflect(sid, reply, directive=""):
             "- secret_suspicions 填**线索逼近但尚未坐实**的条目：某人察觉对方言行反常、追问只得到含糊其辞的回答、发现了与旧事相关的物品或痕迹、或对某人的说法明显不信。只有当事人已经确知真相才算 secret_exposures，不算起疑。\n"
             "- secret_suspicions 的 by 不能是秘密归属者本人，也不能是已确知该秘密的人；同一处细节不要同时填进 secret_exposures 与 secret_suspicions，拿不准就填起疑（较轻），宁可让秘密晚一点被揭开。\n"
             "- handle_releases 只填本轮叙事里**确实发生**了「把柄消失或转手」的条目：例如药物/证据/信件被丢弃、被夺走、交给第三方、或当众说开后不再构成胁迫。to 为空字符串表示彻底消失。\n"
-            "- secret_touches 对**每条仍未揭开**的秘密判断：本轮叙事里它有没有被任何形式触及——被提及、被暗示、被刻意回避、出现相关物证或痕迹、被人追问或试探，任一都算 touched=true；"
-            "回避与掩饰本身也算被触及。只有整轮里完全无人提起、也没留下任何相关线索，才填 false。已揭开的秘密不必填。\n"
             "- evidence 逐字照抄本轮叙事的一段连续原文，照抄不到就不要填（核验不过即丢弃）。"
             "反例触发词：改写概括、代词换角色名。\n"
             "- 宁可少填也不要误填：填错会让秘密提前暴露或让把柄凭空失效。\n"
@@ -1268,13 +1024,8 @@ def reflect(sid, reply, directive=""):
             "place 写叙事末尾他实际所处的具体地点（点明班次/站位就报具体），不写「外面」「那边」这类泛称。"
             "反例触发词：替没出场的人报基准处、泛称地点、同一角色报两条。"
             "「翻窗逃到隔壁单元」这类还会回来的暂时逃离不填。\n"
-            "- scene_shift 判本轮地点/时间/天气有无实际变化：有变化就 changed=true 并给出变化后的"
-            "place/time/weather，没变化填 {\"changed\": false}。place 取本轮主镜头落点。"
-            "反例触发词：全篇最后一个换场段。\n"
         )},
     ]
-    # 额度必须留足：纪官要吐关系/行动/目标/秘密三类/事实两层，900 会被截断在半句话上，
-    # 曾导致整轮回写静默全丢（事实保全落地后输出更长，把既有隐患顶爆）。
     try:
         raw = llm.complete(prompt, max_tokens=REFLECT_MAX_TOKENS, temperature=0.3,
                            timeout=120)
@@ -1292,56 +1043,15 @@ def reflect(sid, reply, directive=""):
         logger.warn("director", "纪官输出疑似被截断，已抢救回写部分字段（末尾条目可能丢失）")
         _log_reflect_failure(sid, (snap.get("scene") or {}).get("round", 0), "truncated")
 
-    if isinstance(data.get("relations"), dict):
-        base = snap.get("relations_base") or {}
-        # 作者显式声明的亲属身份（角色卡 relations_kinship），冻结基准优先于描述句推断。
-        kinship = snap.get("kinship_base") or {}
-        present_set = set(present)
-        for k, v in data["relations"].items():
-            if not v:
-                continue
-            # 关系键形如 "源 → 目标"；解析两端点
-            parts = [e.strip() for e in k.split("→")] if "→" in k else [k.strip()]
-            ends = [p for p in parts if p]
-            if len(ends) >= 2 and all(e in present_set for e in ends):
-                # 两端都在场（镜头内角色）：允许关系随剧情演化；
-                # 但若基线已确定亲属身份（父子/母子等），冻结身份、只允许情感状态修饰演化。
-                # 冻结基准优先取作者显式声明的 kinship_base，其次才从基线描述的句首身份词推断。
-                if k in base and base.get(k):
-                    v = _preserve_kinship(base[k], v, declared=kinship.get(k))
-                snap["relations"][k] = v
-            else:
-                # 涉及未在场/无卡关联人物（如某位仅被提及的亲属）：冻结为初始关系定位，
-                # 禁止模型改写或升级（"小姨子"被写成"妻子"类漂移即在此拦截）。
-                # 初始表无此键则丢弃该越权关系，不引入新条目。
-                if k in base:
-                    snap["relations"][k] = base[k]
-    # 举证窗口：纪官的一切「谁做了什么、谁在哪里」都只认正文（与 secret_exposures 的
-    # evidence 核验同一原则——引擎不猜，只核验出处）。
-    # v2.1.2 实证：present 改成名册后，纪官把「名册」当「本轮在场」，给正文里根本没出现
-    # 的角色编出 actions（「维持现状」「保持边境稳定」）和 locations（把某配角报成本轮场景）。
-    # 前者让 silent_rounds 永久归零、[可选提醒·久未登场] 形同不存在；后者把不在场的人
-    # 钉进当前场景，下一轮 [本轮场面] 照着错记录分场。
+    # 关系定性不再由纪官改写（2026-11-08 引擎瘦身）：snap["relations"] 建局时即等于
+    # relations_base（作者从角色卡固化的口径），此后不变。旧版它先被压成 ≤30 字标签、
+    # 再过两道冻结闸，作者手写的戏剧细部只活一轮（审计 P3）；闸本身就是为堵模型的
+    # 越权改写而建的，源头撤掉后闸也不再需要。亲属身份漂移（"小姨子"→"妻子"）同理消失。
+    # 举证窗口：纪官的「谁在哪里」只认正文（与 secret_exposures 的 evidence 核验同一
+    # 原则——引擎不猜，只核验出处）。v2.1.2 实证：present 改成名册后，纪官把「名册」
+    # 当「本轮在场」，把正文里根本没出现的角色报进 locations，把不在场的人钉进当前
+    # 场景，下一轮 [本轮场面] 就照着错记录分场。
     _spoken = (reply or "") + "\n" + (directive or "")
-    acts_in = data.get("actions")
-    actions_ok = isinstance(acts_in, dict)
-    if actions_ok:
-        # 只留正文里出现过的名字：人在正文里都没露过面，就不可能有「本轮行为摘要」。
-        snap["actions"] = {k: v for k, v in acts_in.items() if v and k in _spoken}
-    else:
-        # 纪官把 actions 写成字符串/数组时，本轮行为摘要不可用。
-        # 此时绝不能按「全员无行为」去累加静默轮数——那会把所有在场角色误记成
-        # 被遗忘、一次格式漂移污染后续多轮。故本轮跳过静默判定。
-        snap["actions"] = {}
-    # 静默计数：纪官的行为摘要判定谁本轮真的在戏里（按名字是否出现在正文的字符串判断
-    # 判不出「被提到名字但没有任何行为」，故以纪官摘要为准，再用正文名做举证过滤）。
-    # v2.1.2 起焦点轮不再豁免镜头外角色——豁免会让人数长期停在 0，提醒永不触发。
-    if actions_ok:
-        _update_silent_rounds(snap, present, reply)
-    if isinstance(data.get("goals"), dict):
-        for k, v in data["goals"].items():
-            if v:
-                snap["goals"][k] = v
     # 秘密：举证式归档（记录员模式）——引擎不猜，只核验证据是否真的出自正文
     for exp in _as_dict_list(data.get("secret_exposures")):
         owner = exp.get("owner")
@@ -1440,13 +1150,6 @@ def reflect(sid, reply, directive=""):
                     s, frm, to, snap["scene"]["round"], present):
                 break
 
-    # 秘密发酵压力：纪官判语义（本轮有没有触及），代码管计数（累加/归零/封顶）。
-    # 数字只留在快照里，模型始终只看到 prompter 按档位生成的文案。
-    # 必须排在曝光/起疑归档之后：本轮刚被揭开的秘密当轮就要把压力清零，
-    # 否则它会在「已曝光」的状态下多带一轮压力（虽不足档位，但状态不自洽）。
-    if "secret_touches" in data:
-        _update_secret_pressure(snap, _as_dict_list(data.get("secret_touches")))
-
     # 事实保全：常量只增不改（须逐字举证），状态覆盖式刷新。
     # 状态层：当前值的覆盖式刷新（回合数取容错写法——缺键不该让整轮回写失败）
     rd = (snap.get("scene") or {}).get("round", 0)
@@ -1472,34 +1175,9 @@ def reflect(sid, reply, directive=""):
                 continue
             _loc[_who] = {"place": _scene_place, "round": rd}
 
-    # 场景信号并联（零额外 LLM 成本）：纪官从叙事里读出「场景其实已经变了」，
-    # 补上 scene._triggered 关键词表枚举不完的洞（关键词漏触发 = 场景与叙事脱节）。
-    # v0.17.4：本轮就直接把 scene 追上叙事（不再留到下轮 scene.apply 消费）——
-    # 旧链路 scene 在生成前跑、reflect 在生成后跑，只能把 scene_shift 存进快照、
-    # 等下轮 scene.apply 才读，导致快照时间永远滞后正文一拍（正文已入夜、scene.time
-    # 还停在「清晨」，下一轮提示词才纠正）。纪官既已从正文读到「实际入夜」，本轮
-    # 落库就是安全的。time 经 scene._norm_time 清洗，避免纪官把描述句（夜幕降临）
-    # 写进结构化字段。
-    ss = data.get("scene_shift")
-    if isinstance(ss, dict) and ss.get("changed"):
-        sc = snap.setdefault("scene", {})
-        if (ss.get("place") or "").strip():
-            sc["place"] = (ss.get("place") or "").strip()
-        raw_time = (ss.get("time") or "").strip()
-        if raw_time:
-            sc["time"] = scene._norm_time(raw_time, "", sc.get("time", "")).strip()
-        if (ss.get("weather") or "").strip():
-            sc["weather"] = (ss.get("weather") or "").strip()
-        # 仍留一份 scene_shift 供下一轮 scene.apply 兜底：若下轮指令本身又触发
-        # 场景切换，scene.apply 会基于「已追平的 scene」再判，不会重复推进。
-        snap["scene_shift"] = {
-            "changed": True,
-            "place": sc.get("place", ""),
-            "time": sc.get("time", ""),
-            "weather": sc.get("weather", ""),
-        }
-    else:
-        snap.pop("scene_shift", None)
+    # 场景（地点/时间/天气）不再由纪官反推（2026-11-08 引擎瘦身）：场景是导演指令的
+    # 领域，纪官从正文猜场景等于让正文去改导演的设定；它与 scene 层的规则判定并存时，
+    # 同一次换场会被追平两次。场景变化只走 scene.resolve 的指令解析。
 
     # v2.1.0 拆职责：present 不再是「在场名单」而是「角色名册」（建局 cast，永不收缩），
     # 原 present_change 语义兜底整段移除。原因不是「模型判不准」，而是这个字段同时
@@ -1624,27 +1302,6 @@ def detect_narrative_repeat(text, history_texts, threshold=_REPEAT_THRESHOLD,
             return True, max(best, 0.0), "history"
 
     return False, best, kind
-
-
-def pick_less_repetitive(candidate, candidate_overlap, incumbent, incumbent_overlap):
-    """在「当前版」与「过程最优版」之间择优：返回复读率更低的那一版及其重叠率。
-
-    用于复读检测「降温度重生成」闭环的择优落地——修复「重生成出的第二版反而更复读，
-    却无条件覆盖掉第一版正常输出」的帮倒忙缺陷（一次真实会话 R13：第一版正常侍寝
-    NSFW 被误判复读，重生成第二版回卷历史 0.815，因 max_regen 上限直接落盘）。
-
-    规则：
-      - 重叠率更低（越不重复）者胜出。
-      - 相等时保留 incumbent（过程最优版），避免无谓替换。
-      - incumbent 为 None（尚无历史最优）时，直接返回 candidate。
-
-    返回 (胜出版本, 胜出重叠率)。纯函数，便于单测，不依赖磁盘/网络。
-    """
-    if incumbent is None:
-        return candidate, candidate_overlap
-    if candidate_overlap < incumbent_overlap:
-        return candidate, candidate_overlap
-    return incumbent, incumbent_overlap
 
 
 def _history_assistant_texts(sid):

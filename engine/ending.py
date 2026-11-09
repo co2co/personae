@@ -2,37 +2,24 @@
 
 每轮推演结束后由 app.act 调用 evaluate(snap)，命中终局条件则向客户端回传
 ending_candidate，由用户决定是否终结会话（见 ENDING_TRIGGERS）。判定只依赖快照里
-已有的通用字段，导入任意剧本都能用，无需作者额外标注（剧本自定义标记属可选增强）。
+已有的通用字段。
 
 设计要点：
 - 软指引：引擎只"提议"，用户拍板；绝不强制中断叙事。
 - 抑制重复：用户点"继续探索"后写入 ending_dismissed_reasons，evaluate 在
   未出现"新条件"前不再弹出，避免刷屏。
-- Tier A（本次实现）：present 空 / 秘密全曝光 / 剧本自定义 ending 标记。
+
+条件口径（2026-11-08 引擎瘦身）：只留「所有秘密均已揭开」一条。
+- 「在场角色全部离场」已删：v2.1.0 起 present 是建局名册、永不收缩（见 scene.py
+  模块注释），该条件永远不可能命中，属死分支。
+- 「剧本标记 ending_flag」已删：全仓无写入方，同样是死分支。作者若要自定义终局，
+  直接结束会话生成总结即可。
 """
 
 # 触发条件 -> 面向用户的文案（中文，无 emoji）
 ENDING_TRIGGERS = {
-    "all_left": "在场角色全部离场，场景已无人。",
     "secrets_resolved": "所有秘密均已揭开（暴露或公开），再无隐藏。",
-    # 可选增强：剧本作者在世界书/元数据里置 ending_flag 时命中（snapshot 提供）
-    "script_flag": "剧本标记的结局条件已达成。",
 }
-
-# 终止态严重度：用于前端展示与排序（high 会优先提示）
-SEVERITY = {
-    "all_left": "high",
-    "secrets_resolved": "medium",
-    "script_flag": "medium",
-}
-
-
-def _present_names(snap):
-    """把 present 规范成名字列表（它可能是 list 或 dict）。"""
-    present = snap.get("present") or []
-    if isinstance(present, dict):
-        return list(present.keys())
-    return list(present)
 
 
 def evaluate(snap, dismissed=None):
@@ -45,21 +32,13 @@ def evaluate(snap, dismissed=None):
     dismissed = dismissed or []
     reasons = []
 
-    # 终局态 1：全员离场
-    if not _present_names(snap):
-        reasons.append("all_left")
-
-    # 终局态 2：所有秘密均已揭开（v0.26.0 四态：只有「暴露/已公开」算揭开；
+    # 所有秘密均已揭开（v0.26.0 四态：只有「暴露/已公开」算揭开；
     # 「潜伏/起疑」仍是隐藏态，不得触发终局——起疑只是逼近，秘密尚未坐实）。
     # 兼容历史字面量「全曝光」。
     _RESOLVED_STATES = ("暴露", "已公开", "全曝光")
     secrets = snap.get("secrets") or []
     if secrets and all(s.get("state") in _RESOLVED_STATES for s in secrets):
         reasons.append("secrets_resolved")
-
-    # 终局态 3（可选增强）：剧本作者显式标注的结局标记
-    if snap.get("ending_flag"):
-        reasons.append("script_flag")
 
     if not reasons:
         return None
@@ -68,12 +47,11 @@ def evaluate(snap, dismissed=None):
     if not new_reasons:
         return None  # 已驳回且未出现新条件，抑制提示
 
-    severity = "high" if any(SEVERITY.get(r) == "high" for r in reasons) else "medium"
     return {
         "reasons": reasons,
         "new_reasons": new_reasons,
         "labels": [ENDING_TRIGGERS[r] for r in reasons],
-        "severity": severity,
+        "severity": "medium",
         "round": (snap.get("scene") or {}).get("round", 0),
     }
 

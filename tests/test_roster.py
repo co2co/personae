@@ -118,7 +118,7 @@ def test_prompt_has_no_old_wording():
     cards = {n: {"name": n, "description": "", "personality": "",
                  "core_desire": "", "core_fear": ""} for n in (A, B)}
     msgs = prompter.build_session(cards, "夜色渐深", [], snap, history=[],
-                                  demo_hits=[], focus=None)
+                                  demo_hits=[])
     text = "\n".join(m["content"] for m in msgs)
     assert "本轮在场角色：" not in text
     assert "只能写这些在场角色" not in text

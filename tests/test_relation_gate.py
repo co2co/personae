@@ -1,8 +1,12 @@
-"""关系表与关系冻结测试（会话 0ac57abf 审计驱动的修复）。
+"""关系表来源测试。
 
 覆盖：
-  1. 角色卡 relations 字段可确定性地构建权威关系基线（seed_relations_from_cards）。
-  2. reflect 冻结未在场/无卡关联人物的关系，禁止模型改写或升级（小姨子->妻子类漂移拦截）。
+  1. 角色卡 relations 字段可确定性地构建权威关系基线（seed_relations_from_cards），
+     并由 memory.new 固化为 relations_base。
+  2. 纪官不得改写关系定性（2026-11-08 引擎瘦身）：关系是作者的设定，
+     旧的「未在场冻结 / 亲属身份冻结」两道闸随之撤除——源头不再让模型写关系，
+     闸就没有存在的必要（审计 P3：作者手写的关系细部此前只活一轮）。
+  3. 作者显式声明的亲属身份（relations_kinship）仍会固化进 kinship_base（数据保留）。
 """
 
 import json
@@ -46,8 +50,8 @@ def test_memory_new_seeds_relations_base(monkeypatch):
         assert rel, "relations 不应为空"
         assert base, "relations_base 不应为空（v0.7.7 修复点）"
         assert base == rel, "relations_base 应与 seeded relations 一致"
-        # 亲属身份键应在基线中
-        assert director._first_kinship(base.get("角色甲 → 角色乙", "")) == "妻子"
+        # 亲属身份应在基线里原样落地（不再靠从描述句里推断身份词）
+        assert base.get("角色甲 → 角色乙", "") == "妻子"
     finally:
         import shutil
         from pathlib import Path
@@ -72,66 +76,6 @@ def test_seed_relations_from_cards():
     assert base.get("角色甲 → 角色丙") == "妹妹"
     assert base.get("角色乙 → 角色丙") == "小姨子"
     assert base.get("角色甲 → 角色乙") == "丈夫"
-
-
-# ---------------------------------------------------------------------------
-# 3. reflect 冻结未在场关联人物关系
-# ---------------------------------------------------------------------------
-
-def test_reflect_freezes_offscreen_relation(monkeypatch):
-    """模型试图把未在场/无卡的角色丙升为「妻子」，必须被冻结为基线小姨子；
-    镜头内（角色乙/角色甲 都在场）的关系允许演化。"""
-    def fake_complete(messages, **kwargs):
-        return json.dumps({
-            "relations": {
-                "角色乙 → 角色丙": "妻子，占有欲强烈",
-                "角色乙 → 角色甲": "妻子，关系紧张（镜头内演化）",
-            },
-            "actions": {}, "goals": {},
-        }, ensure_ascii=False)
-    monkeypatch.setattr(director.llm, "complete", fake_complete)
-
-    snap = {
-        "present": ["角色乙", "角色甲"],
-        "relations": {"角色乙 → 角色丙": "小姨子", "角色乙 → 角色甲": "妻子"},
-        "relations_base": {"角色乙 → 角色丙": "小姨子", "角色乙 → 角色甲": "妻子"},
-        "secrets": [], "goals": {}, "actions": {}, "ledger": [],
-    }
-    monkeypatch.setattr(director.memory, "load", lambda sid: snap)
-    monkeypatch.setattr(director.memory, "save", lambda sid, s: None)
-
-    director.reflect("sid-x", "角色乙握了握角色甲的手")
-
-    # 未在场关联人物：冻结为基线，不得升级为妻子
-    assert snap["relations"]["角色乙 → 角色丙"] == "小姨子", snap["relations"]
-    # 镜头内角色：关系允许随剧情演化
-    assert snap["relations"]["角色乙 → 角色甲"] == "妻子，关系紧张（镜头内演化）"
-
-
-# ---------------------------------------------------------------------------
-def test_preserve_kinship_blocks_identity_flip():
-    """亲属身份冻结：父亲被模型改写成姐夫时，应回退为父亲、保留情感修饰。"""
-    corrected = director._preserve_kinship("父亲", "姐夫，挑衅者/主动方")
-    assert corrected.startswith("父亲"), corrected
-    assert "挑衅者" in corrected, corrected
-
-
-def test_preserve_kinship_allows_emotional_evolution():
-    """亲属身份一致时，允许情感/状态修饰演化（父亲 -> 父亲，关系紧张）。"""
-    corrected = director._preserve_kinship("父亲，关系紧张", "父亲，关系彻底破裂")
-    assert corrected == "父亲，关系彻底破裂", corrected
-
-
-def test_preserve_kinship_no_baseline_free():
-    """基线无亲属身份词时（如同事），模型可自由定义关系身份。"""
-    corrected = director._preserve_kinship("同事", "恋人，暗通款曲")
-    assert corrected == "恋人，暗通款曲", corrected
-
-
-def test_preserve_kinship_mother_sister_in_law_blocked():
-    """母亲被改写成嫂子时，应回退为母亲。"""
-    corrected = director._preserve_kinship("母亲", "嫂子，复杂情感萌芽")
-    assert corrected.startswith("母亲"), corrected
 
 
 # --- 亲属身份冻结的误判防护（v0.15.x 修复）---
@@ -197,84 +141,6 @@ def test_kinship_excludes_social_relations():
     assert not bad, "社会关系/关系状态词混入冻结表：%s" % bad
 
 
-def test_kinship_new_tokens_detected_as_declaration():
-    """新补的词必须能被句首声明规则识别（否则补了也白补）。"""
-    cases = [
-        ("姨父：妻子的姐姐的丈夫，一直照顾这个家", "姨父"),
-        ("堂哥：从小一起长大，感情很深", "堂哥"),
-        ("表姐：偶尔来串门，性子温和", "表姐"),
-        ("岳父：威严的长辈，从不过问家事", "岳父"),
-        ("继女：后来成了这个家的人", "继女"),
-        ("侄女", "侄女"),
-        ("小姨子，一直住在娘家", "小姨子"),
-    ]
-    for v, expect in cases:
-        got = director._first_kinship(v)
-        assert got == expect, "新词 %r 未被识别为身份声明（实得 %r）" % (expect, got)
-
-
-def test_kinship_new_tokens_freeze_against_identity_flip():
-    """新补词的冻结生效：模型把姨父写成姐夫/叔叔，须拉回基准身份。"""
-    corrected = director._preserve_kinship("姨父，一直照顾她", "姐夫，挑衅者", declared="姨父")
-    assert corrected.startswith("姨父"), corrected
-    assert "挑衅者" in corrected, corrected
-    # 无显式声明时，走句首基准推断
-    assert director._preserve_kinship("堂哥：一起长大", "表弟，暗中较劲").startswith("堂哥")
-
-
-def test_kinship_new_tokens_no_narrative_false_positive():
-    """新补词不得在叙述句里误判为身份声明（补词不能削弱原有的误判防护）。"""
-    narrative = [
-        "以她的堂兄弟姐妹的处境为筹码",
-        "对其岳母的扶持的回答是不屑一顾",
-        "他不敢戳破「曾祖父大概率已过世」的真相",
-        "唯一念想的亲家母",                # 修饰语位置，句首非身份词
-        "养子她不敢承认这件事",            # 身份词后无分隔符
-    ]
-    for v in narrative:
-        assert director._first_kinship(v) is None, \
-            "新补词在叙述句里被误判：%r -> %r" % (v, director._first_kinship(v))
-
-
-def test_kinship_social_relation_still_evolves():
-    """社会关系演化能力不受词表变化影响（同事仍可变成恋人）。"""
-    assert director._preserve_kinship("同事", "恋人，暗通款曲") == "恋人，暗通款曲"
-    assert director._preserve_kinship("房东", "房东太太，主动示好") == "房东太太，主动示好"
-
-
-def test_kinship_not_inferred_from_narrative_midtext():
-    """身份词出现在叙述句中间不得判为身份声明。
-
-    句中的身份词常指第三方（如「她不敢戳破父亲已死」里的父亲是别处的人），
-    据此冻结会把关系改坏。只认句首声明。
-    """
-    narrative_cases = [
-        "以她的母子的生死为筹码",           # 「母子」非身份声明
-        "对其扶持的回答是不屑一顾",          # 无身份词
-        "他不敢戳破「父亲大概率已死」的真相",   # 引号内第三方
-        "唯一念想的儿子",                   # 修饰语位置
-        "母亲她不敢承认这件事",              # 身份词后无分隔符
-    ]
-    for v in narrative_cases:
-        assert director._first_kinship(v) is None, \
-            "叙述句被误判为身份声明：%r -> %r" % (v, director._first_kinship(v))
-
-
-def test_kinship_explicit_declaration_forms():
-    """句首身份声明（含裸身份词）必须被识别，否则冻结机制形同虚设。"""
-    assert director._first_kinship("母亲：她不敢承认") == "母亲"
-    assert director._first_kinship("父亲，严厉") == "父亲"
-    assert director._first_kinship("儿子，唯一的念想") == "儿子"
-    assert director._first_kinship("父亲") == "父亲"     # 裸身份词
-    assert director._first_kinship("母亲") == "母亲"
-
-
-def test_preserve_kinship_narrative_baseline_does_not_freeze():
-    """基线是叙述句（未显式声明身份）→ 放行，不得把模型写对的身份改坏。"""
-    baseline = "对其扶持的回答是不屑一顾，对母亲的选择既鄙夷又无可奈何"
-    assert director._preserve_kinship(baseline, "妻子，暗中结盟") == "妻子，暗中结盟"
-
-
 def test_seed_kinship_from_cards_explicit():
     """作者用 relations_kinship 显式声明的血缘身份应被提取。"""
     cards = {
@@ -292,26 +158,6 @@ def test_seed_kinship_ignores_non_kinship_words():
     cards = {"角色甲": {"relations": {"角色乙": "同事"},
                        "relations_kinship": {"角色乙": "同事"}}}
     assert director.seed_kinship_from_cards(cards) == {}
-
-
-def test_preserve_kinship_declared_overrides_baseline():
-    """显式声明优先于描述句推断：模型漂移按声明的身份拉回。"""
-    baseline = "唯一的念想，对儿子坚持寻父的执念既心痛又恐惧"   # 句中「儿子」不是身份声明
-    assert director._first_kinship(baseline) is None, "前置条件：句中身份词不应被识别"
-    corrected = director._preserve_kinship(baseline, "妻子，讨好", declared="母亲")
-    assert corrected == "母亲，讨好", corrected
-
-
-def test_preserve_kinship_declared_allows_emotional_evolution():
-    """显式声明身份一致时，仍允许情感/状态修饰演化。"""
-    corrected = director._preserve_kinship("唯一的念想", "母亲，关系紧张", declared="母亲")
-    assert corrected == "母亲，关系紧张", corrected
-
-
-def test_preserve_kinship_declared_overrides_model_wrong_identity():
-    """显式声明为「母亲」时，模型写「儿子」属身份漂移，须拉回「母亲」并保留修饰。"""
-    corrected = director._preserve_kinship("唯一的念想", "儿子，复杂情感萌芽", declared="母亲")
-    assert corrected == "母亲，复杂情感萌芽", corrected
 
 
 # ---------------------------------------------------------------------------
@@ -368,35 +214,32 @@ def test_fill_relation_gaps_skips_when_complete(monkeypatch):
     assert snap["relations"] == {"角色乙 → 角色甲": "妻子", "角色甲 → 角色乙": "丈夫"}
 
 
-
 # ---------------------------------------------------------------------------
-# 背景人物名单推导（v0.17.2 修复：有独立角色卡 / 已登记群演不是背景人物）
+# 4. 纪官不得改写关系定性（2026-11-08 引擎瘦身）
 # ---------------------------------------------------------------------------
 
-def test_scene_trigger_uses_director_signal(monkeypatch):
-    """纪官的 scene_shift 信号触发场景导演，补上关键词表枚举不完的洞。
+def test_reflect_does_not_rewrite_relations(monkeypatch):
+    """纪官即便返回 relations，快照里的关系也必须是作者口径。
 
-    零额外 LLM 成本：reflect 本来就每轮都跑，只是把它的语义判断并联进来。
+    旧链路：纪官每轮写「关系定性（≤30 字）」覆盖 snap["relations"]，引擎再造两道
+    冻结闸去拦它的越权改写。审计 P3 实测：作者写的「她知道台阶是他递的」这类细部
+    从 R2 起再也进不了提示词，只剩标签。现在关系只由作者（角色卡）决定。
     """
-    import scene
-    snap = {"scene": {"same_scene": 0}}
-    # 无关键词、无超时、无纪官信号 -> 不触发
-    assert scene._triggered("他走向窗边，沉默地望着外面。", snap) == (False, False)
-    # 有纪官信号 -> 触发（非 force）
-    snap["scene_shift"] = {"changed": True, "place": "楼道", "time": "", "weather": ""}
-    assert scene._triggered("他走向窗边，沉默地望着外面。", snap) == (True, False)
-    # 停留超时优先，返回 force
-    snap["scene"]["same_scene"] = 3
-    assert scene._triggered("他走向窗边。", snap) == (True, True)
+    author = "母亲，独占欲；她知道台阶是他递的"
+    snap = {
+        "scene": {"round": 4, "place": "堂屋", "time": "", "weather": ""},
+        "present": ["角色甲", "角色乙"],
+        "relations": {"角色甲 → 角色乙": author},
+        "relations_base": {"角色甲 → 角色乙": author},
+        "secrets": [], "states": {}, "locations": {}, "ledger": [],
+    }
+    payload = {"relations": {"角色甲 → 角色乙": "妻子，关系破裂"}}
+    monkeypatch.setattr(director.llm, "complete",
+                        lambda *a, **k: json.dumps(payload, ensure_ascii=False))
+    monkeypatch.setattr(director.memory, "load", lambda sid: snap)
+    monkeypatch.setattr(director.memory, "save", lambda sid, s: None)
+    out = director.reflect("sid", "角色甲把茶杯放下，没接话。")
+    assert out["relations"]["角色甲 → 角色乙"] == author, out["relations"]
 
 
-def test_scene_shift_consumed_once(monkeypatch):
-    """纪官信号用后即清，避免同一次上报反复触发、每轮都调场景 LLM。"""
-    import scene
-    calls = []
-    monkeypatch.setattr(scene.llm, "complete", lambda *a, **k: calls.append(1) or "{}")
-    snap = {"scene": {"same_scene": 0, "place": "客厅", "time": "清晨", "weather": ""},
-            "present": ["角色甲"], "goals": {},
-            "scene_shift": {"changed": True, "place": "楼道", "time": "", "weather": ""}}
-    scene.apply("sid", "他望着窗外。", snap)
-    assert "scene_shift" not in snap, "信号必须被消费掉"
+

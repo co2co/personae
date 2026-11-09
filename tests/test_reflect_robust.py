@@ -108,26 +108,24 @@ def _reflect_user_prompt(monkeypatch):
     return captured["user"]
 
 
-def test_reflect_schema_orders_secret_bookkeeping_first(monkeypatch):
-    """治截断的字段重排：秘密簿记四字段必须排在冗长的 relations/actions/goals 之前。
+def test_reflect_schema_is_minimal_and_ordered(monkeypatch):
+    """纪官 schema 只剩簿记字段，且顺序仍是「秘密 → 位置 → 状态」。
 
-    背景（v0.28.4）：旧顺序 relations/actions/goals 在前、secret_exposures 排第 4 位，
-    输出被 max_tokens 截断时恰先把秘密簿记砍掉，导致 4/6 暗牌全程潜伏。
-    此用例锁定「秘密簿记前置」这一顺序契约，防回归到旧顺序。
+    两件事都要守住：
+      1. 顺序（v0.28.4 治截断）：秘密簿记前置，条目短而脆弱的 location_updates 紧随其后，
+         被 max_tokens 截断时先牺牲后面的长条目，而不是丢位置记录。
+      2. 字段集合（2026-11-08 纪官瘦身）：relations / actions / goals / scene_shift /
+         secret_touches 不得回来——它们让记账层替叙事层做创意决定。
     """
     prompt = _reflect_user_prompt(monkeypatch)
     i_exp = prompt.index('"secret_exposures"')
     i_sus = prompt.index('"secret_suspicions"')
     i_hrd = prompt.index('"handle_releases"')
-    i_toc = prompt.index('"secret_touches"')
-    i_relations = prompt.index('"relations"')
-    i_actions = prompt.index('"actions"')
-    i_goals = prompt.index('"goals"')
-    # 四个秘密簿记字段彼此相邻且整体前置
-    assert i_exp < i_sus < i_hrd < i_toc
-    # 全部秘密簿记字段都排在冗长的关系/行动/目标之前
-    assert i_toc < i_relations
-    assert i_relations < i_actions < i_goals
+    i_loc = prompt.index('"location_updates"')
+    i_state = prompt.index('"state_updates"')
+    assert i_exp < i_sus < i_hrd < i_loc < i_state
+    for gone in ('"relations"', '"actions"', '"goals"', '"scene_shift"', '"secret_touches"'):
+        assert gone not in prompt, "纪官 schema 不应再要求 %s" % gone
 
 
 def test_truncated_output_preserves_leading_secret_bookkeeping():

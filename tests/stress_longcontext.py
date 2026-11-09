@@ -3,8 +3,12 @@
 目的：检验长上下文状态下引擎的
   1. 稳定性   —— 不崩、不空、不断，present 永不为空，无异常
   2. 能力保持 —— 后期是否仍能遵循指令（点名角色是否出场）、输出是否退化（长度/敷衍）
-  3. 机制是否变形或熄火 —— 镜头跟随 focus、关系演化、秘密翻转、present 校验、
-     结局判定 在长上下文后是否仍正确工作
+  3. 机制是否变形或熄火 —— 场景解析（纯规则）、秘密四态翻转、位置簿记、present
+     校验、结局判定 在长上下文后是否仍正确工作
+
+2026-11-08 引擎瘦身同步：镜头跟随 focus、秘密发酵压力 pressure、久未登场
+silent_rounds、纪官 scene_shift、常量层 facts、临时群演 aux 均已从引擎撤除，
+对应采集与指标一并撤下；换入「场景按指令变更轮数」与「位置簿记条数」两项。
 
 用法：
   python tests/stress_longcontext.py --rounds 3            # 小规模测速
@@ -30,7 +34,7 @@ BASE_DEFAULT = "http://127.0.0.1:5051"
 SCENE = "城郊仓库单元，众人临时落脚，门外街道不安静"
 TITLE = "长上下文极限压测"
 
-# 30 轮长弧：覆盖 秘密曝光 / 起疑(线索逼近) / 场景切换 / 分头行动(镜头跟随) /
+# 30 轮长弧：覆盖 秘密曝光 / 起疑(线索逼近) / 场景切换 / 分头行动 /
 # 关系演化 / 抉择冲突，且刻意不设 ending=True，以检验结局判定是否「不该误触发」。
 # 弧线用 {A}{B}{C}{D} 占位，运行时按实际 cast 顺序替换（见 build_arc）。
 # 剧情内核与题材无关：一条「隐瞒伤情」的秘密被线索逐步逼近并证实，
@@ -128,22 +132,6 @@ def secret_states(snap):
             for s in (snap.get("secrets") or [])}
 
 
-def brief(value, n=60):
-    """把任意类型的快照字段安全转成短字符串（scene/focus 可能是 dict）。"""
-    if value is None:
-        return ""
-    if isinstance(value, str):
-        return value[:n]
-    if isinstance(value, dict):
-        for k in ("name", "title", "desc", "description", "text", "where"):
-            if value.get(k):
-                return str(value[k])[:n]
-        return json.dumps(value, ensure_ascii=False)[:n]
-    if isinstance(value, list):
-        return "、".join(str(x) for x in value)[:n]
-    return str(value)[:n]
-
-
 def run(base_url, rounds, timeout, cast=None, scene=None):
     cast = cast or fetch_cast(base_url)
     arc = build_arc(cast)
@@ -178,7 +166,6 @@ def run(base_url, rounds, timeout, cast=None, scene=None):
                 "reply_len": len(reply or ""),
                 "reply": reply or "",
                 "present": snap.get("present", []),
-                "focus": brief(snap.get("focus"), 40) or None,
                 # scene 存完整 JSON（截断会破坏结构化分析），另附结构化字段
                 "scene": json.dumps(snap.get("scene"), ensure_ascii=False)
                          if snap.get("scene") is not None else "",
@@ -200,31 +187,16 @@ def run(base_url, rounds, timeout, cast=None, scene=None):
                     for s in (snap.get("secrets") or [])
                 },
                 "ledger": len(snap.get("ledger") or []),
-                # v0.9.1 三项改造的采集：发酵压力与连续静默轮数
-                "pressure": {
-                    s.get("owner", "?"): s.get("pressure", 0)
-                    for s in (snap.get("secrets") or [])
-                },
-                "silent": dict(snap.get("silent_rounds") or {}),
                 "address": dict(snap.get("address") or {}),
-                # v0.9.1 发酵补丁：镜头是否因高压秘密被强制并入（forced）
-                "focus_forced": bool((snap.get("focus") or {}).get("forced")),
-                "focus_subjects": list((snap.get("focus") or {}).get("subjects") or []),
-                # 事实保全：常量层（不可逆）与状态层（可刷新）
-                "facts": [{"kind": f.get("kind"), "subject": f.get("subject"),
-                           "text": f.get("text"), "round": f.get("round")}
-                          for f in (snap.get("facts") or []) if not f.get("invalid")],
-                "facts_invalid": [f.get("text") for f in (snap.get("facts") or [])
-                                  if f.get("invalid")],
-                "facts_folded": sum(1 for f in (snap.get("facts") or [])
-                                    if f.get("folded")),
+                # 位置簿记（纪官 location_updates 回写）：长会话里「谁在哪里」跟不跟得住
+                "locations": dict(snap.get("locations") or {}),
+                # 状态层（纪官 state_updates）：覆盖式存储，键数应有界
                 "states": dict(snap.get("states") or {}),
                 "relations": snap.get("relations", {}),
                 "present_violation": done.get("present_violation"),
                 "ending": bool(done.get("ending_candidate")),
-                # v0.30.0 起临时群演（aux）机制废除，群演观测字段保留为空以便旧报告对齐
-                "aux": [],
-                "scene_shift": snap.get("scene_shift"),
+                # 场景解析已改纯规则（2026-11-08）：只有指令明说换场才动，走 done 的 scene_change
+                "scene_change": done.get("scene_change"),
             })
             # 能力保持：点名角色是否真的出场（出现在回复里）
             if rec["named"]:
@@ -232,10 +204,10 @@ def run(base_url, rounds, timeout, cast=None, scene=None):
             records.append(rec)
             susp_n = sum(len(v) for v in (rec.get("suspicions") or {}).values())
             print(f"[R{i}] {elapsed:5.1f}s len={len(reply or ''):4d} "
-                  f"present={len(rec['present'])} focus={rec['focus']} "
+                  f"present={len(rec['present'])} loc={len(rec['locations'])} "
                   f"暴露={rec['exposed']} 起疑={susp_n} 账本={rec.get('ledger', 0)} "
                   f"违例={rec['present_violation']} ending={rec['ending']} "
-                  f"换场={'是' if (rec['scene_shift'] or {}).get('changed') else '-'}",
+                  f"换场={'是' if rec.get('scene_change') else '-'}",
                   flush=True)
     finally:
         try:
@@ -260,8 +232,6 @@ def analyze(records, errors):
         vals = [r[key] for r in rs if isinstance(r.get(key), bool)]
         return f"{sum(1 for v in vals if v)}/{len(vals)}" if vals else "n/a"
 
-    focus_rounds = sum(1 for r in ok if r.get("focus"))
-
     # 秘密状态是否发生过翻转（机制活着 vs 熄火）
     flips = 0
     prev = None
@@ -271,7 +241,7 @@ def analyze(records, errors):
             flips += 1
         prev = cur
 
-    # 关系状态是否发生过演化（机制活着 vs 熄火）
+    # 关系口径已固化为作者设定（纪官不再改写），此数应恒为 0——非 0 即回归
     rel_flips = 0
     prev_rel = None
     for r in ok:
@@ -303,59 +273,17 @@ def analyze(records, errors):
                 confirmed.add((owner, nm))
     susp_last = sum(len(v) for v in (last.get("suspicions") or {}).values())
 
-    # v0.9.1：在场即须留痕——最长连续沉默轮数、触发过焦点提醒的人次
-    max_silent, silent_alerts = 0, 0
-    for r in ok:
-        sl = r.get("silent") or {}
-        if sl:
-            max_silent = max(max_silent, max(sl.values()))
-        silent_alerts += sum(1 for v in sl.values() if v >= 2)
-    # v0.9.1：秘密发酵压力——是否长期沉寂不推进（峰值）以及是否被叙事触及而回落
-    press_peak = 0
-    press_reset = 0
-    prev_press = None
-    for r in ok:
-        pr = r.get("pressure") or {}
-        if not pr:
-            continue
-        press_peak = max(press_peak, max(pr.values()))
-        if prev_press is not None:
-            press_reset += sum(1 for k, v in pr.items()
-                               if prev_press.get(k, 0) > 0 and v == 0)
-        prev_press = pr
-
-    # 发酵补丁①②的实测效果：高压档（>=5）是否仍长期滞留不碰撞、镜头是否被强制并入
-    high_rounds, max_high_streak, high_collisions = 0, 0, 0
-    streak, prev_high = {}, None
-    for r in ok:
-        pr = r.get("pressure") or {}
-        if not pr:
-            continue
-        if any(v >= 5 for v in pr.values()):
-            high_rounds += 1
-        for k, v in pr.items():
-            if v >= 5:
-                streak[k] = streak.get(k, 0) + 1
-                max_high_streak = max(max_high_streak, streak[k])
-            elif v == 0:
-                streak[k] = 0
-        # 从封顶回落至 0 = 这一轮终于撞出戏（被触及）
-        if prev_high is not None:
-            high_collisions += sum(1 for k, v in pr.items()
-                                   if prev_high.get(k, 0) >= 5 and v == 0)
-        prev_high = pr
-    forced_rounds = sum(1 for r in ok if r.get("focus_forced"))
-
-    # 事实保全：常量层（只增、应稳定不膨胀）与状态层（覆盖式、键数应有界）
-    facts_last = (ok[-1].get("facts") or []) if ok else []
-    fact_kinds = {}
-    for f in facts_last:
-        fact_kinds[f.get("kind") or "?"] = fact_kinds.get(f.get("kind") or "?", 0) + 1
-    first_fact_round = next((r["round"] for r in ok if r.get("facts")), "-")
+    # 状态层（纪官 state_updates）：覆盖式存储，键数应有界
     state_sizes = [len(r.get("states") or {}) for r in ok]
 
-    # v0.17.2 纪官语义提取落地观测（群演/越界观测已随 v0.30.x 机制废除停用）
-    shift_rounds = sum(1 for r in ok if (r.get("scene_shift") or {}).get("changed"))
+    # 场景解析改纯规则后的关键哨兵：只有指令明说换场才变（不该自己跳场）
+    scene_change_rounds = sum(1 for r in ok if r.get("scene_change"))
+    # 位置簿记是否跟得住：末轮位置条数与名册人数比对（应覆盖在场者）
+    loc_sizes = [len(r.get("locations") or {}) for r in ok]
+    loc_last = dict((last.get("locations") or {}))
+    present_last = list(last.get("present") or [])
+    loc_missing = [p for p in present_last if p not in loc_last]
+
     # 删正文回归哨兵：极短回复或残句（以句号/逗号开头）
     short_rounds = sum(1 for r in ok if 0 < r.get("reply_len", 0) < 200)
     stump_rounds = sum(1 for r in ok
@@ -374,8 +302,7 @@ def analyze(records, errors):
         "前期平均长度": avg([r for r in early if not r.get("error")], "reply_len"),
         "后期平均长度": avg([r for r in late if not r.get("error")], "reply_len"),
         "点名角色出场率": rate(ok, "named_hit"),
-        "镜头跟随生效轮数": f"{focus_rounds}/{len(ok)}",
-        "关系状态演化次数": rel_flips,
+        "关系被改写次数(应为0)": rel_flips,
         "秘密状态翻转次数": flips,
         "场景变更次数": len(scenes) - 1 if len(scenes) > 1 else 0,
         "present违例轮数": sum(1 for r in ok if r.get("present_violation")),
@@ -385,20 +312,12 @@ def analyze(records, errors):
         "曾起疑的组合数": len(ever_suspects),
         "起疑后确知数": len(confirmed),
         "末轮后果账本条数": last.get("ledger", 0),
-        "最长连续沉默轮数": max_silent,
-        "沉默触发焦点人次": silent_alerts,
-        "秘密发酵压力峰值": press_peak,
-        "发酵压力归零次数": press_reset,
-        "高压档轮数(存在pressure>=5)": high_rounds,
-        "高压最长连续滞留轮数": max_high_streak,
-        "高压档碰撞成功次数(5→0)": high_collisions,
-        "镜头因高压强制并入轮数": forced_rounds,
-        "常量层末轮条数": len(facts_last),
-        "常量层分类分布": "、".join(f"{k}×{v}" for k, v in sorted(fact_kinds.items())) or "无",
-        "常量层首次入表轮次": first_fact_round,
         "状态层键数(末轮/峰值)": (f"{state_sizes[-1]}/{max(state_sizes)}"
                                   if state_sizes else "-"),
-        "场景切换信号轮数": shift_rounds,
+        "场景按指令换场轮数": f"{scene_change_rounds}/{len(ok)}",
+        "位置簿记条数(末轮/峰值)": (f"{loc_sizes[-1]}/{max(loc_sizes)}"
+                                    if loc_sizes else "-"),
+        "末轮在场者未记位置": "、".join(loc_missing) or "无",
         "极短回复轮数(<200字)": short_rounds,
         "残句回复轮数(以句号/逗号开头)": stump_rounds,
     }
@@ -423,7 +342,7 @@ def build_report(meta, records, summary, errors):
     out.append("")
     out.append("## 逐轮明细")
     out.append("")
-    out.append("| 轮 | 耗时s | 长度 | 在场 | 焦点 | 暴露 | 潜伏 | 起疑 | 账本 | 违例 | 点名命中 |")
+    out.append("| 轮 | 耗时s | 长度 | 在场 | 位置 | 暴露 | 潜伏 | 起疑 | 账本 | 违例 | 点名命中 |")
     out.append("|---|---|---|---|---|---|---|---|---|---|---|")
     for r in records:
         if r.get("error"):
@@ -432,24 +351,24 @@ def build_report(meta, records, summary, errors):
         named = "✓" if r.get("named_hit") else ("✗" if "named_hit" in r else "-")
         susp_n = sum(len(v) for v in (r.get("suspicions") or {}).values())
         out.append(f"| {r['round']} | {r.get('elapsed','-')} | {r.get('reply_len','-')} "
-                   f"| {len(r.get('present') or [])} | {r.get('focus') or '-'} "
+                   f"| {len(r.get('present') or [])} | {len(r.get('locations') or {})} "
                    f"| {r.get('exposed','-')} "
                    f"| {r.get('latent','-')} | {susp_n} | {r.get('ledger','-')} "
                    f"| {'是' if r.get('present_violation') else '否'} "
                    f"| {named} |")
     out.append("")
-    out.append("## 纪官语义提取观测（换场信号）")
+    out.append("## 场景解析观测（纯规则：只有指令明说才换场）")
     out.append("")
-    out.append("| 轮 | 换场信号 | 换场去向 |")
-    out.append("|---|---|---|")
+    out.append("| 轮 | 换到 | 时间 | 天气 | 依据 |")
+    out.append("|---|---|---|---|---|")
     for r in records:
         if r.get("error"):
             continue
-        sh = r.get("scene_shift") or {}
-        if not sh:
+        sc = r.get("scene_change") or {}
+        if not sc:
             continue
-        out.append(f"| {r['round']} | {'是' if sh.get('changed') else '-'} "
-                   f"| {sh.get('place') or '-'} |")
+        out.append(f"| {r['round']} | {sc.get('place') or '-'} | {sc.get('time') or '-'} "
+                   f"| {sc.get('weather') or '-'} | {(sc.get('reason') or '-')[:40]} |")
     out.append("")
     out.append("## 秘密链条演进")
     out.append("")
@@ -468,42 +387,23 @@ def build_report(meta, records, summary, errors):
             if a == "-" and b == "-":
                 continue
             out.append(f"| {r['round']} | {o} | {a} | {b} | {r.get('ledger','-')} |")
-    # 发酵补丁实测：每轮压力、是否触发高压档、镜头是否被强制并入
-    out.append("## 发酵压力与镜头并入")
+    # 簿记层实测：状态键是否覆盖式不膨胀、位置是否跟住在场者
+    out.append("## 簿记层（状态覆盖 / 位置跟记）")
     out.append("")
-    out.append("| 轮 | 各秘密压力 | 高压档 | 镜头强制并入 | 焦点成员 |")
+    out.append("| 轮 | 状态键数 | 状态内容 | 位置条数 | 缺位置的在场者 |")
     out.append("|---|---|---|---|---|")
     for r in records:
         if r.get("error"):
             continue
-        pr = r.get("pressure") or {}
-        if not pr:
-            continue
-        out.append(f"| {r['round']} | " + "、".join(f"{k}={v}" for k, v in pr.items())
-                   + f" | {'是' if any(v >= 5 for v in pr.values()) else '否'}"
-                   + f" | {'是' if r.get('focus_forced') else '否'}"
-                   + f" | {'、'.join(r.get('focus_subjects') or []) or '-'} |")
-    out.append("")
-
-    # 事实保全实测：常量层是否稳定增长、状态层键数是否有界
-    out.append("## 事实保全（常量层 / 状态层）")
-    out.append("")
-    out.append("| 轮 | 常量条数 | 本轮新增 | 状态键数 | 状态内容 |")
-    out.append("|---|---|---|---|---|")
-    prev_texts = set()
-    for r in records:
-        if r.get("error"):
-            continue
-        texts = [f.get("text") or "" for f in (r.get("facts") or [])]
-        new = [t for t in texts if t not in prev_texts]
         st = r.get("states") or {}
-        if not texts and not st:
+        loc = r.get("locations") or {}
+        if not st and not loc:
             continue
         st_items = "；".join("%s：%s" % (k, (v.get("value") if isinstance(v, dict) else v))
                              for k, v in st.items())
-        out.append(f"| {r['round']} | {len(texts)} | {('；'.join(new) or '—')[:60]}"
-                   f" | {len(st)} | {(st_items or '—')[:80]} |")
-        prev_texts = set(texts)
+        missing = "、".join(p for p in (r.get("present") or []) if p not in loc) or "无"
+        out.append(f"| {r['round']} | {len(st)} | {(st_items or '—')[:80]}"
+                   f" | {len(loc)} | {missing} |")
     out.append("")
     out.append("---")
     out.append("")

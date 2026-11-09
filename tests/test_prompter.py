@@ -95,7 +95,7 @@ def test_build_session_long_history_stable():
     h = _hist(60)
     msgs = prompter.build_session(
         CARDS, "角色丁拦下军车", [], MIN_SNAP,
-        history=h, focus={"subjects": []})
+        history=h)
     tok = sum(prompter.count_tokens(m.get("content", "")) for m in msgs)
     raw = sum(prompter.count_tokens(m.get("content", "")) for m in h)
     assert raw > 0
@@ -106,35 +106,57 @@ def test_build_session_long_history_stable():
 
 # --- 分段格式：v0.17.0 已移除该契约（simon 定：损害叙事观感）---
 
-def test_focus_out_of_shot_goal_suppressed():
-    """方案 B：有镜头焦点时，镜头外角色的残留目标不注入，避免其被旧目标拽回抢戏。
+def test_short_goal_injected_as_author_intent():
+    """开局意图只来自角色卡 short_goal（作者口径），恒定注入、不被引擎改写。
 
-    对应会话 9f2e16e9 R14：焦点锁定某角色，镜头外角色的旧目标「贴身照看某人伤口」
-    却仍作为「当前意图」注入，导致其无视镜头约束、追到电梯口救治。
+    旧版有快照 goals：纪官每轮重写「新的短期目标」，镜头跟随轮还会把镜头外角色的
+    目标抹掉（会话 9f2e16e9 R14 的修法）。2026-11-08 起引擎不再持有 goals——
+    「当前意图」这个引擎口径也必须彻底消失，否则面板与提示词又在承诺不存在的东西。
+    """
+    cards = {n: dict(c) for n, c in CARDS.items()}
+    cards["角色丁"]["short_goal"] = "寻找物资"
+    msgs = prompter.build_session(cards, "继续", [], MIN_SNAP)
+    sysmsg = "\n".join(m["content"] for m in msgs)
+    assert "开局意图（作者设定）：寻找物资" in sysmsg
+    assert "当前意图" not in sysmsg
+    assert "（待生成）" not in sysmsg
+    # 没填 short_goal 的角色不得出现这一行（空位不等于让模型替角色编意图）
+    assert "开局意图（作者设定）：\n" not in sysmsg
+
+
+def test_no_camera_follow_block():
+    """镜头跟随段已删：不再按「指令里有没有这个名字」裁剪叙事范围。"""
+    msgs = prompter.build_session(CARDS, "角色丁拦下军车", [], MIN_SNAP)
+    sysmsg = "\n".join(m["content"] for m in msgs)
+    assert "【镜头跟随】" not in sysmsg
+    assert "不在本回合镜头内" not in sysmsg
+    assert "本剧角色名册（有卡、可出场）" in sysmsg
+
+
+def test_suspicion_not_named_to_secret_owner():
+    """秘密归属者不得被告知「谁在起疑」：那是 in-world 不可知的他人心理。
+
+    2026-11-08 决定：suspicions 只记账（秘密四态的状态机输入 + 起疑者本人那一行
+    提示的来源），不再向归属者点名逼近者。归属者仍拿得到自己的底牌与揭开后果。
     """
     snap = dict(MIN_SNAP)
-    snap["goals"] = {
-        "角色甲": "照看角色丁的伤口",
-        "角色丁": "寻找物资",
-    }
-    msgs = prompter.build_session(
-        CARDS, "继续", [], snap,
-        focus={"subjects": ["角色丁"], "place": "地库"})
+    snap["secrets"] = [{
+        "owner": "角色甲", "content": "甲的伤其实是旧的", "state": "起疑",
+        "known_by": [], "holders": [], "bottom_line": "同行资格被撤",
+        "suspicions": [{"by": "角色丁", "clue": "反复追问包扎的时间线", "round": 2}],
+    }]
+    msgs = prompter.build_session(CARDS, "继续", [], snap)
     sysmsg = "\n".join(m["content"] for m in msgs)
-    # 镜头外角色（角色甲）的残留目标不得作为「当前意图」出现
-    assert "照看角色丁的伤口" not in sysmsg
-    # 镜头内角色（角色丁）的目标仍应注入
-    assert "寻找物资" in sysmsg
-
-
-def test_no_focus_keeps_all_goals():
-    """方案 B 反例：无焦点（自然推演）时所有角色目标照常注入，不误伤。"""
-    snap = dict(MIN_SNAP)
-    snap["goals"] = {"角色甲": "照看角色丁的伤口", "角色丁": "寻找物资"}
-    msgs = prompter.build_session(CARDS, "继续", [], snap, focus=None)
-    sysmsg = "\n".join(m["content"] for m in msgs)
-    assert "照看角色丁的伤口" in sysmsg
-    assert "寻找物资" in sysmsg
+    # 归属者侧：逼近点名与疑点原文都不许出现
+    assert "正在逼近" not in sysmsg
+    assert "反复追问包扎的时间线" not in sysmsg.split("【角色丁】")[0]
+    assert "· 你的底牌（只有你自己知道）：「甲的伤其实是旧的」" in sysmsg
+    assert "揭开的后果是：同行资格被撤" in sysmsg
+    # 起疑者侧：只拿自己那处疑点，且明确标为未证实
+    assert "· 你对 角色甲 起了疑：反复追问包扎的时间线" in sysmsg
+    assert "这只是疑点、尚未证实" in sysmsg
+    # 起疑不越权剧透真相全文给起疑者以外的不知情角色（此处只有两名角色，
+    # 握把柄分支未触发，故除归属者与起疑者外无人拿到秘密正文）
 
 
 def test_build_session_has_no_speaker_block_contract():

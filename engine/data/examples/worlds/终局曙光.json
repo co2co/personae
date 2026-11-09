@@ -68,6 +68,19 @@
       "first_round": false
     },
     {
+      "keys": [],
+      "content": "【叙事纪律·镜头轮换】本剧没有唯一主角，任一角色都只是关系网中的一环：主镜头要在多条剧情线之间轮换，不要被单一强势角色一直吸住；主镜头只落在与本轮情节最相关的那条线上，无关的角色与剧情线不硬拉入镜。",
+      "priority": 84,
+      "enabled": true,
+      "constant": true,
+      "position": "before",
+      "depth": null,
+      "name": "叙事纪律·镜头轮换",
+      "secret": false,
+      "demo": false,
+      "first_round": false
+    },
+    {
       "keys": [
         "救援",
         "直升机",

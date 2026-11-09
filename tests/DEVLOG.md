@@ -10,6 +10,26 @@
 
 ---
 
+## 2026-11-09 架构：引擎瘦身移植到 master（三档全执行，与 nsfw 分支 7284909 同源裁决）
+
+> 回滚锚点：tag `checkpoint-pre-slim-master-20261109` → `d860515`（v2.3.0 发版后的 master HEAD）。
+> 未 bump VERSION，未发版；`dist/` 无新包。
+
+- 来源与口径：nsfw 分支 2026-11-08 的瘦身（提交 `7284909`）搬到 master。移植前先核对——`engine/director.py`、`scene.py`、`memory.py`、`ending.py`、`hooks.py` 在 master 与 nsfw 改前（`f24bbde`）字节相同，nsfw 只多出铁律⑧、写手、亲密条目三块；因此 27 个改动文件里 19 个（含全部控制层与 15 个测试文件）可原样落 master，仅 `prompter.py`、`narrative_clean.py`、`index.html`、`store.py` 四处按 master 口径手工校正。
+- 第一性原理（沿用 nsfw 侧立下的两条纪律）：① 引擎只描述世界与角色，不注入「必须发生什么」；② 引擎可以标注模型输出，不得删改正文。此前几乎每段防御代码都挂着一条「某次真实会话事故」注释，逐次打补丁长出来，本轮回到权限与预算重新估。
+- 拆控制层（三档之三）：`scene.py` 重写为纯规则 `resolve(snap, directive)`，删场景导演 LLM 调用与 `AUTO_TIME_THRESHOLD` 强制推时间；删镜头跟随（`compute_focus`、「本回合主镜头」注入、镜头外 goal 抑制）与 `validate_present` 的 `allowed` 台词裁剪（保留剥名册外角色）；删提醒机器（秘密发酵、久未登场 `stale_cast_block`/`STALE_*`、`pressure` 分档加压、`silent_rounds` 累加与前端角标）；反照抄重生成改为只告警不重写；一轮 = 1 次生成 + 1 次纪官记账。
+- 纪官 9 字段 → 5 项簿记：只留 `secret_exposures` / `secret_suspicions` / `handle_releases` / `location_updates` / `state_updates`；删 `relations` / `actions` / `goals` / `scene_shift` / `secret_touches` 及关系冻结闸与 `_preserve_kinship` 系列。语义变更：快照不再有 `goals`，开局意图由 prompter 直读角色卡 `short_goal`（「开局意图（作者设定）」，留空则不给）。旧快照的 `goals` / `actions` / `silent_rounds` 自此无读取方，未做迁移。
+- 下沉作者层（三档之二）：`prompter._NARRATIVE_DISCIPLINE`（104 字镜头轮换纪律）从引擎层删除，唯一承载位改为世界书——随包 demo「终局曙光」新增作者条目「叙事纪律·镜头轮换」（constant / before / priority 84），并加 `test_example_drama_carries_lens_discipline` 锁住接盘方，防「引擎不再说、也没人接」。称呼速查仍只在建局时推一次。
+- 死代码（三档之一）：删 `engine/hooks.py`（全仓 0 监听者）与两处 `hooks.emit`；`ending.py` 只留 `secrets_resolved`（`all_left` 自 v2.1.0 起 `present` 永不收缩，条件永不命中）；`narrative_clean` 只留元标题外移 / 尾部截断 / 分隔线 / 引擎自述四类正则（`场景[：:]`、行首编号、`我将/鉴于` 整句删除全部撤除，它们清的是已不存在的旧提示失败形态，代价是吞正常台词与编号行）。
+- **master 口径校正（不跟 nsfw 的四件事）**：① 「己、法律底线」未成年红线留在引擎层 `_LAWS_PREFIX`，恒定注入、不可由世界书覆盖（nsfw 删了，master 不删），`tests/test_narrative_discipline.py` 重写为「引擎不再立法 + 红线仍在」双断言；② 铁律⑧ / 写手 / 「亲密描写标准」在 master 上本就不存在（2026-10-21 下架），不新建、不回填，尺度措辞本轮零新增；③ `llm.py` 五级参数协商链不动——master 面向外部任意云网关，`test_llm_primary_only.py` / `test_llm_repeat_penalty.py` 是它的守护；④ 前端 i18n 撤掉只剩词典残留的死键（`到场` / `离开`）与 nsfw 的「写手」描述句，`·主镜头` 标签保留（`[本轮场面]` 按 locations 分场仍在）。
+- 遗留（未做，需裁决）：`engine/data/config.json` 里无人读取的 `budget` 字段——该文件在开发机上带 `assume-unchanged` 位（本地运行配置与出厂默认同一个路径），本轮不碰，清它要在提交态改 blob、会把运行配置带进版本库；nsfw 侧同样未清。
+- 连带缺陷（主动审查，只报告未实施）：关系回写撤掉后，`relations_kinship` → `kinship_base` 与 `relations_base` 只剩落盘、没有消费方，角色卡的 `relations_kinship` 字段因此对外失效。本轮先把指向已删函数 / 已删用例的注释改口（`director.py` 三处、`memory.py` 两处），字段本身留与不留等裁决。
+- 文档同步：根 `README.md` / `README.en.md` 的「核心机制速览」把「每轮回写 actions / goals / relations」改为纪官三件事；两处目录树删 `hooks.py` 行、改写 `director.py` / `scene.py` 注释；`engine/README.md` 目录树同步（中英同页只有一份目录树，改一处即两语生效）。
+- 测试账（同口径 `-m "not integration"`，`-p no:cacheprovider --basetemp=`）：改前 master 基线 **381 passed / 1 skipped / 1 deselected**（worktree 检出 `checkpoint-pre-slim-master-20261109` 实测）→ 改后 **301 passed / 1 skipped / 1 deselected**，退出码 0。净减 80 项来自删 `test_focus_follow.py` / `test_pressure_force.py` / `test_stale_cast.py` 与 `test_director.py` / `test_relation_gate.py` 收缩，`test_narrative_discipline.py` 重写为 6 项（新增两条 master 专属哨兵：红线仍在、随包剧本必须带镜头纪律）。环境说明：仓库自带 `tests/venv` 已废（`pyvenv.cfg` 指向已不存在的 `Python312`，且 venv 建自旧目录名 `my-st`），本轮用临时 venv 跑测，未修 `tests/venv`。
+- 与 nsfw 侧测试账的差异：nsfw 改前 396 / 改后 315，master 改前 381 / 改后 301，差额 15 = `test_writer_persona.py`（211 行写手用例，master 无写手机制）。
+
+---
+
 ## 2026-10-31 文档：README 首页改回默认中文（撤销同日「英文占首页」裁决）
 
 > 本条推翻同日「README 语言栏（英文版占首页）」条目首页方向的裁决，该条目保留原文备查、不回改。

@@ -206,7 +206,7 @@ def run(rounds):
                 "relations": {}, "ledger": [], "facts": [], "states": {}, "secrets": []}
         messages = prompter_mod.build_session(
             {}, directive, before_hits, snap,
-            history=history_msgs, after_hits=after_hits, focus=None,
+            history=history_msgs, after_hits=after_hits,
             active_consequences=[])
 
         sys_content = messages[0]["content"]

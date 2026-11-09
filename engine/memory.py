@@ -66,43 +66,36 @@ def new(cast, scene_place="", world_name="", scene_time="", opening_demo=""):
                 # 起疑（线索逼近）记录：介于「潜伏」与「曝光」之间的中间态。
                 # 只存疑点与举证，不存秘密真相——起疑者尚未证实，引擎不得剧透。
                 "suspicions": [],
-                # 发酵压力：连续多少轮这条秘密在叙事里完全没被触及（提及/暗示/回避/物证/追问
-                # 任一都算触及）。由代码累加、触及即归零；模型永远看不到这个数字，只看到
-                # prompter 按档位生成的文案。用于替代原技能「LLM 自写简报自我提醒」的推进压力。
-                "pressure": 0,
             })
 
-    # 短期目标：优先用角色卡手填的 short_goal；未填则退回核心渴望作为初始意图
-    # （两者皆无则留空，由推演引擎在首轮后自动补写）
-    goals = {c: (cards[c].get("short_goal") or cards[c].get("core_desire") or "")
-             for c in present}
+    # 短期目标（goals）已随纪官瘦身撤除（2026-11-08）：旧版先拿角色卡 short_goal 或
+    # core_desire 当种子，再让纪官每轮改写——「引擎替角色想下一步」。角色卡里的
+    # short_goal 现在由 prompter 直接作为「开局意图」注入，恒定不变，不再进快照。
 
     snap = {
         "present": present,
         # 剧本归属：会话开在世界名之下，随快照固化。前端「剧本库/会话管理」
         # 据此把运行时会话挂回所属剧本。存量会话无此字段，前端回退从角色卡读 world。
         "world": world_name,
-        "scene": {"place": scene_place, "time": scene_time, "weather": "", "round": 0, "same_scene": 0},
+        # same_scene 已删（2026-11-08）：它只为旧版「停够三轮就强制推进时间」服务，
+        # 那条强制规则已撤——引擎不再伪造时间流逝。
+        "scene": {"place": scene_place, "time": scene_time, "weather": "", "round": 0},
         # 开局写法示范：由引擎静默注入的中性格式范例。首轮 act 时注入一次，之后不再出现。
         "opening_demo": (opening_demo or "").strip(),
         "relations": relations,
-        # 权威关系基线：与 relations 一同固化自角色卡 relations 字段。
-        # reflect 的「未在场冻结」与「亲属身份冻结」都以它为唯一可信源；
-        # 若此处不固化，真实会话（卡片自带 relations）会跳过 app.py 的固化分支，
-        # 导致 relations_base 为空、两道冻结闸静默失效（见 v0.7.7 修复说明）。
+        # 权威关系基线：与 relations 一同固化自角色卡 relations 字段，作作者口径的备份
+        # （玩家视图不外发，?debug=1 可见）。纪官瘦身（2026-11-08）后引擎不再改写关系，
+        # 原先以它为可信源的两道冻结闸已一并删除，因此它当前无消费方：保留是为了兼容
+        # 旧快照与作者工具，不构成引擎行为。删关系回写这条因果见 director.reflect 注释。
         "relations_base": dict(relations),
         # 作者显式声明的亲属身份（来自角色卡可选字段 relations_kinship）：
         # { "源 → 目标": "母亲" }。血缘是作者定义的固定事实，不该靠从描述句里猜词——
-        # 句中的身份词常指第三方，据此冻结会把正确关系改坏（见 director._preserve_kinship）。
-        # 缺省为空 dict：未声明的边退回「句首显式身份词」这条弱规则。
+        # 句中的身份词常指第三方，据此冻结会把正确关系改坏。
+        # 缺省为空 dict。纪官瘦身后此字段同样只落盘、不被消费（冻结闸已随关系回写一起删）；
+        # 角色卡的 relations_kinship 因此暂无实际效果，若要恢复保护须回到关系改写那条链路上。
         "kinship_base": dict(kinship),
-        "actions": {},
         "secrets": secrets,
         "ledger": [],
-        "goals": goals,
-        # 连续静默轮数：由纪官输出的 actions 判定（某角色本轮无任何行为摘要则 +1）。
-        # 仅作前端在场 chip 的轻量展示信号，不再驱动任何强制焦点/提示（v0.30.1）。
-        "silent_rounds": {c: 0 for c in present},
         # 称呼速查：{ "源 → 目标": "称呼" }，新建会话时由纪官从角色卡与关系表一次性推导。
         # 关系定性只说明「是什么关系」，称呼才决定正文里怎么叫——缺了它，人设里的
         # 「讨好领队」「顶撞权威」这类设定无处落地（压测实证：应出现的称呼 0 次）。
