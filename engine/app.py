@@ -721,12 +721,21 @@ def act():
         model = llm.setting("model")
         logger.info("model", "远程模型开始生成（" + str(model) + "）…")
 
-        def _generate_once(cur_params, box):
-            """单次流式生成，逐块回传；全文累积进 box[0]。"""
+        def _generate_once(cur_params, box, msgs):
+            """单次流式生成，逐块回传；全文累积进 box[0]。
+
+            `msgs` 必须由调用方显式传入，不许靠闭包读外层的 `messages`。
+            教训（2026-11-11，nsfw 支线实踩后回流的护栏）：想在 events() 内换一份
+            提示词而写成 `messages = _assemble(...)`，Python 就按「本函数有赋值」把
+            messages 判成 events() 的局部变量，外层 generate() 的同名变量被遮蔽；
+            _generate_once 读的是 events() 那个还没绑定的格子，首轮生成直接抛
+            NameError: cannot access free variable 'messages'，整条生成回路不可用，
+            而只调 prompter + llm.complete 的探针根本看不见它。参数化之后此路不通。
+            """
             reply_text = []
             first = True
             try:
-                for chunk in llm.stream(messages, **cur_params):
+                for chunk in llm.stream(msgs, **cur_params):
                     if first:
                         first = False
                         logger.success("model", "首 token 已到达，模型正在输出…")
@@ -747,7 +756,7 @@ def act():
         yield "data: " + json.dumps({"status": "模型思考中…"}, ensure_ascii=False) + "\n\n"
 
         box = [""]
-        for item in _generate_once(params, box):
+        for item in _generate_once(params, box, messages):
             yield item
         full = box[0]
         if not full:

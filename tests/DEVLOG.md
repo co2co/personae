@@ -19,7 +19,11 @@
 - **❌ `c4537c4` 不整体回流**：混合提交（拒答净身后自动重试 + 出厂写手措辞去禁区枚举 + NSFW demo 卡），拆开搬运等于替 master 决定「模型整条拒答该不该自动重试」，那是独立的语义决策，不属通用修复。留 nsfw 侧。
 - **❌ `7f0881b` 包名分支后缀不回流**：它是「两条发布线共用同一 VERSION 导致顶包」的补丁，支线独立后该前提消失。留在 nsfw 历史上，新库里撤除（连带 `tests/test_package_naming.py` 的 `-nsfw` 断言）。
 - **❌ `cc1504b` / `d952bca` / `22d39fc` / `7284909` 无回流价值**：`git cherry -v nsfw master` 中 `b20a15c` 已 patch 等价标 `-`，其余三件 master 已有自己的实现（引擎瘦身 `255c333`、死键与 kinship 清理 `91af241`）。
-- **后续同批**：`_generate_once` 参数化 `msgs` + `tests/test_generate_stream.py` 四条 SSE 整回路回归（master 的 `events()` 只读不写 `messages`，那条 NameError 在 master 上不存在，但闭包读提示词是同一类潜伏坑，且 master 完全没有覆盖 `/api/act` 流式回路的测试）；`.gitignore` 收编 `tests/_resync*`（master 只收编了 `tests/_probe*`，本次回流当场就撞见 `tests/_resync_engine_defaults.py` 以未跟踪垃圾形态出现，见 `git status`）。
+- **✅ `_generate_once` 参数化 + `tests/test_generate_stream.py` → 后续提交**：master 的 `events()` 只读不写 `messages`（实测 grep：`messages` 在 `events()` 内仅出现一次，`app.py:729` 作读用），那条 NameError 在 master 上属潜伏而非已爆；但闭包读提示词是同一类坑，且 master **完全没有覆盖 `/api/act` 流式回路的测试**——探针只调 `prompter` + `llm.complete`，`app.py` 整段是盲区。移植口径：`_generate_once(cur_params, box)` → `(cur_params, box, msgs)`，`llm.stream(msgs, ...)`，调用点显式传 `messages`；nsfw 原版四条里**撤掉 `test_refusal_retry_reassembles_with_reason`**（master 无拒答重试分支，不带 nsfw 的产品语义），保留 HTTP 回归 + 两条静态护栏，共三条。
+  - 移植中撞出一处 API 分叉，值得记：`/api/act` 的入参字段 master 读 `body["input"]`（`app.py:624`），nsfw 读 `body["directive"]`。测试按 master 口径写，并在注释里点明，别再照抄 nsfw 版。
+  - 护栏鉴别力单独验过（不落盘，内存变异）：把 `app.py` 改回出错形态（去掉 `msgs` 参数 + 恢复 `llm.stream(messages` + 在 `events()` 内插入 `messages = _assemble(...)`）后，两条静态护栏同时 FAIL，现形为 `current events=PASS sig=PASS / buggy events=FAIL sig=FAIL`，exit 0 [实测 来源:verify_guards.py]。
+  - pytest **302 → 305 passed**（+3），exit 0 [实测 来源:回流前后同命令各跑一次]。
+- **⏳ `.gitignore` 收编 `tests/_resync*`（同批最后一项）**：master 只收编了 `tests/_probe*`（`.gitignore:44`），本次回流当场就撞见 `tests/_resync_engine_defaults.py` 以未跟踪垃圾形态出现在 `git status` 里。
 
 ---
 
