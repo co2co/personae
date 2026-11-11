@@ -10,7 +10,17 @@
 
 ---
 
-## 2026-11-11 通用件回流 master（nsfw 支线拆分前置动作）
+## 2026-11-12 全库清除第三方原型衍生暗示措辞（仅注释/文档，无机制改动）
+
+> 触发：simon 指出仓库内的第三方原型产品名（西方 LLM 角色扮演前端）措辞会让人误以为本项目派生自该实现。引擎为原创实现，表述不应留这类指向。
+
+- **口径**：一律去掉出处指向，改述行为与形态。概念层改名：`first message` → 「开场示范」，`example messages` → 「常驻示范」；「三段式」不再挂产品名，直称「动作 / 对白 / 散文」三段式；「Persona 写法」不再挂产品名，直称通行写法。落到 `engine/world.py`、`engine/store.py`、`engine/app.py`、`engine/static/worldbook-guide.html`、`tests/test_world_scan.py`、`tests/test_standard_example.py` 与本日志全部历史条目。
+- **保留项**：`README.md` / `README.en.md` 与本文顶部更名记录中的主动原创性声明（明确与第三方前端无源码派生关系）——这三处是消歧义的正向声明，删除反而增加误会，故留。
+- **验证**：中文产品名与 `Tavern` 全库零命中（`git grep`），第三方产品名仅剩上述三处声明。pytest **305 passed / 1 skipped / 1 deselected**，exit 0 [实测 来源:`engine/venv/Scripts/python.exe -m pytest -q`]。
+- **版本**：注释与文档改动，不改 `engine/VERSION`（仍 v2.4.0），不打包。遗留：`v0.13.1` 的**注释式 tag 说明**（远端 tag 对象）尚无中性表述版本，改 tag 需删旧重建；本地未入库研究文档（`outputs/`、`scripts/_probe_*`）亦仍含旧措辞，待 simon 定夺。
+
+---
+
 
 > 触发：simon 决定把 nsfw 支线独立成库（本地 `D:\codes\personae-nsfw`，不配远端）。拆分前先把 nsfw 侧与 NSFW 无关的修复回流 master，否则分家后同类 bug 要两边各修一遍，且失去对照物。逐条裁决如下，只搬适用项，不为「回流」而搬。
 
