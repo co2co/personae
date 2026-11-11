@@ -205,10 +205,10 @@ def test_three_step_reference_chain_is_directional():
         assert len(names) == len(set(names)), "链式展开出现重复条目：%s" % names
 
 
-# --- 写法示范条目（demo，对标酒馆 first message / example messages）---
+# --- 写法示范条目（demo，分开场示范 / 常驻示范两档）---
 
 def test_demo_first_round_only_injected_on_round_one():
-    """first_round 示范：仅首轮（round<=1）注入，之后不再出现——酒馆 first message。"""
+    """first_round 示范：仅首轮（round<=1）注入，之后不再出现——开场示范。"""
     entry = {"name": "开局示范", "keys": [], "content": "*动作* \"对白\"",
              "demo": True, "first_round": True, "enabled": True}
     # round=0（调用方未传，默认 0）：视为首轮，注入
@@ -220,7 +220,7 @@ def test_demo_first_round_only_injected_on_round_one():
 
 
 def test_demo_persistent_injected_every_round():
-    """持续示范（无 first_round）：每轮注入——酒馆 example messages。"""
+    """持续示范（无 first_round）：每轮注入——常驻示范。"""
     entry = {"name": "常驻示范", "keys": [], "content": "*动作* \"对白\"",
              "demo": True, "enabled": True}
     for r in [0, 1, 2, 10]:

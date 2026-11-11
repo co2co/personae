@@ -661,8 +661,8 @@ def act():
                                  include_secret=True, round=brief["round"])
         # 写法示范条目（demo）单独拆出：它们是「怎么写」的 few-shot 范例，不混入世界设定
         demo_hits = [e for e in hits_all if e.get("demo")]
-        # 开局示范（酒馆 first message）：首轮（round==1）时从快照注入，置于常驻示范之前；
-        # 之后轮次不再出现（first message 只出现一次）。
+        # 开场示范（first_round 条目）：首轮（round==1）时从快照注入，置于常驻示范之前；
+        # 之后轮次不再出现（开场示范只注入一次）。
         if brief["round"] <= 1 and (snap.get("opening_demo") or "").strip():
             demo_hits = [{"name": store.FIRST_ROUND_DEMO_NAME, "content": snap["opening_demo"],
                           "demo": True, "first_round": True}] + demo_hits

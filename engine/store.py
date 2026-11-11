@@ -206,7 +206,7 @@ ORIGIN_ENGINE = "engine"
 # 不回填、不清理旧条目）；作者想给某剧本加亲密写法标准，正路是在本剧世界书里自建一条。
 
 
-# ---- 写法示范（few-shot，对标酒馆 first message / example messages）----
+# ---- 写法示范（few-shot，分开场示范 / 常驻示范两档）----
 #
 # 引擎内置两份中性示范，让任何剧本无需作者手写也能直接开局：
 #   1. FIRST_ROUND_DEMO（开局示范）：由 session_new 静默写入快照，首轮 act 注入一次。
@@ -239,7 +239,7 @@ _STANDARD_EXAMPLE_CONTENT = (
 
 
 def _standard_example_entry():
-    """常驻写法示范条目（酒馆 example messages）：demo 标志 + 非 first_round，每轮注入。"""
+    """常驻写法示范条目：demo 标志 + 非 first_round，每轮注入。"""
     return {
         "name": STANDARD_EXAMPLE_NAME,
         "keys": [],
@@ -306,9 +306,8 @@ def save_world(name, entries):
     """整份保存世界书（覆盖式）。entries 为条目数组。
 
     新建世界时（该世界此前不存在）自动播种一条默认条目：
-      - _standard_example_entry「写法示范·常驻」：中性 few-shot 示范（酒馆 example
-        messages），让「玩家不写示范也能每轮有范例可循」。只对首次创建播种，
-        删除后不强制回填。
+      - _standard_example_entry「写法示范·常驻」：中性 few-shot 示范，让「玩家不写
+        示范也能每轮有范例可循」。只对首次创建播种，删除后不强制回填。
 
     亲密/性内容的尺度**不由引擎播种**（2026-10-21 下架，对齐 v0.29.0）：此前随新世界
     播种的「亲密描写标准」条目已移除，尺度完全交回各剧本的世界书与剧情推进决定。

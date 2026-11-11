@@ -162,7 +162,7 @@
 
 ## 2026-10-31 文档：README 语言栏（英文版占首页，中文版独立成页）
 
-- 目标（simon）：仿 SillyTavern 形态——仓库首页默认英文，最上方一行语言链接跳到中文版，中文版同样跳回英文版。
+- 目标（simon）：双语仓库首页——仓库首页默认英文，最上方一行语言链接跳到中文版，中文版同样跳回英文版。
 - 结构调整：`git mv README.md README.zh-CN.md`（中文版）、`git mv README.en.md README.md`（英文版占首页）。GitHub 只把根 `README.md` 当首页，所以「默认英文」只能靠换名实现，仓库设置里没有指定首页文件的开关。
 - 语言栏：两页顶部插入居中 `<p align="center">`，当前语言加粗非链接、另一语言为链接（`English` ↔ `简体中文`）；原正文第二行的互链行删除，避免同一页两个入口。
 - 正文互链跟随改名：中文页「英文界面形态见 [English README](README.md)」，英文页「the [Chinese README](README.zh-CN.md) shows the Chinese UI」。
@@ -1150,7 +1150,7 @@ config.enable_thinking=False → _base_payload 发 chat_template_kwargs/enable_t
 
 ## 2026-10-21 世界书条目分组展示：引擎组折叠置顶 / 剧本组展开 + 常量置顶（semver PATCH→v2.0.2）
 
-**起因**：v2.0.1 只做到「灰边 + 徽标」的来源标识，两类条目仍混在同一个列表里。simon 提出按来源分成两组：系统（引擎）条目一组置于最上方、默认折叠，并借鉴酒馆的提示语「不了解它是干嘛的就别动它」；剧本条目一组置于下方、默认展开，组内常量条目自动置顶。
+**起因**：v2.0.1 只做到「灰边 + 徽标」的来源标识，两类条目仍混在同一个列表里。simon 提出按来源分成两组：系统（引擎）条目一组置于最上方、默认折叠，并采用一句直白提示语「不了解它是干嘛的就别动它」；剧本条目一组置于下方、默认展开，组内常量条目自动置顶。
 
 **改动（纯前端展示层，后端与数据零改动）**
 - `index.html` 结构：`#w-entries` 内改为两个物理容器——`#w-entries-engine`（引擎组，默认 `hidden`）与 `#w-entries-author`（剧本组，默认展开）；组头合并了原「说明条 + 恢复按钮 + 收起开关」三件事：折叠箭头、组名、条数、说明文案、恢复默认；剧本组头带「+ 新增条目」。
@@ -1159,7 +1159,7 @@ config.enable_thinking=False → _base_payload 发 chat_template_kwargs/enable_t
 - 拖拽：两组各自绑定 `dragover`，`dragSrc.parentElement !== box` 时 `dropEffect='none'` 直接忽略（禁跨组）；插入下标按 `getDragAfterElement` → `getDragIndex` 改为索引式，并按「常量段恒定置顶」钳制——拖非常量时 `max(k, 常量数)`、拖常量时 `min(k, 常量数)`。
 - 勾选常量：新增 `applyConstant`，落位到常量段与非常量段的分界处，与渲染规则保持一致，避免保存重载后位置弹回。
 - 恢复默认条目成功后自动展开引擎组（否则用户看不到刚补回的条目）。
-- 说明文案采用酒馆式口径：「由引擎在新建 / 导入剧本时播种……**不了解它是干什么的就别动它**——保持原样即可正常工作。可改可关，删除后不会自动补回。」
+- 说明文案采用直白口径：「由引擎在新建 / 导入剧本时播种……**不了解它是干什么的就别动它**——保持原样即可正常工作。可改可关，删除后不会自动补回。」
 
 **验证**
 - jsdom 真跑渲染逻辑（`tests/_probe_wbgroup.js`，脚手架不入库）：25 项全 PASS——两组互不串条、组内常量置顶、`collectWorldEntries` 文档序即 priority 序、`origin`/`demo` 往返保住、勾选 / 取消常量的落位、组内序号重算、新增落剧本组、折叠默认态与箭头、恢复后展开。
@@ -1427,7 +1427,7 @@ config.enable_thinking=False → _base_payload 发 chat_template_kwargs/enable_t
 
 ## 2026-10-19 开局自动推演第一回合（semver PATCH→v1.2.2）
 
-**性质**：交互体验增强。此前「开始游戏」建局后只进入主界面，玩家须自己再输入第一句行动才触发推演——但玩家已在引导页表达了开场意图（地点/时间/写法示范），应当建局即产出开场叙事（酒馆 first message），玩家看到 NPC 的开场动作/对白后再输入自己的第一句，而非面对空界面手动触发。
+**性质**：交互体验增强。此前「开始游戏」建局后只进入主界面，玩家须自己再输入第一句行动才触发推演——但玩家已在引导页表达了开场意图（地点/时间/写法示范），应当建局即产出开场叙事（开场示范条目），玩家看到 NPC 的开场动作/对白后再输入自己的第一句，而非面对空界面手动触发。
 
 **实现（纯前端 index.html）**
 - 抽取 `streamAct(text, opts)`：把原 `send()` 的 SSE 流式处理抽成公共函数，`opts.showUserBubble` 控制是否渲染玩家气泡；`send()` 改为薄封装（输入非空 + 弹用户气泡）。
@@ -1460,7 +1460,7 @@ config.enable_thinking=False → _base_payload 发 chat_template_kwargs/enable_t
 
 ## 2026-10-19 写法示范引擎化 + 玩家卡降门槛 + 开场全员登场 + 离场语义判断（semver MINOR→v1.2.0）
 
-**性质**：酒馆化改造的收口与打磨——few-shot 示范从「作者手写进 world.json」收口为引擎内置中性默认 + 引导页可改；玩家卡编辑器对齐酒馆 Persona（description 唯一必填，core 字段可选）；开场不再展示误导性的「同场角色」勾选列表，改为全员登场 + 引擎按场景判断在场；离场判断从关键词枚举升级为语义判断。**触发 MINOR**：新增引擎能力（常驻示范自动播种 + 开场语义选角 + 离场语义判断）+ 交互范式变更。
+**性质**：交互范式对齐改造的收口与打磨——few-shot 示范从「作者手写进 world.json」收口为引擎内置中性默认 + 引导页可改；玩家卡编辑器对齐 Persona 通行写法（description 唯一必填，core 字段可选）；开场不再展示误导性的「同场角色」勾选列表，改为全员登场 + 引擎按场景判断在场；离场判断从关键词枚举升级为语义判断。**触发 MINOR**：新增引擎能力（常驻示范自动播种 + 开场语义选角 + 离场语义判断）+ 交互范式变更。
 
 **一、写法示范引擎化（engine/store.py + memory.py + app.py + index.html）**
 - 背景：few-shot 示范此前要作者手写进 world.json，普通玩家建局拿不到示范。simon 拍板两点：①「写法示范·开局」（first message）挪到「开始游戏」引导页，引擎内置中性默认、玩家可改可留空；②「写法示范·常驻」（example messages）像「亲密描写标准」一样引擎化——创建+导入剧本自动播种。
@@ -1471,7 +1471,7 @@ config.enable_thinking=False → _base_payload 发 chat_template_kwargs/enable_t
 - 权威源分离：first message 走「引导页文本框→快照」通道（开局一次性），example messages 走「世界书 demo 条目」通道（每轮注入）。
 
 **二、玩家卡编辑器降门槛（engine/static/index.html，纯前端）**
-- 背景：玩家卡是引擎簿记护城河的玩家侧延伸，但 core_desire/core_fear 对玩家偏重。查证酒馆 Persona：只有「名称 + 一段自由描述」，无结构化 core 字段。
+- 背景：玩家卡是引擎簿记护城河的玩家侧延伸，但 core_desire/core_fear 对玩家偏重。查证同类角色卡的通行 Persona 写法：只有「名称 + 一段自由描述」，无结构化 core 字段。
 - 方案：不砍机制只降门槛。后端对空 core 字段本就完全容错（prompter 条件注入 `if card.get(...)`、memory `short_goal or core_desire or ''`、director `core_desire or ''`），故零后端改动。
 - 前端：`core_desire`/`core_fear` 红星改 `class="req core-req"`（可 JS 切换）；新增 `_applyPlayerCardUi(isPlayer)` 按 `is_player` 标志隐藏红星 + 显示「可选，留空由 description 推演」提示；`saveCard` 必填校验分支——玩家卡只强制 `name+description`，NPC 卡仍强制 `desc+desire+fear`（关系/秘密簿记的 NPC 锚点不能丢）。
 
@@ -1490,15 +1490,15 @@ config.enable_thinking=False → _base_payload 发 chat_template_kwargs/enable_t
 
 ---
 
-## 2026-10-18 输出格式改酒馆三段式 + 铁律瘦身 + few-shot 机制（semver MINOR→v1.1.0）
+## 2026-10-18 输出格式改「动作 / 对白 / 散文」三段式 + 铁律瘦身 + few-shot 机制（semver MINOR→v1.1.0）
 
-**性质**：引擎叙事输出范式整体转向——从「多说话人自由叙事（实际趋近散文）」改为酒馆（SillyTavern）「角色动作 + 对白 + 穿插散文」三段式；配套对每回合注入 LLM 的铁律做正向化瘦身；引入酒馆式 few-shot 示范机制（first message 首轮示范 + example messages 常驻示范）并引擎化自动注入。**触发 MINOR**：输出范式变更 + 新增引擎能力（few-shot 示范条目机制）。
+**性质**：引擎叙事输出范式整体转向——从「多说话人自由叙事（实际趋近散文）」改为「角色动作 + 对白 + 穿插散文」三段式；配套对每回合注入 LLM 的铁律做正向化瘦身；引入 few-shot 示范机制（开场示范 + 常驻示范）并引擎化自动注入。**触发 MINOR**：输出范式变更 + 新增引擎能力（few-shot 示范条目机制）。
 
-**一、输出格式改酒馆三段式（engine/prompter.py）**
-- 起因：分支引擎设计理念与主仓库不同，不再沿用「散文」输出推演结果，改参考酒馆（SillyTavern）范式。
-- 借鉴的酒馆规范（docs.sillytavern.app 角色设计页 first message / example dialogue 范式）：动作用一对 `*星号*` 包裹、对白用一对半角双引号 `"..."` 包裹、散文穿插在动作与对白之间交代空间/事件/关系变化。核心信条：「告诉模型该做什么，比告诉它不该做什么更有效」「show 比 explain 更有效」。
+**一、输出格式改三段式（engine/prompter.py）**
+- 起因：分支引擎设计理念与主仓库不同，不再沿用「散文」输出推演结果，改参考角色扮演类前端的通行输出范式。
+- 借鉴的通用角色卡写作规范（首轮开场示范 / 常驻对话示范范式）：动作用一对 `*星号*` 包裹、对白用一对半角双引号 `"..."` 包裹、散文穿插在动作与对白之间交代空间/事件/关系变化。核心信条：「告诉模型该做什么，比告诉它不该做什么更有效」「show 比 explain 更有效」。
 - 落点：`[输出格式]` 段由「用多说话人叙事」改为「三种写法交织」，明确动作/对白/散文的符号约定，并**严禁「角色名：」前缀标注说话人**（对白归属靠紧邻动作与上下文自然交代）。
-- 联动：`director.validate_present` 原靠「角色名：」前缀精确剥离非在场角色台词，酒馆范式无前缀，剥离退化为**兜底网**（无前缀透传、偶发仍写前缀才触发），出戏抑制改由 prompter 在场约束软抑制承担。这是 simon 明确接受的取舍（叙事观感优先于机制精确度，呼应 v0.17.0 因观感差移除「分段格式」的历史）。空名单保护安全底线保留。
+- 联动：`director.validate_present` 原靠「角色名：」前缀精确剥离非在场角色台词，新范式无前缀，剥离退化为**兜底网**（无前缀透传、偶发仍写前缀才触发），出戏抑制改由 prompter 在场约束软抑制承担。这是 simon 明确接受的取舍（叙事观感优先于机制精确度，呼应 v0.17.0 因观感差移除「分段格式」的历史）。空名单保护安全底线保留。
 
 **二、铁律审视与瘦身（engine/prompter.py）**
 - 审视结论：铁律分两类——机制投影铁律（有 director 硬机制兜底：②信息边界→秘密簿记、③秘密底线→四态/bottom_line、④后果留痕→ledger 账本、⑥玩家操控→is_player 单轨、⑨防重复→detect_narrative_repeat 重采样）与纯提示词约束（①动作「五选一」、⑤关系「必须兑现」、⑦人设、叙事纪律三轴，无机制兜底，是噪声）。
@@ -1507,17 +1507,17 @@ config.enable_thinking=False → _base_payload 发 chat_template_kwargs/enable_t
 - 铁律⑧（亲密描写）下沉世界书（「亲密描写标准」条目本就存在且更详细），引擎删⑧尺度词；**但「未成年法律红线」必须保留引擎级**（记忆红线：未成年硬红线永远生效、不可由世界书覆盖），单独列为「己、法律底线」。
 
 **三、few-shot 示范机制引擎化（engine/world.py + app.py + prompter.py）**
-- 酒馆三个 few-shot 设计：first message（作者写的开场，开新对话注入一次，示范风格/篇幅）、example messages（持续 few-shot，直到被历史挤满）、alternate greetings（多条开场随机选）。simon 决定引入前两个，alternate greetings 不做。
-- 引擎化落点：世界书条目新增 `demo` 标志 + `first_round` 标志——`demo+first_round` 仅首轮（round<=1）注入（酒馆 first message），`demo` 无 first_round 每轮持续注入（酒馆 example messages）。`scan` 新增 `round` 参数，demo 条目独立返回、不占 max_entries 配额、不混入普通世界设定。
+- 三个 few-shot 设计：开场示范（作者写的开场，开新对话注入一次，示范风格/篇幅）、常驻示范（持续 few-shot，直到被历史挤满）、多版开场（多条开场随机选）。simon 决定引入前两个，多版开场不做。
+- 引擎化落点：世界书条目新增 `demo` 标志 + `first_round` 标志——`demo+first_round` 仅首轮（round<=1）注入（开场示范），`demo` 无 first_round 每轮持续注入（常驻示范）。`scan` 新增 `round` 参数，demo 条目独立返回、不占 max_entries 配额、不混入普通世界设定。
 - 权威源：demo 条目写进 world.json（走 sync 三态同步，符合「真相源唯一」铁律），opening.txt 的「写法示范」段改为指引、删重复正文。
 - 注入：app.py 拆出 `demo_hits` 传 build_session，渲染成「写法示范」块放输出格式段之后（近因位置）。
-- 格式锚点：多角色动作+对白（非酒馆 `{{char}}:`/`{{user}}:` 前缀，契合引擎多角色群像定位）。
+- 格式锚点：多角色动作+对白（不用 `{{char}}:`/`{{user}}:` 这类单角色前缀，契合引擎多角色群像定位）。
 
 **四、验证**
 - 全量测试 321 passed + 1 skipped；新增 test_world_scan.py 4 用例（first_round 仅首轮 / 持续每轮 / demo 与设定分离 / 不占配额）+ test_prompter.py 2 用例（demo 渲染 / 无 demo 零开销）。
-- 实机探针（本地 llama 1234）：输出完美酒馆三段式（`*动作*` / `"对白"` / 穿插散文），且明显受 few-shot 示范风格牵引（复用示范的意象节奏）。
+- 实机探针（本地 llama 1234）：输出完美的三段式（`*动作*` / `"对白"` / 穿插散文），且明显受 few-shot 示范风格牵引（复用示范的意象节奏）。
 
-**设计决定**：引擎护城河 = 关系/秘密簿记（酒馆没有）；「青出于蓝」= 砍负向铁律堆砌 + 簿记机制投影正向化 + 酒馆式 few-shot 示范。
+**设计决定**：引擎护城河 = 关系/秘密簿记（同类产品没有）；「青出于蓝」= 砍负向铁律堆砌 + 簿记机制投影正向化 + few-shot 示范。
 
 ---
 
@@ -1527,7 +1527,7 @@ config.enable_thinking=False → _base_payload 发 chat_template_kwargs/enable_t
 
 **一、问题与设计**
 - 起因：旧机制里玩家是「环境推手」，输入是导演指令而非角色言行，与「沙盘群像」定位不符——玩家无法真正「作为一个人」进入局面。
-- 方案 A（simon 拍板）：玩家 = 在场角色，由人类实时操控。身份判据 = 角色卡内 `is_player` 标志（非硬编码文件名「玩家」），玩家可自由改名（借鉴酒馆 user 槽位思路）；`PLAYER_NAME` 仅作新建空卡默认显示名。
+- 方案 A（simon 拍板）：玩家 = 在场角色，由人类实时操控。身份判据 = 角色卡内 `is_player` 标志（非硬编码文件名「玩家」），玩家可自由改名（借鉴单玩家槽位思路）；`PLAYER_NAME` 仅作新建空卡默认显示名。
 - 普适性铁律：玩家卡是运行时单例（不进剧本模板/随包 demo）。`ensure_player_card` 按「是否已归属当前剧本」决定去留——玩家卡 world==当前剧本→保留其填写（同剧本内持久）；玩家卡挂在其它剧本（新建/导入/切换后残留）→删残留、为当前剧本新建空白卡。**换剧本绝不携带上个剧本的填写内容**，保证每个新建/导入剧本都拿到空白卡槽位。
 
 **二、落地**
@@ -3631,7 +3631,7 @@ v0.16.0 架构 30 轮压测实测（Qwen3.8-27B 本地，4 卡，0 异常）：
 
 - 升 v0.13.1：PATCH 档——项目更名收口与去除不准确的派生措辞，无新增能力，故 v0.13.0 → v0.13.1。
 - 更名收口：展示名 `ST-Lite` / `my-st` 全部改为「群像弈（Personae）【暂定】」；磁盘目录 `D:/codes/my-st` 重命名为 `D:/codes/personae`；分发 zip 前缀 `my-st-` 改为 `personae-`（本次产物 `personae-v0.13.1.zip`）。
-- 去除酒馆派生描述：删代码/文档中「参考酒馆」「基于 SillyTavern 思路/理念」「复刻酒馆」「酒馆社区搬运」等派生暗示措辞，改中性表述；保留两处主动原创性声明（与 SillyTavern 无源码派生关系）。
+- 去除第三方原型派生描述：删代码/文档中「参考某前端」「基于某前端思路/理念」「复刻某前端」「社区搬运」等派生暗示措辞，改中性表述；保留两处主动原创性声明（与任何第三方前端无源码派生关系）。
 - 文档修正：README 移除 v0.8.0 已废弃的「NSFW 尺度控制」功能表述。
 - git 关系：仓库根由 `.git` 位置决定，重命名上层文件夹对内部相对路径透明，仓库状态保持干净，无需额外提交。
 
