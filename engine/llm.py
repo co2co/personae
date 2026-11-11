@@ -165,6 +165,20 @@ def save_config(partial):
     new_base_url = str(cfg.get("base_url", "")).strip()
     if new_base_url and new_base_url != old_base_url:
         cfg.pop("model", None)
+    # 同一 base_url 上换了模型也要作废（实测 2026-11-10：8080 从 iq3_xxs 换成 iq2_xs，
+    # base_url 一个字没变，上面的作废不触发；而前端「测试连接」拉到的模型下拉预选的是
+    # 列表首项却没写回 model 字段，payload 不带 model → config 里永久留着后端已不提供
+    # 的旧 model。更要命的是下面的自动取模型只在 model 为空时触发，坏值永远修不掉，
+    # 用户只能反复保存、反复看到「已保存」而模型始终不变。）
+    # 校正时机收在「本次显式保存了生效连接」（partial 里带 base_url）；后端不可达就
+    # 原样保留，绝不因网络抖动改用户配置；只在不带 base_url 的纯采样保存里绝不动 model。
+    if ("base_url" in (partial or {})) and new_base_url and str(cfg.get("model", "")).strip():
+        try:
+            offered = list_models(new_base_url, cfg.get("api_key")) or []
+            if offered and str(cfg.get("model", "")).strip() not in offered:
+                cfg["model"] = offered[0]
+        except Exception:
+            pass
     # 模型留空时尝试从后端自动取第一个，避免发出空 model 字段
     if not str(cfg.get("model", "")).strip():
         try:

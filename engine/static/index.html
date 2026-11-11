@@ -1979,7 +1979,17 @@ function syncProvidersFromDOM() {
     if (q('.prov-f-name')) p.name = q('.prov-f-name').value;
     if (q('.prov-f-base')) p.base_url = q('.prov-f-base').value;
     if (q('.prov-f-key')) p.api_key = q('.prov-f-key').value;
-    if (q('.prov-f-model')) p.model = q('.prov-f-model').value;
+    // 模型：「测试连接」拉出来的下拉一旦填充，它就是这一项模型的真相源。
+    // 它预选的是列表首项，用户不去动它就永远不触发 change 事件，而旧写法只读那个
+    // 隐藏的文本框——于是「界面显示 A、落盘还是 B」（实测：切到 iq2_xs 保存后，
+    // config 里仍是 iq3_xxs）。下拉有真实选项时以它为准，并回填文本框保持所见即所存。
+    const ms = q('.prov-f-models');
+    if (ms && ms.options.length) {
+      p.model = ms.value;
+      if (q('.prov-f-model')) q('.prov-f-model').value = ms.value;
+    } else if (q('.prov-f-model')) {
+      p.model = q('.prov-f-model').value;
+    }
   });
 }
 provBox.addEventListener('click', async e => {
@@ -2013,6 +2023,12 @@ provBox.addEventListener('click', async e => {
           sel.innerHTML = models.map(m => `<option value="${escAttr(m)}">${escHtml(m)}</option>`).join('');
           sel.style.display = '';
           sel.value = p.model || models[0];
+                // 预选值当场写回输入框与内存：否则用户不改下拉直接保存时，
+                // 界面显示的是 models[0]，payload 里的 model 却是空，后端保留旧值。
+                const effModel = sel.value;
+                const modelInput = card.querySelector('.prov-f-model');
+                if (modelInput) modelInput.value = effModel;
+                syncProv(key, 'model', effModel);
           msg.style.color = 'var(--pos)';
           msg.textContent = '连接成功，检测到 ' + models.length + ' 个模型，可在下拉中选择';
         } else {

@@ -368,3 +368,63 @@ def test_defaults_are_conservative():
     """出厂默认须是保守档。repeat_penalty 保留作后备，仍取 1.1 / 256。"""
     assert llm.DEFAULTS["repeat_penalty"] == 1.1
     assert llm.DEFAULTS["repeat_last_n"] == 256
+
+
+# ---------- save_config：model 与后端实际提供的列表对齐 ----------
+
+import json as _json
+
+_SAME_URL = "http://127.0.0.1:8080/v1"
+
+
+def _seed(tmp_path, model):
+    cfg = tmp_path / "config.json"
+    cfg.write_text(_json.dumps({"base_url": _SAME_URL, "api_key": "", "model": model}),
+                   encoding="utf-8")
+    return cfg
+
+
+def test_save_config_replaces_model_backend_no_longer_offers(monkeypatch, tmp_path):
+    """同一 base_url 上换了量化：旧 model 后端已不提供，必须作废重取。
+
+    实测事故（会话 b0e64336 后续）：8080 上那台从 iq3_xxs 换成 iq2_xs，base_url
+    没变，旧的「base_url 变了才作废」不触发，而自动取模型只在 model 为空时触发，
+    于是坏值永远修不掉——用户反复点保存、界面反复提示已保存，模型却纹丝不动。
+    """
+    cfg = _seed(tmp_path, "old-quant")
+    monkeypatch.setattr(llm, "CONFIG_FILE", cfg)
+    monkeypatch.setattr(llm, "list_models", lambda *a, **k: ["new-quant"])
+    llm.save_config({"base_url": _SAME_URL})
+    assert _json.loads(cfg.read_text(encoding="utf-8"))["model"] == "new-quant"
+
+
+def test_save_config_keeps_model_still_offered(monkeypatch, tmp_path):
+    cfg = _seed(tmp_path, "keep-me")
+    monkeypatch.setattr(llm, "CONFIG_FILE", cfg)
+    monkeypatch.setattr(llm, "list_models", lambda *a, **k: ["other", "keep-me"])
+    llm.save_config({"base_url": _SAME_URL})
+    assert _json.loads(cfg.read_text(encoding="utf-8"))["model"] == "keep-me"
+
+
+def test_save_config_keeps_model_when_backend_unreachable(monkeypatch, tmp_path):
+    """后端不可达时绝不因网络抖动改用户配置。"""
+    cfg = _seed(tmp_path, "keep-me")
+    monkeypatch.setattr(llm, "CONFIG_FILE", cfg)
+
+    def boom(*a, **k):
+        raise RuntimeError("backend down")
+
+    monkeypatch.setattr(llm, "list_models", boom)
+    llm.save_config({"base_url": _SAME_URL, "temperature": 0.8})
+    assert _json.loads(cfg.read_text(encoding="utf-8"))["model"] == "keep-me"
+
+
+def test_sampling_only_save_does_not_touch_model(monkeypatch, tmp_path):
+    """纯采样参数保存（payload 不带 base_url）不得顺手改模型——多模型后端上会选错。"""
+    cfg = _seed(tmp_path, "intended-model")
+    monkeypatch.setattr(llm, "CONFIG_FILE", cfg)
+    monkeypatch.setattr(llm, "list_models", lambda *a, **k: ["someone-else"])
+    llm.save_config({"temperature": 0.7})
+    saved = _json.loads(cfg.read_text(encoding="utf-8"))
+    assert saved["model"] == "intended-model"
+    assert saved["temperature"] == 0.7

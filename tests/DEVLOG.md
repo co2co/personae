@@ -10,6 +10,19 @@
 
 ---
 
+## 2026-11-11 通用件回流 master（nsfw 支线拆分前置动作）
+
+> 触发：simon 决定把 nsfw 支线独立成库（本地 `D:\codes\personae-nsfw`，不配远端）。拆分前先把 nsfw 侧与 NSFW 无关的修复回流 master，否则分家后同类 bug 要两边各修一遍，且失去对照物。逐条裁决如下，只搬适用项，不为「回流」而搬。
+
+- **✅ `284b1b7` → 本提交**：`llm.save_config` 同一 `base_url` 上换量化也作废重取 + 前端「测试连接」模型下拉预选值回写。master 同缺陷存在：旧写法只在 `base_url` 变化时 `pop("model")`，而自动取模型只在 `model` 为空时触发，后端已不提供旧值时永远修不掉；前端下拉预选首项却不写回，实测界面显示 A、落盘还是 B。`git cherry-pick -n` 后 `engine/llm.py` / `engine/static/index.html` / `tests/test_llm_repeat_penalty.py` 三处自动合并无冲突，DEVLOG 冲突按「master 自己记账」丢弃 nsfw 侧文本。pytest **298 → 302 passed**（+4 条），1 skipped，exit 0 [实测 来源:回流前后同命令各跑一次]。
+- **❌ 订正一条前判：`init_relations` 的 NameError 不需要回流。** 上一轮 22d39fc 的提交信息写它是「与 master 同源的潜伏缺陷、master 未落地」，实测不成立：`master:engine/director.py:586-587` 早已是 `len(cards_present)` 并带说明注释，即 `91af241` 已含此修，补齐方是 nsfw 而非 master。该文件不再动。
+- **❌ `c4537c4` 不整体回流**：混合提交（拒答净身后自动重试 + 出厂写手措辞去禁区枚举 + NSFW demo 卡），拆开搬运等于替 master 决定「模型整条拒答该不该自动重试」，那是独立的语义决策，不属通用修复。留 nsfw 侧。
+- **❌ `7f0881b` 包名分支后缀不回流**：它是「两条发布线共用同一 VERSION 导致顶包」的补丁，支线独立后该前提消失。留在 nsfw 历史上，新库里撤除（连带 `tests/test_package_naming.py` 的 `-nsfw` 断言）。
+- **❌ `cc1504b` / `d952bca` / `22d39fc` / `7284909` 无回流价值**：`git cherry -v nsfw master` 中 `b20a15c` 已 patch 等价标 `-`，其余三件 master 已有自己的实现（引擎瘦身 `255c333`、死键与 kinship 清理 `91af241`）。
+- **后续同批**：`_generate_once` 参数化 `msgs` + `tests/test_generate_stream.py` 四条 SSE 整回路回归（master 的 `events()` 只读不写 `messages`，那条 NameError 在 master 上不存在，但闭包读提示词是同一类潜伏坑，且 master 完全没有覆盖 `/api/act` 流式回路的测试）；`.gitignore` 收编 `tests/_resync*`（master 只收编了 `tests/_probe*`，本次回流当场就撞见 `tests/_resync_engine_defaults.py` 以未跟踪垃圾形态出现，见 `git status`）。
+
+---
+
 ## 2026-11-09 清理补记（发版同日：死键与失效字段裁净 + `cc1504b` 回填 master + retag）
 
 > 触发：simon 裁定两条——「`cc1504b` 还没进 master，要回填」「遗留死键与失效字段仍在原处等裁，清掉」。
