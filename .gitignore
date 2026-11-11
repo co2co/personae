@@ -40,11 +40,14 @@ engine/data/worlds/
 # Test run artifacts（走查生成的 markdown 日志，非源码）
 tests/runs/
 
-# 探针脚手架（A/B 对照脚本，仅开发工具，不入库）
+# 探针脚手架与一次性工具（A/B 对照、出厂条目同步等，仅开发用，不入库；
+# 这类脚本常含私人剧本角色名，随删随弃。已跟踪文件不受 ignore 影响，
+# 例如 tests/_frontend_binding_check.js 仍是入库的。）
 tests/_probe*
 tests/_diag*
 tests/_measure*
 tests/_verify_*
+tests/_resync*
 
 # 会话产物（摘录、导出等运行时态输出）
 outputs/

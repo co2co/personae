@@ -23,7 +23,7 @@
   - 移植中撞出一处 API 分叉，值得记：`/api/act` 的入参字段 master 读 `body["input"]`（`app.py:624`），nsfw 读 `body["directive"]`。测试按 master 口径写，并在注释里点明，别再照抄 nsfw 版。
   - 护栏鉴别力单独验过（不落盘，内存变异）：把 `app.py` 改回出错形态（去掉 `msgs` 参数 + 恢复 `llm.stream(messages` + 在 `events()` 内插入 `messages = _assemble(...)`）后，两条静态护栏同时 FAIL，现形为 `current events=PASS sig=PASS / buggy events=FAIL sig=FAIL`，exit 0 [实测 来源:verify_guards.py]。
   - pytest **302 → 305 passed**（+3），exit 0 [实测 来源:回流前后同命令各跑一次]。
-- **⏳ `.gitignore` 收编 `tests/_resync*`（同批最后一项）**：master 只收编了 `tests/_probe*`（`.gitignore:44`），本次回流当场就撞见 `tests/_resync_engine_defaults.py` 以未跟踪垃圾形态出现在 `git status` 里。
+- **✅ `.gitignore` 收编 `tests/_resync*` → 同批最后一个提交**：master 只收编了 `tests/_probe*`（`.gitignore:44`），本次回流当场就撞见 `tests/_resync_engine_defaults.py` 以未跟踪垃圾形态出现在 `git status` 里。收编后复核：`git status` 不再列该文件、`git check-ignore -v` 命中 `.gitignore:50`，且已跟踪的 `tests/_frontend_binding_check.js` 仍在跟踪列表内（ignore 不作用于已跟踪件）[实测 来源:git status + git check-ignore -v + git ls-files]。
 
 ---
 
