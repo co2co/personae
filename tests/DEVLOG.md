@@ -10,7 +10,24 @@
 
 ---
 
-## 2026-11-12 执笔写手落地 master：投递位锁 system 头部，编辑入口回「系统设置」（开发中，未发版）
+## 2026-11-12 版本 v2.5.0（发版记账：执笔写手落地）
+
+> 版本号取 MINOR。判据：新增用户可见能力面（系统设置「执笔写手」面板 + `config.json` 新增 `writer` 字段 + 新端点 `GET /api/writer`），数据文件形状未变（角色卡 / 世界书 / 会话 JSON 照旧，旧会话可继续读），作者侧只多了一个可选面板，故不用 MAJOR 也不用 PATCH。
+
+- 本版包含两个提交：`149f27c`（执笔写手落地，含 20 项守护测试）与 `1279b4d`（引擎注释去掉对未入库实验分支的直接点名，纯注释）。开发过程记录见上一条「执笔写手落地」条目。
+- VERSION：`engine/VERSION` `v2.4.0` → `v2.5.0`。tag `v2.5.0` 打在本发版记账提交上（另一条本地发布线用带后缀的号段，两边不顶包）。
+- 测试：`tests\venv\Scripts\python.exe -m pytest -q -p no:cacheprovider` → **325 passed / 1 skipped / 1 deselected**，退出码 0。本轮起点基线 305 passed / 1 skipped / 1 deselected（同命令改前实测），净 +20 = `tests/test_writer_persona.py` [实测]。
+- 分发包：`dist/personae-v2.5.0.zip`（32 条目，229.6 KB / 235,116 字节，sha256 前 16 位 `3ece6aec7e1e28a9`），命令 `python package.py --skip-demo-check`。
+  - 为什么仍要跳守卫：本机 `dramas/` 里的作者源与 master 的随包 demo 不是同一份剧本，`scripts/sync_drama.py check` 会拿那份剧本比对并报差异，`install` 更会把不相干的数据写进入库 demo。故不 install、只跳守卫，改以包内校验代替。
+  - 包内校验（读 zip，实测）：条目 32 项；无 `data/characters|worlds|sessions`、无 `venv`/`tests`/`__pycache__` 泄漏；`engine/data/config.json` 已洗白（`base_url`/`model` 空、`providers: []`、采样参数取自 `llm.DEFAULTS`、**无 `writer` 键**——用户自述属个人创作内容，缺该字段时 `writer_cfg()` 自动回退出厂写手）；随包 demo = 世界书 1 本 21 条（引擎默认条目仅「写法示范·常驻」一条，写手不进世界书）+ 角色卡 6 张；`engine/VERSION` = v2.5.0。
+  - 泄漏扫描（实测）：包内文本零命中实验剧本名与其角色名；`sk-local` 是 `llm.DEFAULTS` 的出厂占位密钥，非真实密钥。
+- 旧包纪律：本轮首次构建的 v2.5.0 包（含未脱敏注释）不删除，移入 `dist/_retired/personae-v2.5.0-pre-scrub.zip`，随后重建正式包；`dist/` 原有各包一律保留，未覆盖任何旧包。
+- 脱敏（本轮新增内容）：新增提交内零命中实验分支名、个人路径与个人信息；另清掉两处历史注释里对未入库分支的直接点名（`engine/app.py` 闭包遮蔽教训、`engine/prompter.py` 尺度措辞归属）。**遗留待裁**：`engine/app.py` 2 处、`engine/director.py` 10 处「旧尺度机制已随 v0.8.0 整体废弃」一类历史说明，以及一条同名旧路由名残留——这些讲的是本引擎自己的功能沿革、不是分支指向，是否一并中性化等 simon 定（先例见同日「措辞清理」条目）。
+- 外部动作：master 与本条 tag 已推送至 `origin`（本条目随该次推送入库）；GitHub Release 未创建，等 simon 定。
+
+---
+
+## 2026-11-12 执笔写手落地 master：投递位锁 system 头部，编辑入口回「系统设置」（已随 v2.5.0 发版）
 
 > 触发：simon 裁决——写手这条系统人设放 system prompt 更合适，按该投递位落地；编辑位置放回「系统设置」菜单（它最初就在那里）。
 > 承载位取舍的依据是同一条措辞换位置的对照实测，探针件不入库。
