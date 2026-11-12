@@ -54,7 +54,7 @@ Open the address in a browser; the top bar has four panels:
 - **Character Library**: create / edit / delete character cards (imports external JSON, preserving unrecognized fields)
 - **Worldbook**: edit worldbook entries (a full user manual is at `/docs/worldbook` in the browser)
 - **Sessions**: list / resume / abandon dramas in progress
-- **System Settings**: LLM backend connection and generation parameters, plus a link to the worldbook manual
+- **System Settings**: LLM backend connection and generation parameters, the writer persona, plus a link to the worldbook manual
 
 The engine ships with an official demo drama (`engine/data/examples/`); it is seeded automatically on first run, so you can start playing right away.
 

@@ -10,6 +10,28 @@
 
 ---
 
+## 2026-11-12 执笔写手落地 master：投递位锁 system 头部，编辑入口回「系统设置」（开发中，未发版）
+
+> 触发：simon 裁决——写手这条系统人设放 system prompt 更合适，按该投递位落地；编辑位置放回「系统设置」菜单（它最初就在那里）。
+> 承载位取舍的依据是同一条措辞换位置的对照实测，探针件不入库。
+
+- **先更正一条前提**：master 上**此前并没有写手**，谈不上「迁移」——2026-11-09 引擎瘦身条目当时就明写了「写手在 master 上本就不存在，不新建、不回填」。本轮是**新建并按已验证的形态定形**，不是搬运。
+- **形态选定（存储层与投递层分开定）**：写手正文存 `data/config.json` 的 `writer` 字段（编辑入口在系统设置，保存即生效不重启），投递位固定在 system 提示词**第一块**。承载位对照实测（探针件未入库）：同一条措辞恒定进 system 头部（装配约 3% 处）稳定生效，整块挪进末尾 user（约 76% 处、仍标「强制」）后同一批场景 4 次里 3 次失效——投递层决定接不接受，位置是放大器。故 ① 寄 system 中段与 ② 寄世界书引擎条目都不取，取 ③ 恒定进 system 头部 + 正文存 config。
+- **引擎落点**：`prompter` 新增写手段（`WRITER_LIMIT` 4000 / `WRITER_NAME_LIMIT` 60、`WRITER_GUARD`、`DEFAULT_WRITER` 群像向出厂写手、`WRITER_PRESETS` 五模板、`writer_cfg` / `writer_block` / `writer_view`），`build_session` 起手即 `blocks = [writer_block()]`，先于 `[世界设定]` 与 `[导演指令]`。写手只进正文这一条通道：`director.reflect`（纪官回写）与 `build_summary`（结局总结）不引用它，写成静态守卫。
+- **存储与路由**：`llm._WRITABLE` 增 `writer`，`save_config` 只留 `name`/`content` 两字段并按上限截断（延迟 import 取 prompter 的上限，避免绕依赖环）；新增 `GET /api/writer` 下发设置页视图（当前值 + 上限 + 模板 + 出厂默认）。
+- **前端**：系统设置新增「执笔写手」折叠面板（名称 / 自述带字数计数、五模板一键套用、恢复默认、实际注入内容预览），`sys-save` payload 携带 `writer`；面板文案同步补 i18n 词条与正则模板（`执笔写手` / 模板名 / `N / M 字` 计数 / 模板套用提示），中英两态都有词可查。面板不给出任何「改投递位」的控件——位置是引擎红线，不交给用户。
+- **两条承载约定 + 一处加强**：
+  - ① 出厂正文取中性群像写手，**零尺度措辞**——尺度自 2026-10-21 起不由引擎预设，测试里加了「出厂写手不含尺度/器官/性字样」的哨兵守着这条。
+  - ② `WRITER_GUARD` 自带一句冲突裁决（写手只管怎么写，后文铁律含未成年红线恒定生效）。这类容错句会带一点措辞稀释，但未成年红线是不可让渡的边界，宁稀释也不撤。
+  - ③ `sys-save` 只在 `/api/writer` 拉取成功时才带 `writer` 字段。面板没加载出来（输入框是空的）时宁可原样保留盘上写手，也不能把用户自述当「已被清空」覆盖掉。
+- **打包红线**：`package.py` config 洗白段 `cfg.pop("writer")`。实测（临时包，用后即删、未进 `dist/`）：包 32 条目 229.2 KB，包内 `engine/data/config.json` 键集为 `api_key/base_url/enable_thinking/frequency_penalty/max_tokens/min_p/model/presence_penalty/providers/temperature/top_k/top_p`，无 `writer`；包内不含该字段时 `writer_cfg()` 自动回退出厂写手，新装用户拿到默认写手 [实测 来源:`package.py --out $env:TEMP\\personae-writer-check.zip --skip-demo-check` + 读 zip 内 config]。
+- **测试**：新增 `tests/test_writer_persona.py` 20 项（恒在与回落 / 投递位第一块 / 不被当环境资料投末尾 / 不进纪官与总结通道 / 落盘截断与免重启生效 / 视图形状 / `/api/writer` 路由 / 世界书不播种 / 未成年红线哨兵 / 零尺度哨兵 / 出厂写手普适性 / 前端入口绑定）。`tests/venv/Scripts/python.exe -m pytest -q -p no:cacheprovider` → **325 passed / 1 skipped / 1 deselected**，退出码 0；改前基线 305 passed / 1 skipped / 1 deselected（同命令，本轮改前实测），净 +20 即本文件 [实测]。`test_universality` 的 `ALLOW_FILES` 加白本测试文件（其普适性断言正当引用黑名单词）。
+- **文档**：`README.md` / `README.en.md` 顶部面板清单补「执笔写手」；`engine/INSTALL.md` / `engine/INSTALL.en.md` §6 新增「执笔写手」小节（留空回落、不可关闭、免重启、不进分发包）。
+- **版本**：本条目不 bump `engine/VERSION`、不打包、不打 tag；发版另立条目（同日 v2.5.0 发版记账）。新增用户可见能力面（系统设置新面板 + config 新字段），按 v2.4.0 的定级口径取 MINOR。
+- **遗留（待裁）**：① 投递位增益在本分支未做同口径 A/B 复测，本轮是把既有对照实测的结论落成形态并加守卫；要复现须另跑探针（探针件不入库）。② 写手是**全局**人设，跨剧本共用一位；若将来要「一个剧本一位写手」，得另开按世界书的存储与回落规则，本轮不做也不预留半套。
+
+---
+
 ## 2026-11-12 全库清除第三方原型衍生暗示措辞（仅注释/文档，无机制改动）
 
 > 触发：simon 指出仓库内的第三方原型产品名（西方 LLM 角色扮演前端）措辞会让人误以为本项目派生自该实现。引擎为原创实现，表述不应留这类指向。

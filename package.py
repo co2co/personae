@@ -158,6 +158,11 @@ def build(out_name=None):
                         # 旧 config 残留的 llama.cpp 私有字段直接剔除，避免污染新装用户的默认态
                         for k in ("repeat_penalty", "repeat_last_n"):
                             cfg.pop(k, None)
+                        # writer（执笔写手）：用户自定义的名称 + 自述属个人创作内容
+                        # （私人叙事偏好、题材词），分发红线——一律剔除。
+                        # 出厂正文在源码 prompter.DEFAULT_WRITER；包内不含 writer 字段时
+                        # writer_cfg() 自动回落，新装用户拿到默认写手。
+                        cfg.pop("writer", None)
                         z.writestr(arcname, json.dumps(cfg, ensure_ascii=False, indent=2))
                     except Exception:
                         z.write(full, arcname)

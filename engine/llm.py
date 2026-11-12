@@ -135,9 +135,12 @@ def config_view():
 # 用户可通过 UI 改动的字段；其余内部字段不暴露。
 # repeat_penalty / repeat_last_n 刻意不在其中：它们是 llama.cpp 特化的内部后备
 # （标准字段被 4xx 时降级启用），用户只需面对一个「重复度惩罚」（映射 frequency_penalty）。
+# writer：执笔写手（名称 + 自述，dict）。出厂正文与截断上限的真相源在
+# prompter.DEFAULT_WRITER / WRITER_LIMIT，此处只负责落盘；用户态写手是个人创作内容，
+# 永不进分发包（package.py 洗白剔除）。
 _WRITABLE = {"base_url", "api_key", "model", "max_tokens", "top_k",
              "temperature", "top_p", "min_p", "frequency_penalty", "presence_penalty",
-             "enable_thinking", "saved_models", "providers"}
+             "enable_thinking", "saved_models", "providers", "writer"}
 
 
 def save_config(partial):
@@ -158,6 +161,15 @@ def save_config(partial):
             v = list(v) if isinstance(v, (list, tuple)) else []
         elif k == "providers":
             v = _clean_providers(v)
+        elif k == "writer":
+            # 执笔写手：只保留 name/content 两字段并按上限截断（与前端约定一致）。
+            # 上限的真相源在 prompter，此处延迟 import 以免 llm→prompter→llm 绕环。
+            from prompter import WRITER_LIMIT, WRITER_NAME_LIMIT
+            if isinstance(v, dict):
+                v = {
+                    "name": str(v.get("name") or "").strip()[:WRITER_NAME_LIMIT],
+                    "content": str(v.get("content") or "").strip()[:WRITER_LIMIT],
+                }
         cfg[k] = v
     # base_url 变了 → 旧 model 属于旧后端，在新后端上必然无效
     # （实测：本地 GGUF 路径发给云网关 → 400 "model does not exist"）。

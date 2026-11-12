@@ -87,7 +87,7 @@ The top bar has four panels:
 - **Character Library**: create / edit / delete character cards, or **Import JSON** from an external file (unrecognized fields are preserved).
 - **Worldbook**: edit worldbook entries; the "worldbook manual" link opens the full guide (`/docs/worldbook`).
 - **Sessions**: list / resume / abandon dramas in progress.
-- **System Settings**: model and generation parameters.
+- **System Settings**: model and generation parameters, plus the writer persona.
 
 Close the terminal window or press `Ctrl+C` to stop the server.
 
@@ -104,6 +104,14 @@ The engine calls models through an **OpenAI-compatible API**. In **System Settin
 Save and it takes effect immediately — **no restart needed**.
 
 > You can start the engine, browse the UI, and edit content without a key; only "start simulation" fails when it calls the model.
+
+### Writer Persona
+
+Under **System Settings → Writer Persona** you rewrite this writer's name and self-description: they decide
+**which tone, technique and taste** the prose comes out in, not what may be written. Leave the self-description
+blank to keep the factory writer — the writer is always present and cannot be switched off. Saving takes effect
+immediately, **no restart needed**. The text lives in the `writer` field of `engine/data/config.json`; it is
+personal creative content and never ships in the release package.
 
 ---
 

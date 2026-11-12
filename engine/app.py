@@ -453,6 +453,15 @@ def test_config():
         return jsonify({"ok": False, "error": str(exc)})
 
 
+@app.get("/api/writer")
+def get_writer():
+    """执笔写手视图：当前生效值（已回落 + 截断）、上限、出厂默认与模板清单。
+
+    设置页打开时拉这份做回填；保存走 /api/config 的 writer 字段。
+    """
+    return jsonify(prompter.writer_view())
+
+
 
 
 # ----------------------------------------------------------------------------

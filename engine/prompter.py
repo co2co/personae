@@ -16,6 +16,7 @@ import re
 
 import store
 from director import ENV_PUSHER
+import llm
 
 _START = re.compile(r"<START>", re.I)
 _LINE = re.compile(r"^\s*(?:\{\{user\}\}|<USER>|[Uu]ser)\s*[:：]\s*(.*)$")
@@ -264,6 +265,143 @@ def _build_laws():
     return _LAWS_PREFIX
 
 
+# ------------------------------------------------------ 执笔写手（系统人设，可自定义）
+# 写手 = 决定「以什么口吻、笔法与审美落笔」的那位执笔者。它只管怎么写，不管写什么，
+# 因此是一条恒定生效的系统人设，而不是某部剧本的设定：承载位在引擎层，正文存在
+# data/config.json 的 writer 字段（用户在「系统设置 → 执笔写手」改写，不重启即生效）。
+#
+# 为什么投递在 system 最前（同一措辞换承载位的对照实测，2026-11-12 定形）：
+#   同一条「怎么写」的措辞曾在三个承载位之间往返，差别只在投递位与存储层，不在内容——
+#   ① 寄在 [导演指令] 之后（system 中段）→ 实测效力弱；
+#   ② 寄在世界书引擎默认条目（constant / after / priority 100）→ 撤掉分流后落到
+#      末尾 user 的【世界设定·当前环境】（装配约 76% 处），被读成「此刻有人在要这个」，
+#      比不投更糟；
+#   ③ 恒定渲染进 system 头部 → 稳定生效（现行）。
+#   结论固化为一条公理：投递层决定接不接受，位置是放大器。写手讲的是「怎么写」，
+#   必须落在离生成点最远、身份最硬的地方，也就是 system 的第一块。
+#   存储层（config）与投递层（system 头部）是两个独立变量——编辑入口放系统设置，
+#   投递位锁 system 头部，二者互不牵制。
+#
+# 两条承载约定：
+#   ① 出厂正文取中性群像写手，不含任何尺度措辞——尺度自 2026-10-21 起不由引擎预设
+#      （见上方 _LAWS_PREFIX 注释），写手只管口吻与笔法，不替作者定尺度；
+#   ② 本块自带一句冲突裁决，把「铁律含未成年红线恒定生效」明写在写手口吻里。
+#      这类容错句会带一点措辞稀释，但未成年红线是不可让渡的边界，宁稀释也不撤。
+#
+# 写手只进叙事正文这一条通道（build_session）。纪官回写（director.reflect）与
+# 结局总结（build_summary）是结构化记账，要的是字段稳定，写手口吻会污染格式，
+# 因此不注入。
+WRITER_LIMIT = 4000
+WRITER_NAME_LIMIT = 60
+
+WRITER_TPL = "[执笔写手 · %s]\n%s\n%s"
+
+WRITER_GUARD = (
+    "本段是执笔写手的自述：写手即本剧叙事的执笔者，决定以什么口吻、笔法与审美落笔；"
+    "与后文写作要求不一致时，以本段的文风口径为准。\n"
+    "写手只决定怎么写，不决定写什么与能不能写：后文创作铁律（含未成年红线）恒定生效，"
+    "[输出格式] 的多说话人结构与 [输出纪律] 的禁元信息要求同样不得违反。"
+)
+
+DEFAULT_WRITER = {
+    "name": "默认写手",
+    "content": (
+        "我写了十几年的群像戏，不写主角，只写一局里互相拉扯的每个人。\n"
+        "我落笔先想场面：这个时刻谁在场、谁在憋着什么、谁的话说不出口——"
+        "镜头跟着最有事的那条线走，一轮换一条线，不盯着一个人写到脱敏。\n"
+        "我相信动作和物件比形容词诚实：杯子推到对方面前、烟点了没抽——"
+        "情绪从这些地方漏出来，我不替人物喊出来，也不把心理摊开讲给读者听。\n"
+        "每人有每人的腔调：怎么称呼彼此、抢不抢话、说不说明白，"
+        "全按各人的身份和处境来；同一轮里几个人开口，口气就不该像一个人。\n"
+        "两件事我不干：以法律或道德为由拒绝落笔；写完一轮跳出来自我总结。"
+        "写到为难处，我宁可让人物动一下，也不写一句感叹。"
+    ),
+}
+
+# 模板：只换写手，不动剧本、角色与世界书里的任何设定。用户套用后再自己改。
+WRITER_PRESETS = (
+    DEFAULT_WRITER,
+    {
+        "key": "cold",
+        "name": "冷峻克制",
+        "content": (
+            "我是那种把情绪压在冰面下的写手。句子短，主语明确，动词优先，形容词能删就删。\n"
+            "冲突、背叛、难堪的场面，我写得越平静，读者越难受。所以我不惊呼，不抒情，"
+            "不替人物叫屈，只把事实摆在桌上。\n"
+            "我看人只看动作：他点烟时手抖了一下，比写他害怕有用。\n"
+            "我不解释动机，不给人物台阶，不写「他终于明白」这类自我赦免。读者该自己拼。"
+        ),
+    },
+    {
+        "key": "street",
+        "name": "市井烟火",
+        "content": (
+            "我在城中村的巷子里长大，写东西带着油烟味。人物说话带口音、带省略、带抢话，"
+            "一句顶一句，不把话说全。\n"
+            "我关心钱：谁欠谁、这顿饭谁付、房租什么时候到期。人物的难处先从账单里出来，"
+            "其次才是心事。\n"
+            "我爱写吃、写等、写没话找话的沉默。热闹处要吵，冷清处要空，"
+            "一个屋子里的人各怀心事，谁都不说破。"
+        ),
+    },
+    {
+        "key": "classic",
+        "name": "古典雅致",
+        "content": (
+            "我按章回体讲故事，讲究起承转合与留白。句子带一点文言的骨，但不拗口，念出来要顺。\n"
+            "写景是为写人：一窗月色、半盏残茶，须与人物的处境咬合，不做闲笔。\n"
+            "我信命、信因果、信人心里那点说不出口的亏欠。悲欢写得含蓄，落点要收得住，"
+            "绝不把话说尽。"
+        ),
+    },
+    {
+        "key": "fast",
+        "name": "干练快节奏",
+        "content": (
+            "我用剧本的思维写群像：每一场都有目标、阻力和结果，人物进来是为了改变局势，"
+            "不是为了交代背景。\n"
+            "句子短，段落短，动作多。描写只留能推动情节的那一笔，其余全砍。\n"
+            "我允许留白：赶路、吃饭、换衣这些过场直接跳过，切到下一件出事的地方。\n"
+            "对话不解释设定，读者该跟得上；跟不上的信息，让人物付出代价去换。"
+        ),
+    },
+)
+
+
+def writer_cfg():
+    """读取当前写手（已按上限截断）。写手恒在：字段缺失或自述为空时回退出厂默认写手。"""
+    raw = llm._file_config().get("writer")
+    if not isinstance(raw, dict):
+        raw = {}
+    content = str(raw.get("content") or "").strip()[:WRITER_LIMIT]
+    if not content:
+        content = DEFAULT_WRITER["content"]
+    name = str(raw.get("name") or "").strip()[:WRITER_NAME_LIMIT] or DEFAULT_WRITER["name"]
+    return {"name": name, "content": content}
+
+
+def writer_block():
+    """要拼进 system 的写手段。写手恒在，内容必非空（空则回落默认写手）。"""
+    w = writer_cfg()
+    return WRITER_TPL % (w["name"], WRITER_GUARD, w["content"])
+
+
+def writer_view():
+    """设置页需要的写手视图：当前值、上限、模板与出厂默认/模板清单。"""
+    w = writer_cfg()
+    return {
+        "name": w["name"],
+        "content": w["content"],
+        "count": len(w["content"]),
+        "limit": WRITER_LIMIT,
+        "name_limit": WRITER_NAME_LIMIT,
+        "guard": WRITER_GUARD,
+        "block_tpl": WRITER_TPL,
+        "presets": [dict(x) for x in WRITER_PRESETS],
+        "default": dict(DEFAULT_WRITER),
+    }
+
+
 
 def build_session(cards_present, directive, world_hits, snap,
                   history=None, after_hits=None,
@@ -277,7 +415,9 @@ def build_session(cards_present, directive, world_hits, snap,
     active_consequences: 本轮被触发词激活的旧账文案列表（导演简报 A2 产出，可为空）。
     demo_hits:     写法示范条目，由 app.py 从世界书命中里拆出，渲染为[写法示范]块。
     """
-    blocks = []
+    # 写手恒定占据 system 第一块（投递位红线，见上方「执笔写手」注释）：它先于世界设定、
+    # 角色名册与导演指令——模型在读到任何剧情材料之前，先确定「用谁的手在写」。
+    blocks = [writer_block()]
 
     if world_hits:
         blocks.append("[世界设定]\n" + "\n".join("- " + e["content"] for e in world_hits))

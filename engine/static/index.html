@@ -854,6 +854,41 @@
       </div>
     </details>
 
+    <!-- 执笔写手：系统恒带一位执笔者。未自定义时取引擎出厂写手（prompter.DEFAULT_WRITER），
+         用户在此改写名称与自述；自述留空即回落默认。存储走 config.writer，
+         投递位固定在 system 提示词第一块——投递层与存储层是两个独立变量，
+         编辑入口在系统设置，位置不由界面决定（详见 prompter「执笔写手」注释）。 -->
+    <details class="acc">
+      <summary class="acc-head">
+        <span>执笔写手</span>
+        <span class="acc-badge badge-sampling">WRITER</span>
+        <span class="acc-chev">▾</span>
+      </summary>
+      <div class="acc-body">
+        <p class="sub" style="margin:0 0 10px;line-height:1.6;">系统恒带一位执笔者：他决定「以什么口吻、笔法与审美落笔」，不决定写什么与能不能写。自述留空即用出厂默认写手；写手恒在，不可关闭。</p>
+        <div class="row" style="margin:0 0 10px;align-items:center;gap:10px;">
+          <label for="cfg-writer-name" style="margin:0;font-size:13px;color:var(--ink-2);font-weight:500;">写手名称</label>
+          <input id="cfg-writer-name" class="field" maxlength="60" style="max-width:320px;" placeholder="默认写手">
+          <span class="sub" id="cfg-writer-name-count" style="margin:0;">0 / 60 字</span>
+        </div>
+        <div class="row" style="margin:0 0 6px;align-items:center;">
+          <span class="sub" style="margin:0;">写手自述</span>
+          <span class="sub" id="cfg-writer-count" style="margin:0 0 0 auto;">0 / 4000 字</span>
+        </div>
+        <textarea id="cfg-writer-content" class="field" style="width:100%;min-height:180px;" placeholder="留空即使用出厂默认写手"></textarea>
+        <div class="row" style="margin:10px 0 0;gap:8px;flex-wrap:wrap;align-items:center;">
+          <span class="sub" style="margin:0 4px 0 0;">模板：</span>
+          <span id="cfg-writer-presets" style="display:inline-flex;gap:6px;flex-wrap:wrap;"></span>
+          <button id="cfg-writer-reset" class="btn btn-sm" style="margin-left:auto;">恢复默认写手</button>
+        </div>
+        <p class="sub" style="margin:10px 0 0;line-height:1.6;">模板只替换写手，不动剧本、角色与世界书的任何设定；套用后可再自行修改。</p>
+        <details style="margin-top:10px;">
+          <summary class="sub" style="cursor:pointer;">查看实际注入内容（原文进入系统提示词第一块，先于世界设定与导演指令）</summary>
+          <pre id="cfg-writer-preview" style="white-space:pre-wrap;font-size:12px;line-height:1.6;background:var(--surface-2);border:1px solid var(--line);border-radius:6px;padding:10px;margin:8px 0 0;max-height:280px;overflow:auto;"></pre>
+        </details>
+      </div>
+    </details>
+
     <!-- 帮助与文档 -->
     <details class="acc">
       <summary class="acc-head">
@@ -1230,6 +1265,36 @@ const I18N_PATTERNS = [
   // 现状 / 人物位置两类「键：值」行。放最后，优先级最低。
   [/^([^：]{1,16})：(.+)$/, '$1: $2'],
 ];
+
+// ---- 执笔写手面板词条（2026-11-12）----
+// 主词典 I18N_TEXT 那行已有数千字，新面板词条单独登记在此，避免超长行继续膨胀、难 diff。
+Object.assign(I18N_TEXT, {
+  "执笔写手": "Writer Persona",
+  "系统恒带一位执笔者：他决定「以什么口吻、笔法与审美落笔」，不决定写什么与能不能写。自述留空即用出厂默认写手；写手恒在，不可关闭。":
+    "A writer is always on duty: this is the hand that decides tone, technique and taste — it does not decide what gets written or whether it gets written. Leave the self-description blank to keep the factory writer; the writer is always present and cannot be turned off.",
+  "写手名称": "Writer name",
+  "写手自述": "Writer self-description",
+  "模板：": "Presets:",
+  "模板只替换写手，不动剧本、角色与世界书的任何设定；套用后可再自行修改。":
+    "Presets replace only the writer — nothing in your drama, characters or worldbook changes. Edit freely after applying one.",
+  "恢复默认写手": "Restore factory writer",
+  "查看实际注入内容（原文进入系统提示词第一块，先于世界设定与导演指令）":
+    "Show what is actually injected (this text becomes the first block of the system prompt, ahead of the worldbook and the director note)",
+  "默认写手": "Default writer",
+  "冷峻克制": "Cold restraint",
+  "市井烟火": "Street-level grit",
+  "古典雅致": "Classical elegance",
+  "干练快节奏": "Lean and fast-paced",
+  "已回填出厂默认写手，点「保存」生效": "Factory writer restored; press Save to take effect",
+  "暂无出厂默认写手，无法恢复": "No factory writer available to restore",
+});
+// 变量混排的两类短语走正则：模板套用提示（写手名可变）与字数计数。
+I18N_PATTERNS.push(
+  [/^已套用模板「(.+)」，点「保存」生效$/, 'Writer template "$1" applied — press Save to take effect'],
+  [/^(\d+) \/ (\d+) 字$/, '$1 / $2 chars']
+);
+I18N_ATTR.placeholder["默认写手"] = "Default writer";
+I18N_ATTR.placeholder["留空即使用出厂默认写手"] = "Leave blank to use the factory writer";
 
 // 界面语言三态：auto（默认，跟随系统）| zh | en
 // 出厂不写死语种——浏览器语言列表里第一个可识别的语种决定首屏语言（zh* → 中文，其余 → 英文）。
@@ -1951,10 +2016,68 @@ document.getElementById('open-system').onclick = async () => {
   document.getElementById('cfg-think').checked = !!c.enable_thinking;
   cfgSamplingDefaults = (c.sampling_defaults && typeof c.sampling_defaults === 'object')
     ? c.sampling_defaults : null;
+  await loadWriterPanel();
   cfgMsg.textContent = '';
   sysModal.classList.remove('hide');
 };
 document.getElementById('cfg-cancel').onclick = () => sysModal.classList.add('hide');
+
+// ---- 执笔写手面板 ----
+// 数据源 /api/writer：当前生效值（后端已做「空即回落出厂默认」+ 截断）、上限、
+// 出厂默认与模板清单。保存走 /api/config 的 writer 字段（save_config 截断落盘，即时生效）。
+// 这里只改正文，不改投递位：写手恒进 system 第一块，位置由 prompter 锁死。
+let cfgWriterView = null;
+function writerPreviewText() {
+  // 按后端下发的模板拼「实际注入内容」：自述留空时预览展示回落后的出厂写手。
+  const v = cfgWriterView; if (!v) return '（写手视图未加载）';
+  const name = document.getElementById('cfg-writer-name').value.trim() || v.default.name;
+  const content = document.getElementById('cfg-writer-content').value.trim() || v.default.content;
+  return v.block_tpl.replace('%s', name).replace('%s', v.guard).replace('%s', content);
+}
+function writerCountChars() {
+  const ta = document.getElementById('cfg-writer-content');
+  const nm = document.getElementById('cfg-writer-name');
+  const lim = (cfgWriterView && cfgWriterView.limit) || 4000;
+  const nlim = (cfgWriterView && cfgWriterView.name_limit) || 60;
+  document.getElementById('cfg-writer-count').textContent = ta.value.length + ' / ' + lim + ' 字';
+  document.getElementById('cfg-writer-name-count').textContent = nm.value.length + ' / ' + nlim + ' 字';
+  document.getElementById('cfg-writer-preview').textContent = writerPreviewText();
+}
+async function loadWriterPanel() {
+  try { cfgWriterView = await fetch('/api/writer').then(r => r.json()); }
+  catch (e) { cfgWriterView = null; }
+  if (!cfgWriterView) return;
+  const v = cfgWriterView;
+  document.getElementById('cfg-writer-name').value = v.name || '';
+  document.getElementById('cfg-writer-content').value = v.content || '';
+  const pEl = document.getElementById('cfg-writer-presets');
+  pEl.innerHTML = '';
+  (v.presets || []).forEach(p => {
+    const b = document.createElement('button');
+    b.type = 'button'; b.className = 'btn btn-sm';
+    b.textContent = p.name;
+    b.onclick = () => {
+      document.getElementById('cfg-writer-name').value = p.name;
+      document.getElementById('cfg-writer-content').value = p.content;
+      writerCountChars();
+      cfgMsg.style.color = 'var(--pos)';
+      cfgMsg.textContent = '已套用模板「' + p.name + '」，点「保存」生效';
+    };
+    pEl.appendChild(b);
+  });
+  writerCountChars();
+}
+document.getElementById('cfg-writer-content').addEventListener('input', writerCountChars);
+document.getElementById('cfg-writer-name').addEventListener('input', writerCountChars);
+document.getElementById('cfg-writer-reset').onclick = () => {
+  const d = cfgWriterView && cfgWriterView.default;
+  if (!d) { cfgMsg.textContent = '暂无出厂默认写手，无法恢复'; cfgMsg.style.color = 'var(--danger)'; return; }
+  document.getElementById('cfg-writer-name').value = d.name;
+  document.getElementById('cfg-writer-content').value = d.content;
+  writerCountChars();
+  cfgMsg.style.color = 'var(--pos)';
+  cfgMsg.textContent = '已回填出厂默认写手，点「保存」生效';
+};
 
 // 提供商清单：上方下拉选当前 / 卡片内改连接参数 / 点 × 删除
 // 新增提供商：追加一个空卡片并自动展开
@@ -2100,6 +2223,16 @@ document.getElementById('sys-save').onclick = async () => {
     max_tokens: parseInt(document.getElementById('cfg-maxtok').value, 10),
     frequency_penalty: parseFloat(document.getElementById('cfg-freq').value),
     enable_thinking: document.getElementById('cfg-think').checked,
+    // 执笔写手：名称 + 自述原样提交，后端 save_config 按上限截断落盘。
+    // 自述留空 = 落盘空串 = 运行时回退出厂默认写手（写手恒在，见 prompter）。
+    // 仅在 /api/writer 拉取成功时才带这一项：面板没加载出来（输入框是空的）时
+    // 宁可原样保留盘上的写手，也不能把用户自定义正文当成「已被清空」保存掉。
+    ...(cfgWriterView ? {
+      writer: {
+        name: document.getElementById('cfg-writer-name').value,
+        content: document.getElementById('cfg-writer-content').value,
+      },
+    } : {}),
   };
   // 仅当列表非空时才写入生效连接，避免删光后误保存清空当前可用连接。
   // 关键保护：若当前选中的提供商未填 Base URL（半填卡片），绝不把全局 base_url 清空，
