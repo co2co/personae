@@ -734,7 +734,7 @@ def act():
             """单次流式生成，逐块回传；全文累积进 box[0]。
 
             `msgs` 必须由调用方显式传入，不许靠闭包读外层的 `messages`。
-            教训（2026-11-11，nsfw 支线实踩后回流的护栏）：想在 events() 内换一份
+            教训（2026-11-11 实踩过的坑，事后已固化成护栏）：想在 events() 内换一份
             提示词而写成 `messages = _assemble(...)`，Python 就按「本函数有赋值」把
             messages 判成 events() 的局部变量，外层 generate() 的同名变量被遮蔽；
             _generate_once 读的是 events() 那个还没绑定的格子，首轮生成直接抛
