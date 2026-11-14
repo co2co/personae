@@ -10,6 +10,61 @@
 
 ---
 
+## 2026-11-15 分发红线：随包 demo 撤出分发包与版本库（未发版，自下个版本生效）
+
+> 触发：v2.7.0 发版时发现作者源 `dramas/` 已是新剧本「深夜寄宿」，而 `engine/data/examples/`
+> 与运行态仍是「终局曙光」，三方 check 报 12 处差异，打包只能 `--skip-demo-check` 绕过。
+> simon 拍板：**从此推送不含随包 demo，并写进红线**。落地范围选了「包和仓库都排除」，
+> 示例文本 `script-example.txt` 迁到 `static/` 保留（教学材料，不能开局）。
+
+**决定口径**
+
+- 分发物只含引擎本体，**不携带任何剧本数据**。用户解压后是空库，剧本自行创建或导入。
+- 版本库同样不含：`engine/data/examples/` 属作者源派生出来的第五份副本——它既会漂移
+  （改作者源忘记 install、运行态实测改了没 adopt），又会把具体角色名与题材词带进分发物，
+  与「引擎面向任意剧本」的定位相悖。这与 `dramas/`、`data/characters`、`data/worlds`、
+  `data/sessions` 的处置一致：**作者态与运行时态数据不入库、不进包**。
+
+**改动**
+
+- `engine/data/examples/script-example.txt` → `engine/static/script-example.txt`（`git mv`）。
+  它被「剧本范例指南」当教学材料引用，且不能直接开局，属文档资产而非剧本数据；
+  `app.py` 的 `/static/<path:filename>` 已能直接服务它，无需新路由。
+- `git rm -r --cached engine/data/examples`：7 个文件（6 张角色卡 + 1 本世界书）退出跟踪，
+  工作树文件保留（本机开发仍可 `sync_drama install` → `_seed_examples` 播种）。
+- `.gitignore` 增 `/engine/data/examples/`，并改写 `dramas/` 那条注释（原文说「同步至
+  data/examples/ 随包分发」，已不成立）。
+- `package.py`：`EXCLUDE_SUBPATHS` 增 `"data/examples"`；注释整段改写口径与理由；
+  `build()` 出包后**重新读 zip 复核**，检出 `engine/data/examples/` 即删包并 raise——
+  红线不能只靠「排除逻辑没被改坏」的自觉（config 洗白与 v0.21.2 都是「逻辑看着对、结果已跑偏」）。
+- 文档承诺同步改写：`README.md`（截图说明 / 快速开始 / 目录树 / 许可证措辞）、
+  `engine/README.md`（目录树去掉 examples 行 + 中英各一句「分发包无剧本数据」）、
+  `engine/INSTALL.md` 与 `INSTALL.en.md`、`static/script-guide.html` 三处（路径改指 `/static/script-example.txt`）。
+- 测试：`test_seed_examples.py` 原「examples 必须在包内白名单」的断言**翻转为排除断言**，
+  并新增 `test_examples_dir_is_gitignored`（红线另一半：仓库里也不许有）；
+  `test_universality.py` 把 `data/examples` 从 `_DISTRIB_WHITELIST` 移入
+  `_DISTRIB_PRIVATE_PREFIXES`（不属分发面，无需扫描），`static/script-example.txt` 补进白名单
+  ——该测试当场抓到它移入 static 后带来的「林晚 / 丧尸 / 尸群」命中，恰好证明这条闸在工作。
+
+**验证**
+
+- 打包实测（`--out dist/_tmp_redline_check.zip`，避免覆盖已发布的 v2.7.0 包）：
+  条目 32 → **25**（-7：6 卡 + 世界书），包内 `examples` 条目 **0**，`static/script-example.txt` 在包内。
+  临时包校验后已删。
+- 全量 `pytest` 382 → **383 passed / 1 skipped / 1 deselected**（+1 为新增的 gitignore 守卫）。
+- 安全性：`store._seed_examples()` 首行即 `if not EXAMPLES_DIR.exists(): return`，
+  包内无 examples 时静默跳过、不报错；前端「剧本库」有空态引导，不影响启动。
+
+**影响面与后续**
+
+- 下次发版是**分发内容变更**，判 MINOR（`v2.7.0` → `v2.8.0`）。
+- 旧包不追溯：`dist/` 里 v2.4.0~v2.7.0 仍带 demo（按发版纪律全量保留，作历史快照）。
+- 本机 `engine/data/examples/` 保留「终局曙光」那套，供开发自测；它与作者源「深夜寄宿」的
+  12 处差异仍在，属本地派生态差异，不再影响发包（`--skip-demo-check` 的理由也从「绕开」变成
+  「该检查对分发已无意义」——但脚本本身保留，因为作者源 ↔ 运行态的一致性仍要守）。
+
+---
+
 ## 2026-11-15 版本 v2.7.0（发版记账）：思考块兜底闸与逐轮插桩、整条拒答自动重试、物证判界，另含仓库根 run.bat
 
 - **版本判定 MINOR（`v2.6.0` → `v2.7.0`）**：本轮含新增能力——思考块兜底闸与逐轮生成插桩（`llm.stream` /

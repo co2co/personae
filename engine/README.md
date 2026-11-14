@@ -38,7 +38,6 @@ engine/
 ├── data/
 │   ├── characters/     character cards (open JSON format)
 │   ├── worlds/         worldbooks (entry arrays)
-│   ├── examples/       bundled demo drama, seeded on first run
 │   └── config.json     ships with empty connection settings
 ├── static/             single-page frontend + worldbook manual (/docs/worldbook)
 ├── run.bat  install.bat  requirements.txt
@@ -48,7 +47,11 @@ engine/
 
 你创作的角色卡、世界书、会话记录，以及 `data/config.json` 里的连接信息，永远不会被打进分发包。
 
+本机开发时 `data/examples/` 下可能有一份作者自用的 demo 剧本（由作者源派生），它同样不进版本库、不进分发包——**分发包里没有任何剧本数据**，解压后是空库引擎。
+
 Your cards, worldbooks, and session records — along with the connection settings in `data/config.json` — are never packaged.
+
+`data/examples/` may hold the author's own demo drama during local development; it is neither tracked nor packaged either — **the distribution contains no drama data at all**, you get an empty library.
 
 ## 运行 / Run
 

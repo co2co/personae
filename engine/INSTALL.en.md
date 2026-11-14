@@ -123,7 +123,7 @@ All data is local files under `engine/`, with no database:
 - `data/worlds/*.json` — worldbooks (add your own)
 - `data/config.json` — system configuration (ships with an empty connection)
 
-**The package ships an official demo drama** (`data/examples/`: a worldbook plus character cards). On first run, if no drama exists locally, it is seeded into `data/characters/` and `data/worlds/`, so you can start playing right away. Cards and worldbooks you create are never packaged.
+**The package ships no drama at all** — you get an empty library, and you fill `data/characters/` and `data/worlds/` yourself. Create a drama in the Drama Library, or use Generate from Script to distil an existing script into character cards and a worldbook. To see what a complete, distillable script looks like, open `/static/script-example.txt` in the browser (a bundled sample text, not playable data).
 (Session records live in `data/sessions/` and state in `data/state.json` — those are not packaged either.)
 
 ---

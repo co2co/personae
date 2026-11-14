@@ -50,12 +50,15 @@ ALLOW_FILES = GUARD_FILES | {"test_intimacy_scale.py", "test_standard_entry.py",
 # 排除目录（与 package.py EXCLUDE_DIRS 一致，venv 内含大量第三方 .txt/.md）
 _DISTRIB_EXCLUDE_DIRS = {"venv", "__pycache__", ".git"}
 # 私有数据：不随分发，扫描必须跳过（否则误伤玩家私创/个人 DEMO）
+# data/examples 自 2026-11-15 起同样不随包（红线：分发物只含引擎本体，剧本数据一律不带），
+# 故与 characters/worlds/sessions 同级跳过——它本机可能存在，但不属分发面。
 _DISTRIB_PRIVATE_PREFIXES = (
     "data/characters", "data/worlds", "data/sessions",
-    "data/state.json", "player-cast",
+    "data/state.json", "data/examples", "player-cast",
 )
-# 官方 demo 白名单：合法题材词（与 package.py 扫黑名单的豁免一致）
-_DISTRIB_WHITELIST = ("data/examples/", "static/script-example-guide.html")
+# 随包文档白名单：合法题材词。这两份都是**教学文本**（内嵌整份示例剧本，本就是具体题材的范例），
+# 不是可开局的剧本数据——剧本数据（角色卡 / 世界书）自 2026-11-15 起一律不进包，与本职不冲突。
+_DISTRIB_WHITELIST = ("static/script-example-guide.html", "static/script-example.txt")
 # 扫描的文件类型（打包扫描覆盖 .py/.html/.md/.txt/.json；.py 另有专测，此处只扫非 .py）
 _DISTRIB_TEXT_SUFFIXES = {".html", ".md", ".txt", ".json"}
 

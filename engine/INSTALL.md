@@ -124,7 +124,7 @@ pip install -r requirements.txt
 - `data/worlds/*.json` —— 世界书（可自行添加）
 - `data/config.json` —— 系统配置（出厂为空连接）
 
-**分发包自带官方 demo 剧本**（`data/examples/`：世界书 + 角色卡），首次运行且本地尚无剧本时自动播种到 `data/characters/`、`data/worlds/`，可直接开玩；你自己创作的角色卡/世界书不随包分发。
+**分发包不携带任何剧本**：解压后是空库引擎，`data/characters/` 与 `data/worlds/` 由你填充。在「剧本库」新建一个剧本，或用「从剧本生成」把现成剧本一键提炼成角色卡与世界书。想先看一份完整可提炼的剧本长什么样，浏览器打开 `/static/script-example.txt`（随包的示例文本，不是可直接开局的数据）。
 （运行时产生的会话记录在 `data/sessions/`，状态在 `data/state.json`——这些也不会被打进分发包。）
 
 ---

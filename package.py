@@ -61,16 +61,18 @@ _ENGINE_DEFAULTS = _load_engine_defaults()
 # 排除项（相对 engine/ 的路径）
 EXCLUDE_DIRS = {".git", "venv", "__pycache__"}
 # 不随分发包携带：会话状态/运行时状态、玩家私人设定。
-# 口径（2026-10-15 simon 更改，替代 2026-10-04 的「方向 B」）：分发包随一份官方 demo 剧本，
-# 该 demo 存放于 data/examples/（白名单，天然不被下方 data/characters、data/worlds 排除，
-# 因前缀是 data/examples/… 而非 data/…）。用户私创/个人剧本仍在 data/characters、data/worlds，
-# 二者整体排除，绝不可随分发泄漏。引擎 save_card/save_world 已 mkdir(exist_ok=True)，
-# 用户导入时自动建目录，排除不影响可用性。
+# 口径（2026-11-15 simon 定，替代 2026-10-15 的「分发包随一份官方 demo」）：**分发物只含引擎本体，
+# 不携带任何剧本数据**。data/examples/（官方 demo 的角色卡 + 世界书）与 data/characters、
+# data/worlds 一视同仁整体排除，用户拿到的是空库引擎，剧本自行创建或导入。
+# 理由：demo 是从作者源 dramas/ 派生出来的第五份副本，长期维护中反复漂移（改作者源忘记 install、
+# 运行态实测改了没 adopt），且它会把具体角色名与题材词带进分发物，与「引擎面向任意剧本」的定位相悖。
+# 引擎 store._seed_examples() 在目录缺失时安全早退，故包内无 demo 不影响启动。
 EXCLUDE_SUBPATHS = {
     "data/sessions",
     "data/state.json",
-    "data/characters",   # 角色卡：用户私创/个人 DEMO，不随分发（官方 demo 在 data/examples/characters/）
-    "data/worlds",       # 世界书：同上（官方 demo 在 data/examples/worlds/）
+    "data/characters",   # 角色卡：用户私创/个人 DEMO，不随分发
+    "data/worlds",       # 世界书：同上
+    "data/examples",     # 官方 demo 剧本：红线——不随分发（2026-11-15，见上）
     "player-cast",       # 用户剧本：玩家设定
     "requirements-dev.txt",  # 开发/测试依赖（pytest）：运行时依赖在 requirements.txt，不随分发
     # 注：运行展示截图（screenshots/ 与 screenshots-excluded/）已于 2026-10-09 整体挪到
@@ -81,7 +83,7 @@ EXCLUDE_SUBPATHS = {
 # 现存于 tests/（开发工作树），engine/ 仅保留面向用户的 README.md / INSTALL.md / INSTALL.en.md。
 # 故此处不再需要它们各自的排除项——EXCLUDE_DIRS 已覆盖引擎内的一切子目录。
 # 引擎面向任意剧本，任何剧本内容（角色名/关系/题材词）都不该出现在分发物里；
-# 该约束现由 EXCLUDE_SUBPATHS 承担（data/characters、data/worlds、player-cast）。
+# 该约束现由 EXCLUDE_SUBPATHS 承担（data/characters、data/worlds、data/examples、player-cast）。
 
 # Windows 保留设备名（CON/PRN/AUX/NUL/COM1-9/LPT1-9）。
 # 误把命令输出重定向到这些名（如 `... > nul`）时，会在工作树里生成同名垃圾文件：
@@ -218,12 +220,24 @@ def build(out_name=None):
                     continue
                 z.write(full, arcname)
                 n += 1
-                if any(x in arcname for x in ("venv/", "__pycache__/", "data/sessions", "tests/")):
+                if any(x in arcname for x in ("venv/", "__pycache__/", "data/sessions",
+                                              "data/examples/", "tests/")):
                     bad.append(arcname)
     if scrub_error is not None:
         # 半成品不留磁盘：它躺在 dist/ 里看起来就是成品包，误发出去等于夹带个人配置。
         out.unlink(missing_ok=True)
         raise RuntimeError(f"engine/data/config.json 洗白失败，拒绝出包：{scrub_error!r}")
+    # 红线硬校验（2026-11-15 simon 定）：分发物不得携带任何剧本数据。
+    # 排除项复用 _excluded，理论上不可能漏；但仍做出包后复核——红线不能只靠「排除逻辑没被改坏」
+    # 的自觉（v0.21.2 与 config 洗白都是「逻辑看着对、结果已跑偏」），一旦检出即删包停手，
+    # 不退化成只打一行警告。
+    with zipfile.ZipFile(out) as _z:
+        leaked = [n for n in _z.namelist() if n.startswith("engine/data/examples/")]
+    if leaked:
+        out.unlink(missing_ok=True)
+        raise RuntimeError(
+            f"分发包内检出随包 demo（{len(leaked)} 项，例：{leaked[0]}），拒绝出包。"
+            "引擎分发红线：包内只许有引擎本体，剧本数据一律不带。")
     return out, n, bad
 
 

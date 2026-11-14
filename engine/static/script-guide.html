@@ -44,7 +44,7 @@ header strong{font-size:16px;color:var(--ink);}
 }
 </style></head><body><div class="wrap"><header><strong>创建剧本指南 · 群像弈</strong><button class="close" onclick="window.close()">关闭</button></header><main class="content"><h1>创建剧本指南（引擎机制与题材适配）</h1>
 <blockquote>
-<p>适用版本：群像弈（Personae）【暂定】。本文档面向<strong>想写自己的剧本、但还没动笔</strong>的创作者：先讲清楚这套引擎<strong>靠什么机制运转</strong>，再据此说清它<strong>适合什么题材、不适合什么题材</strong>，最后用一份随包的官方示例剧本拆给你看——<strong>一份好剧本到底该给引擎喂什么</strong>。</p>
+<p>适用版本：群像弈（Personae）【暂定】。本文档面向<strong>想写自己的剧本、但还没动笔</strong>的创作者：先讲清楚这套引擎<strong>靠什么机制运转</strong>，再据此说清它<strong>适合什么题材、不适合什么题材</strong>，最后用一份示例剧本文本拆给你看——<strong>一份好剧本到底该给引擎喂什么</strong>。</p>
 </blockquote>
 <blockquote>
 <p>它和另外两份文档的分工：<a href="/docs/worldbook">世界书使用说明</a>讲「设定条目怎么配」，<a href="/docs/script-example">剧本范例指南</a>讲「文本怎么写才让提炼器识别」。本篇讲<strong>更上一层的选题与结构</strong>——动笔之前先读这份，少走弯路。</p>
@@ -164,7 +164,7 @@ header strong{font-size:16px;color:var(--ink);}
 </ol>
 <hr>
 <h2>六、以官方示例剧本《困守一栋楼》为例拆解</h2>
-<p>引擎随包带了一份示例剧本（在「从剧本生成设定」面板可打开 <code>data/examples/script-example.txt</code> 看全文）：<strong>四个人被困在一座断电公寓里</strong>。下面不抄原文，只拆「它为什么是一份适合引擎的剧本」——逐条对应第五节的清单。</p>
+<p>引擎随包附了一份示例剧本文本（<code>static/script-example.txt</code>，浏览器打开 <code>/static/script-example.txt</code> 可看全文）：<strong>四个人被困在一座断电公寓里</strong>。下面不抄原文，只拆「它为什么是一份适合引擎的剧本」——逐条对应第五节的清单。</p>
 <h3>为什么它「适合」——对照机制逐条看</h3>
 <table>
 <thead><tr><th>它做了什么</th><th>命中了哪个机制 / 清单项</th></tr></thead>
@@ -226,6 +226,6 @@ header strong{font-size:16px;color:var(--ink);}
 </tbody>
 </table>
 <blockquote>
-<p>想真正上手，建议两步：① 打开「从剧本生成设定」，把随包的 <code>script-example.txt</code> 整段粘进去，看引擎怎么把它提炼成角色卡 + 世界书；② 对照本篇第五 / 六节，把它的结构替换成你自己的设定。写完之后，用「命中预览」验证世界书触发词、用开局跑两三轮验证群像动没动起来。</p>
+<p>想真正上手，建议两步：① 打开 <code>/static/script-example.txt</code>，把整段粘进「从剧本生成设定」，看引擎怎么把它提炼成角色卡 + 世界书；② 对照本篇第五 / 六节，把它的结构替换成你自己的设定。写完之后，用「命中预览」验证世界书触发词、用开局跑两三轮验证群像动没动起来。</p>
 </blockquote>
 </main></div></body></html>

@@ -1,12 +1,14 @@
 """首次运行播种（store._seed_examples）链路守护测试。
 
-背景：examples/ 目录是「随包官方 demo」的唯一载体——package.py 白名单保留它、
-git 跟踪它，而运行态 data/characters、data/worlds 被排除出包。新装用户解压后
-这两个目录为空，靠 _seed_examples() 从 examples/ 播种，才能开箱即有 demo 剧本。
+背景（2026-11-15 口径变更，simon 定）：**分发包不携带任何剧本数据**——`data/examples/`
+既不进版本库（`.gitignore`）、也不进分发包（`package.py` 排除 + 出包后硬校验）。
+`_seed_examples()` 因此只服务本机开发：作者用 `sync_drama.py install` 把剧本铺到
+`data/examples/` 后，本地跑引擎能自动播种出一套可玩的剧本。
 
-本测试锁死这条链路的契约，防止两类静默回归：
-  1. 误删 examples/ 目录 → 新用户拿到空引擎（demo 消失）。
-  2. 误删 _seed_examples 的调用点 → 播种机制失效。
+本测试锁死三件事，防止三类静默回归：
+  1. **播种契约**：空库才播种、按名去重、不覆盖用户已有文件、重复调用不重复。
+  2. **缺目录安全早退**：分发包就是「examples 不存在」这个形态，播种必须静默跳过而不崩。
+  3. **红线口径**：examples 必须在打包排除项里，且必须在 .gitignore 里（改动会当场红）。
 
 全部走隔离的 store.DATA_DIR / EXAMPLES_DIR（临时目录），不碰真实 data/、不调 LLM。
 """
@@ -112,9 +114,8 @@ def test_list_worlds_triggers_seed(data, monkeypatch):
 def test_seed_noop_when_examples_dir_missing(data, monkeypatch):
     """examples 目录不存在时 _seed_examples 安全跳过、不抛错。
 
-    这是「demo 消失」的哨兵场景——若有人误删 examples/，新用户只会静默拿到空引擎，
-    而不会报错。本用例锁死「安全跳过」这一行为本身，配合 package.py 白名单守护
-    （test_universality 的 _DISTRIB_WHITELIST）共同防误删。
+    这是**分发包的常态**（2026-11-15 起包内无 examples），也是「本机误删」的哨兵场景。
+    两个方向都要守住：不能崩，也不能悄悄造出半套数据。
     """
     monkeypatch.setattr(store, "EXAMPLES_DIR", data / "不存在的目录")
     assert store.list_characters() == []
@@ -122,22 +123,35 @@ def test_seed_noop_when_examples_dir_missing(data, monkeypatch):
 
 
 # ---------------------------------------------------------------------------
-# 4. 打包口径守护：examples 是唯一随包 demo 白名单
+# 4. 红线守护：examples 既不出包、也不入库
 # ---------------------------------------------------------------------------
 
-def test_examples_dir_is_package_whitelist():
-    """examples/ 必须仍在分发包白名单里（package.py 排除 data/characters、data/worlds，
-    只保留 data/examples/）。锁死「随包 demo」口径不被悄悄推翻。"""
-    # 读取 package.py 的排除集合，断言 examples 不在排除项、且 data/characters、data/worlds 在
+def test_examples_dir_is_excluded_from_package():
+    """红线（2026-11-15 simon 定）：随包 demo 不得进分发包。
+
+    本条断言此前是**反的**——原本要求「examples 必须在包内白名单」。口径改成
+    「分发物只含引擎本体，剧本数据一律不带」后翻转为排除断言，防止有人按旧注释改回去。
+    """
     import importlib.util
     pkg_path = Path(__file__).resolve().parent.parent / "package.py"
     spec = importlib.util.spec_from_file_location("_pkg", pkg_path)
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
     excluded = mod.EXCLUDE_SUBPATHS
-    # examples 不得被排除（白名单）
-    assert "data/examples" not in excluded
-    assert not any("data/examples" == sp or "data/examples" in sp for sp in excluded)
-    # 运行态私人数据必须被排除（demo 的种子源才进包）
+    # demo 必须被排除
+    assert "data/examples" in excluded
+    # 运行态私人数据同样必须被排除
     assert "data/characters" in excluded
     assert "data/worlds" in excluded
+
+
+def test_examples_dir_is_gitignored():
+    """红线另一半：examples 不进版本库（推送里也不得有剧本数据）。
+
+    只排包不够——仓库是公开的，`git ls-remote` 就能看到全部历史。故 .gitignore 必须有
+    这一条；若有人重新 `git add engine/data/examples`，本条会红。
+    """
+    root = Path(__file__).resolve().parent.parent
+    lines = (root / ".gitignore").read_text(encoding="utf-8").splitlines()
+    entries = [ln.strip().rstrip("/") for ln in lines if ln.strip() and not ln.strip().startswith("#")]
+    assert "/engine/data/examples" in entries

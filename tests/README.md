@@ -70,6 +70,7 @@ tests/venv/Scripts/python.exe run_playthrough.py --keep  # 走查落盘
 
 **旧版分发包一律保留，不删、不覆盖、不合并**，全部躺在 `dist/` 里按版本号排列。
 
+- **分发物与版本库均不含剧本数据（2026-11-15 simon 定，红线）**：`engine/data/examples/`（官方 demo 的角色卡 + 世界书）既不进分发包、也不进版本库。实现是两处同时生效——`.gitignore` 忽略该目录（已 `git rm --cached`，本机文件保留供开发），`package.py` 的 `EXCLUDE_SUBPATHS` 排除并在出包后硬校验（检出即删包抛错）。用户拿到的是空库引擎，剧本自带。唯一例外是 `engine/static/script-example.txt`（教学用的示例剧本文本，不能直接开局）。守卫见 `tests/test_seed_examples.py` 末尾两条。
 - 用途：出错时从旧包回溯取数——对照历史行为、复现旧问题、找回被回退或删改过的内容。`dist/` 里的每个 zip 都是一份可解压的历史快照。
 - 唯一例外：明确作废的版本（如回退作废、从未发版的包）移入 `dist/_retired/`，**仍然保留**，只是与现行序列分开放。
 - 配套约束：`dist/` 在 `.gitignore`、不进版本库，所以包本身不承担备份职责。代码与文档的追溯靠 git 对象（提交哈希 / tag），见 `DEVLOG.md` 顶部 tag 记录。
