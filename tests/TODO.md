@@ -13,6 +13,17 @@
 
 ## 一、活跃待办
 
+### nsfw 线通用项移植：四项已落地，余下三项待拍板
+
+**提出时间**：2026-11-15（对照 `personae-nsfw` 全仓 diff 筛拣；四项落地与验证见 DEVLOG 2026-11-15「移植 nsfw 线四项通用优化」）
+
+**状态**：待拍板，不阻塞发版。已落地：净身正则去词边界、打包洗白与 config 定型、整条拒答不落盘 + 自动重试、via 归一（提交 `fd34b0b` / `66d37b4` / `ffeac28` / `1a20d1f`）。
+
+1. **思考块兜底闸 + 逐轮生成插桩**（待办，优先级最高）：master 至今对「模型把思考吐进 content」零防线——nsfw 线的 `_ThinkGate` 在 `delta.content` 这一层拦，跨 SSE 分片、未闭合整段丢弃、块外孤立 `</think>` 只删标记，另有 `stats` 出参（tokens / `finish_reason` / 剥离计数）与 `stream_options.include_usage`（仅在要采时发，默认请求体逐字节不变）。那条线还证伪了请求侧关思考：`preserve_thinking` 顶层与 `chat_template_kwargs` 双写全部无效（六臂实测 334→334），正文防线只能是闸。补丁对 master 不能直接套（`git apply --check` 退出码 1），需手工重做。
+2. **短正文误判重试的复核**（待办）：`REFUSAL_MAX_CHARS=240` 是 nsfw 线标定的（其真实拒答 13~204 字、正常单轮中位 900+ 字）。master 应按自己的正文长度分布复核，必要时调阈值。
+3. **秘密两态化**（搁置，等对面结案）：四态降两态、删 `holders`/`public`/把柄层、起疑降为逐人 `suspicions` 标注、世界书 `suspects` 播种。方向认可（`personae-nsfw/docs/秘密系统两态化-迭代经验.md` 自带迁移清单与验收办法），但它改数据结构与玩法层，且该线未结案：`76b2c2b` 记 20 轮曝光恒为 0，取证确认纪官从未填 `secret_exposures`。等其结案再排期。
+4. **仓库根 `run.bat` 与可用 venv**（待办）：本机 master 的两个 venv 均不可用（`pyvenv.cfg` 的 home 指向已迁走的 `D:\codes\my-st`，实跑 `Unable to create process`），测试只能靠临时 venv。nsfw 线仓库根的 `run.bat` 带 venv 自动 bootstrap 与 `check` 自检面板（六个端点走 Flask test_client，不占端口），正对着这条。另记本机 ACL：`D:\codes\personae` 上有 `Everyone:(CI)(DENY)(DC)`，禁建子目录，pytest 需 `--basetemp` + `-p no:cacheprovider` 才跑得起来。
+
 ### 界面语言后续项（方案 A 已落地，本条目记未收口的尾巴）
 
 **提出时间**：2026-10-31（方案 A 拍板；实现与验证见 DEVLOG 2026-10-31「开发中（未发版）」条目）

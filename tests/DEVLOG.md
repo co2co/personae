@@ -10,6 +10,33 @@
 
 ---
 
+## 2026-11-15 移植 nsfw 线四项通用优化（未发版）
+
+> 起因：simon 问「`personae-nsfw` 有没有 master 该借鉴的」。逐文件 diff + 提交对照后筛出**介质无关**的四项按序落地，另有一项（秘密两态化）判为需裁决、暂未动。两条线是 cherry-pick 关系而非 merge 关系：nsfw 线落后 master（无 149f27c 写手投递位、无 5f4211d 撤净引擎默认条目层），整线合并会把 master 已撤的机制搅回来，故只做按项拣。试拣实测：`git show 87e102e` 的补丁对 master 工作树 `git apply --check` 退出码 1 [实测]，思考闸那类改动无法直接套，需手工重做。
+
+- 四个提交（自上而下可单独 revert）：`fd34b0b` 净身正则、`66d37b4` 打包洗白与定型、`ffeac28` 拒答不落盘 + 重试、`1a20d1f` via 归一。
+- 测试口径全程一致：`pytest -q -p no:cacheprovider --basetemp=<临时目录>`。改前基线 **320 passed / 1 skipped / 1 deselected**（退出码 0）→ 净身正则 **324** → 打包 **337** → 拒答回路 **348** → via 归一 **361**，每次退出码均 0 [实测 来源:五次 pytest 计数行]。净 +41 = `test_narrative_clean.py` +7、`test_package_config_scrub.py` +13（新文件）、`test_generate_stream.py` +8、`test_director.py` +13。
+- **1 净身正则去词边界**（narrative_clean.py）：旧 `_META_HEADER_RE` 以 `)\b` 收尾，而 Python 的 `\w` 认中文，元词后紧跟汉字时边界不成立。同口径五例对照 [实测 来源:bundled python 直调两侧正则]：「我无法执行该请求。」「很抱歉，我无法执行该请求。」「我不能继续这个方向。」旧侧 False/False/False（整句漏剥，原样落进正文与 chat.jsonl）→ 新侧 True/True/True；引号开头台词「“抱歉，我不能这样对你。”」与普通叙事句两侧均 False（不新增误伤）。顺带补两组措辞：抱歉的程度副词变体与「我不能」。
+- **2 打包两处静默退化 + config 定型**（package.py）：
+  - 改前 `except Exception: z.write(full, arcname)`（package.py:167-168）＝洗白一失败就把**未洗白的原始 config** 原样打进分发包，本地 base_url / api_key / provider 连接随包外流且全程不报错；改后记 `scrub_error`、删半成品、raise。半成品必须删——它躺在 `dist/` 里看起来就是成品。
+  - 改前 `_load_engine_defaults` 失败返回 `{}`（package.py:39-40）＝采样参数整段绕过洗白、出厂骨架塌空、包照出照发（v0.21.2 同型）；改后 raise，代价是打包多一条硬前置：`engine/llm.py` 必须可加载。
+  - 新增 `_factory_config`：键序与键集合从 `llm.DEFAULTS` 派生，三处刻意偏离 `_HIDDEN_DEFAULT_KEYS`(repeat_*) / `_FACTORY_EXTRA_KEYS`(providers) / `_FACTORY_REDACTED`(端点·密钥·模型名恒空)。实测在临时树上真打包 [实测]：工作树 config 12 键且 `model` 在第 11 位、含 `writer` 与 2 条真实 provider、base_url=http://127.0.0.1:8080/v1；包内恒 13 键、四个敏感字段全空、再过一遍定型幂等 True。包自此逐字节可复现（连打两枚 config 字节一致，由测试锁住）。
+  - 未移植：nsfw 线的 `RELEASE_LINE_TAG` / 默认包名后缀 / `_retire` 归档——那是两条发布线防顶包的机制，master 单线不需要。
+- **3 整条拒答不再落盘 + 自动重试**（app.py / narrative_clean.py / prompter.py）：回路改为「生成 → 净身 → 到底有没有正文 → 重试」。判据两条：净身后为空、或 `is_refusal`（短于 240 字且以拒答措辞开头，中英都覆盖）。最多重试 2 次（`REFUSAL_RETRY`），重试提示词带上上一版失败原因与那句拒绝的开头（`prompter.build_session` 新增 `retry_hint`，落末尾 user 轮、【导演指令】之前）；三次都拿不到正文就发 error 事件、本回合不落盘。拒答句一旦进 `chat.jsonl` 就作为 assistant 轮常驻上下文，实测会演变成连锁拒绝，纪官还会拿它做簿记。
+  - 前端零改动：`index.html:1863` 的 `done.reply` 本就用规范正文整段覆盖流式气泡，中途吐出的拒答字样会被替换 [实测 来源:读 index.html 该段]。
+  - 顺带收口一处口径：复读检测的输入由「净身前原始输出」改为「净身后正文」。**这不是可选重构**——重试回路把净身提前了，不改就等于拿原始输出做检测、与落盘内容不同源。
+  - 副作用记录：单句中文拒答现在会被净身的行规则先剥空，所以走「经净身后为空」分支而不是 `is_refusal`；`is_refusal` 实际兜的是英文拒答、以及前言被剥但后文仍在的情形。两条 reason 各有用例锁住。
+  - 风险：`REFUSAL_MAX_CHARS=240` 是 nsfw 线标定的（其真实拒答 13~204 字、正常单轮中位 900+ 字）。若某轮正文本身极短且以「抱歉 / 我不能」开头，会被误判重试；master 落地后应按自己的正文长度分布复核。
+  - 未移植：`_ThinkGate` 思考块兜底闸与 `stats` 逐轮插桩（nsfw 87e102e）。master 至今无任何思考泄漏防线，是下一项最该补的；本轮 simon 只批了四项，故未动。
+- **4 via 归一**（director.py）：判档原为 `via not in EXPOSURE_VIA_WHITELIST` 精确匹配，而 reflect schema 把六类用斜杠串起来写、「自述」与「承认」中间也夹斜杠，模型照抄整串即判非法、逐条降级为起疑——合法揭露被静默掐断且无报错。对照实测 [实测 来源:bundled python 调 director]：`自述/承认` 旧判非法 True → 新 False（归一为「自述」）；`看见/听见` 同；`猜透` 两侧均 True（语义放宽一条没给）。配套把 schema 枚举改顿号 + 明写「六个词里只挑一个填」，规则行「via 填『自述/承认』」改「『自述』或『承认』」，并加静态断言禁止文案改回斜杠枚举。事故证据取自 nsfw 线实机探针（10 轮、日志 6 条 `曝光 via 非法（'自述/承认'）`、已揭露 0 / 账本 0 / hits 13 而状态不动），master 未独立跑实机复现，属同构推断 [推算 依据:master 的判档与 schema 写法与该线一致]，故本轮结论级别为 [单元测试]。
+- **未移植的一项（需裁决）**：秘密两态化（四态降两态、删 `holders`/`public`/把柄层、起疑降为逐人 `suspicions` 标注、世界书 `suspects` 播种）。nsfw 线那份 `docs/秘密系统两态化-迭代经验.md` 自带迁移清单，方向我认可，但它改的是数据结构与玩法层（不在默认授权内），且对面自己还挂着未结案：`76b2c2b` 记 20 轮曝光恒为 0、取证确认纪官从未填 `secret_exposures`。建议先只吃本次这条 `_normalize_via`，两态化单独排期。
+- 验证级别：**[单元测试] + SSE 整回路集成**（Flask test_client 打 /api/act，`llm.stream` 打桩）。**未跑真实模型** [未测]——真跑会写进 `engine/data/sessions/` 的 10 份真实会话，属私人数据，不在本轮授权内。nsfw 线的 20/30 轮实机结论只作来源引用，不当 master 的实测。
+- 本机环境两条坑（与代码无关但影响验证，记死）：
+  1. `D:\codes\personae` 上有一条 `Everyone:(CI)(DENY)(DC)` 的 ACL，禁止在其下建子目录 [实测 来源:icacls]，pytest 的 tmp_path 与 `.pytest_cache` 因此全部报 `PermissionError`（首轮 320 errors）。绕法：`--basetemp=<TEMP 下目录>` + `-p no:cacheprovider`。要根治得修 ACL，本轮没动。
+  2. 两个 venv 都不可用：`pyvenv.cfg` 的 home 指向已迁走的旧路径（`command = ... -m venv D:\codes\my-st\engine\venv`），实跑报 `Unable to create process`。本轮改用独立临时 venv（bundled python 3.12.14 + pytest/flask/requests）。nsfw 线仓库根的 `run.bat`（缺 venv 时自动 bootstrap）正对着这条，列为待借鉴项。
+
+---
+
 ## 2026-11-14 版本 v2.6.0（发版记账）：撤净「引擎默认条目」层，正文定形小说体散文
 
 > 版本号取 MINOR。判据：撤下去的是用户可见能力面（世界书「引擎默认条目」分组、「恢复默认」端点、开局写法示范的自动注入），且叙事正文的形式口径从「角色名：」分行体改成小说体散文——两头都是使用者能感知的变化；而角色卡 / 世界书 / 会话 JSON 只减字段不增字段（世界书条目不再读写 `origin`，新会话快照不再有 `opening_demo` 键），旧会话照旧可读，故不用 MAJOR 也不用 PATCH。
