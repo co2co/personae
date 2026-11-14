@@ -27,6 +27,19 @@ for _stream in (sys.stdout, sys.stderr):
 ROOT = Path(__file__).resolve().parent
 ENGINE = ROOT / "engine"
 
+# 出厂 config 的规范骨架：键序与键集合由引擎侧决定，不跟工作树走。
+# 顺序与键集合都从 llm.DEFAULTS 派生（出厂值的唯一真相源），只在三处刻意偏离：
+#   _HIDDEN_DEFAULT_KEYS——repeat_* 已降为 llama.cpp 内部后备、不暴露给用户，出厂包不带；
+#   _FACTORY_EXTRA_KEYS——providers 在 llm._WRITABLE 里但不进 DEFAULTS，出厂恒为空列表；
+#   _FACTORY_REDACTED——不取 DEFAULTS 的占位值（127.0.0.1:1234 / sk-local / local），
+#     也不跟工作树走（那里躺着真实 provider 连接）：包里不该带任何看着像「装上就能连」
+#     的东西，端点 / 密钥 / 模型名恒为空串，providers 恒为空列表。
+# 注：writer（执笔写手）只进 llm._WRITABLE、不进 DEFAULTS，故定型层天然不会带它；
+# 用户态写手是个人创作内容，仍由下方洗白段显式剔除。
+_HIDDEN_DEFAULT_KEYS = ("repeat_penalty", "repeat_last_n")
+_FACTORY_EXTRA_KEYS = ("providers",)
+_FACTORY_REDACTED = {"base_url": "", "api_key": "", "model": "", "providers": []}
+
 # 采样参数的出厂真值，直接取自引擎的 DEFAULTS（不硬编码字面量到打包脚本里）。
 # 用 importlib 从文件加载而非 import llm：llm 依赖 requests，缺依赖时打包仍须能跑。
 def _load_engine_defaults():
@@ -36,8 +49,11 @@ def _load_engine_defaults():
         mod = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(mod)          # llm 只在函数内读 CONFIG_FILE，加载期无副作用
         return dict(mod.DEFAULTS)
-    except Exception:
-        return {}
+    except Exception as exc:
+        # 曾经返回 {}：采样参数整段绕过洗白、出厂骨架直接塌空，包照出、照发，看起来一切
+        # 正常——等于把开发者机器上的旧值当出厂值发出去（v0.21.2 同型事故）。取不到出厂
+        # 真值就停手。代价是打包多一个硬前置：engine/llm.py 必须可加载。
+        raise RuntimeError(f"取不到 engine/llm.py 的出厂默认值，拒绝出包：{exc!r}") from exc
 
 
 _ENGINE_DEFAULTS = _load_engine_defaults()
@@ -98,6 +114,29 @@ def _excluded(rel_engine):
     return False
 
 
+def _factory_config(cfg, defaults):
+    """把洗白后的 config 定型成出厂形状：只认规范骨架，值取洗白结果、缺位补出厂默认。
+
+    为什么必须定型而不是就地改值：json.dumps 按 dict 插入序输出，而插入序继承自磁盘上
+    那份 config——界面上存一次盘，键序就可能漂（nsfw 线实踩：model 从第 3 位跑到
+    providers 之后）。后果是同一条发布线两次打包的 zip 字节不同，历史包不能逐字节比对；
+    键集合也会跟着工作树残留了什么野字段一起变。定型后包内 config 与工作树形状彻底解耦。
+    """
+    out = {}
+    for k, default in defaults.items():
+        if k in _HIDDEN_DEFAULT_KEYS:
+            continue
+        if k in _FACTORY_REDACTED:
+            out[k] = _FACTORY_REDACTED[k]   # 分发红线：定型层再钉一次，不赌上游洗没洗
+        elif k in cfg:
+            out[k] = cfg[k]          # 已被上游洗白，取洗白结果
+        else:
+            out[k] = default         # 工作树没写，也保证出厂形状完整
+    for k in _FACTORY_EXTRA_KEYS:
+        out[k] = _FACTORY_REDACTED.get(k, cfg.get(k, []))
+    return out
+
+
 def build(out_name=None):
     ver = _version()
     out_name = out_name or f"dist/personae-{ver}.zip"
@@ -105,6 +144,7 @@ def build(out_name=None):
     out.parent.mkdir(parents=True, exist_ok=True)
     n = 0
     bad = []
+    scrub_error = None
     with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as z:
         for base, dirs, files in os.walk(ENGINE):
             dirs[:] = [d for d in dirs if d not in EXCLUDE_DIRS]
@@ -163,15 +203,26 @@ def build(out_name=None):
                         # 出厂正文在源码 prompter.DEFAULT_WRITER；包内不含 writer 字段时
                         # writer_cfg() 自动回落，新装用户拿到默认写手。
                         cfg.pop("writer", None)
+                        # 定型：值洗完之后形状也得钉死，否则包内容跟着工作树的键序与
+                        # 残留字段漂移（详见 _factory_config）。
+                        cfg = _factory_config(cfg, _ENGINE_DEFAULTS)
                         z.writestr(arcname, json.dumps(cfg, ensure_ascii=False, indent=2))
-                    except Exception:
-                        z.write(full, arcname)
+                    except Exception as exc:
+                        # 这里曾经退回 z.write(full, arcname)——洗白一失败就把**未洗白的
+                        # 原始 config 原样打进分发包**，本地 base_url / api_key / provider
+                        # 列表随包外流，且全程不报错。洗白是分发红线，失败只许当场停，
+                        # 绝不退化成「先出包再说」。
+                        scrub_error = exc
                     n += 1
                     continue
                 z.write(full, arcname)
                 n += 1
                 if any(x in arcname for x in ("venv/", "__pycache__/", "data/sessions", "tests/")):
                     bad.append(arcname)
+    if scrub_error is not None:
+        # 半成品不留磁盘：它躺在 dist/ 里看起来就是成品包，误发出去等于夹带个人配置。
+        out.unlink(missing_ok=True)
+        raise RuntimeError(f"engine/data/config.json 洗白失败，拒绝出包：{scrub_error!r}")
     return out, n, bad
 
 
