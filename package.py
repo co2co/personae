@@ -244,14 +244,17 @@ def build(out_name=None):
 if __name__ == "__main__":
     ap = argparse.ArgumentParser(description="打包 engine/ 为分发 zip")
     ap.add_argument("--out", help="输出文件名（默认 personae-<VERSION>.zip）")
-    ap.add_argument("--skip-demo-check", action="store_true",
-                    help="跳过「随包 demo 与运行态一致性」检查")
+    ap.add_argument("--skip-sync-check", "--skip-demo-check", dest="skip_sync_check",
+                    action="store_true",
+                    help="跳过「作者源 ↔ 运行态」一致性检查（旧名 --skip-demo-check 保留兼容）")
     args = ap.parse_args()
 
-    # 守卫：真相源是作者源 dramas/。分发 zip 携带的 demo 与运行态必须都等于作者源。
-    # 若不一致，说明改过作者源没 install，或实测改过运行态没 adopt——都会导致打出的
-    # zip 行为与你设计稿不一致。先 install（或 adopt+install）再打包。
-    if not args.skip_demo_check:
+    # 守卫：真相源是作者源 dramas/，运行态必须等于它。
+    # 注意范围变化（2026-11-15 分发红线）：作者源与运行态**都不进分发包**，
+    # 本检查因此退化为 workspace 卫生守卫——它拦的是「改了作者源没 install /
+    # 实测改了没 adopt」，与 zip 内容已无因果关系。真因未 install 而中止时，
+    # 用 --skip-sync-check 跳过是合规的，不算逃避检查（包内只有引擎本体）。
+    if not args.skip_sync_check:
         sys.path.insert(0, str(ROOT / "scripts"))
         drama, divs = None, None
         try:
@@ -267,14 +270,14 @@ if __name__ == "__main__":
         # 中止逻辑必须留在 try 之外：写进含 except SystemExit 的 try 里，自己的
         # sys.exit(1) 会被同一 except 反吞，变成「打印中止却照常出包」（v2.1.8 实踩）。
         if divs:
-            print(f"✗ 打包中止：作者源/运行态/demo 三方不一致（剧本「{drama}」），共 {len(divs)} 处：")
+            print(f"✗ 打包中止：作者源与运行态不一致（剧本「{drama}」），共 {len(divs)} 处：")
             for d in divs:
                 print("   -", d)
             print("  → 先运行  python scripts/sync_drama.py install  铺开后再打包；"
-                  "或 --skip-demo-check 强制跳过（不建议）。")
+                  "或 --skip-sync-check 跳过（包内不含剧本，跳过不影响分发内容）。")
             sys.exit(1)
         elif divs is not None:
-            print(f"✓ 作者源/运行态/随包 demo 三方一致（剧本「{drama}」）。")
+            print(f"✓ 作者源与运行态一致（剧本「{drama}」）。")
 
     out, n, bad = build(args.out)
     print(f"已生成 {out}（{n} 条目，{os.path.getsize(out)/1024:.1f} KB）")
