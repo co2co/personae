@@ -15,6 +15,7 @@ if str(ENGINE) not in sys.path:
     sys.path.insert(0, str(ENGINE))
 
 import director  # noqa: E402
+import pytest     # noqa: E402
 from fixtures import A, B, C, D  # noqa: E402
 
 PRESENT = [A, B, C]
@@ -421,6 +422,61 @@ def test_exposure_via_whitelist_missing_downgrades(monkeypatch):
     s = snap["secrets"][0]
     assert s["state"] == "起疑"
     assert B not in s.get("known_by", [])
+
+
+@pytest.mark.parametrize("raw, want", [
+    ("自述/承认", "自述"),
+    ("自述／承认", "自述"),          # 全角斜杠同样要吃下
+    ("看见/听见", "看见"),
+    ("承认、被告知", "承认"),
+    ("看见 ", "看见"),
+    ("看见", "看见"),
+    ("自述／猜透", "自述"),          # 组合里混非法词：合法的那一半仍成立
+    ("猜透", ""),                    # 单方面心证：语义放宽一条都不给
+    ("心知肚明", ""),
+    ("", ""),
+    (None, ""),
+])
+def test_normalize_via_table(raw, want):
+    """via 归一只认白名单词的组合写法，语义放宽一条都不给。"""
+    assert director._normalize_via(raw) == want
+
+
+def test_reflect_via_slash_combo_still_exposes(monkeypatch):
+    """纪官照抄 schema 的斜杠枚举（via="自述/承认"）必须照常算本人当众说开。
+
+    事故出处（nsfw 线 2026-11-13 实机探针 _probe_suspicion_live.py，10 轮）：纪官连续 6 轮
+    把归属者当众承认正确上报成 secret_exposures，via 填的正是 "自述/承认"，被旧版
+    `via not in EXPOSURE_VIA_WHITELIST` 的精确匹配判成非法、逐条降级为起疑——秘密十轮不翻态，
+    起疑 hits 刷到 13。schema 的六类本来就是斜杠串起来的，「自述」「承认」两个词被斜杠相连，
+    模型无从分辨。这条锁住归一，并锁死「不得顺手记一条起疑」——降级路径一旦回来，
+    慢热链条就又断了。
+    """
+    snap = _snap_with_secret(A, "角色甲的秘密", ["失联", "父亲"])
+    snap["present"] = [A, B]
+    reply = f'{A}当众承认：“我确实藏了东西。”'
+    payload = {"secret_exposures": [
+        {"owner": A, "by": B, "via": "自述/承认", "evidence": "我确实藏了东西"}]}
+    s = _run_reflect(monkeypatch, snap, reply, payload)
+    # 自述类：入 known_by、把柄作废、在场非归属者全知情 -> 已公开
+    assert s["state"] == "已公开", s
+    assert B in s.get("known_by", [])
+    assert s.get("holders") == []
+    assert not any(x.get("by") == B for x in s.get("suspicions", [])), \
+        "via 的组合写法不得再被降级成起疑"
+    assert snap.get("ledger"), "本人当众说开应留下后果账"
+
+
+def test_reflect_schema_does_not_enumerate_vias_with_slash():
+    """schema 文案护栏：六类 via 不得再用斜杠串起来写。
+
+    归一只是补救，文案本身把「自述」「承认」用斜杠相连才是诱导源。这条静态断言防止
+    后来者为了省事把枚举改回「看见/听见/被告知/发现物证/自述/承认」。
+    """
+    src = (ENGINE / "director.py").read_text(encoding="utf-8")
+    assert "看见/听见/被告知/发现物证/自述/承认" not in src
+    assert "只能填「看见/听见" not in src
+    assert "六个词里只挑一个填" in src
 
 
 def test_exposure_via_whitelist_ok(monkeypatch):

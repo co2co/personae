@@ -41,6 +41,34 @@ EXPOSURE_VIA_WHITELIST = ("看见", "听见", "被告知", "发现物证", "自�
 # 前者入 holders -> 暴露（仍为把柄）；后者只入 known_by 且置 public -> 已公开。
 SELF_DISCLOSURE_VIA = ("自述", "承认")
 
+# via 词间分隔符：纪官在 schema 里看到的六类枚举本身是用「/」串起来的（见 _reflect 的
+# 输出格式说明），「自述」与「承认」中间也夹着斜杠，模型无从分辨它是一个类还是两个类，
+# 于是常把整串照抄进 via。
+_VIA_SEP = r"[／/、,，;；\s]+"
+
+
+def _normalize_via(raw):
+    """把纪官填的 via 归一到白名单里的一个词；归不出来返回 ""（按非法处理）。
+
+    为什么不能严格相等：判档若是 `via not in EXPOSURE_VIA_WHITELIST` 的精确匹配，
+    照抄整串（"自述/承认"、"看见/听见"）就判非法、逐条降级为起疑——合法揭露被静默掐断。
+    证据来源（nsfw 线 2026-11-13 实机探针 _probe_suspicion_live.py，10 轮，引擎日志 6 条
+    「曝光 via 非法（'自述/承认'）」warn）：纪官连续 6 轮把归属者当众承认**正确**上报成
+    secret_exposures，结果 已揭露 0 / 后果账本 0，同一件事的起疑 hits 刷到 13 而状态不动。
+    修后同一条弧线 R8 两条秘密同时翻态、账本 2 条、via 非法归零。
+    master 侧的判档与此处 schema 写法相同，故同一坑在此成立（本仓由
+    tests/test_director.py 的表驱动用例锁住归一表）。
+
+    只修「同一批词的斜杠 / 顿号组合写法」，**不做任何语义放宽**：填「心知肚明」「猜透」
+    「早已知道」这类单方面心证仍归一失败，照旧降级为起疑——那是 v0.17.3 事故的防线。
+    取第一个命中的词：组合里若混入非法词（如 "自述/猜透"）仍按自述成立，因为另一半已是
+    合法传递途径，后面的语义护栏（_evidence_related / _evidence_transfer）还有一道。
+    """
+    for tok in re.split(_VIA_SEP, (raw or "").strip()):
+        if tok in EXPOSURE_VIA_WHITELIST:
+            return tok
+    return ""
+
 # （机会等级/内容尺度机制已随 NSFW 整体废弃，v0.8.0：ALONE/DEFENSE_DOWN/OBSTACLE/OPP_NOTE 已移除）
 
 
@@ -908,7 +936,7 @@ def reflect(sid, reply, directive=""):
             # 保证被 max_tokens 截断时先丢冗长条目而不是丢位置（v0.31.1 的教训）。
             "请输出 JSON：\n"
             "{\n"
-            '  "secret_exposures": [{"owner": "秘密归属者", "by": "本轮得知该秘密的角色名", "via": "信息获取方式，只能填「看见/听见/被告知/发现物证/自述/承认」六类之一", "evidence": "本轮叙事原文片段"}],\n'
+            '  "secret_exposures": [{"owner": "秘密归属者", "by": "本轮得知该秘密的角色名", "via": "信息获取方式：六个词里只挑一个填——「看见」「听见」「被告知」「发现物证」「自述」「承认」；不要写成两个词的组合", "evidence": "本轮叙事原文片段"}],\n'
             '  "secret_suspicions": [{"owner": "秘密归属者", "by": "本轮起了疑心的角色名", "evidence": "本轮叙事原文片段（引发怀疑的那句话/那个细节）"}],\n'
             '  "handle_releases": [{"owner": "秘密归属者", "from": "失去把柄的人", "to": "接过把柄的人（彻底失去则填空字符串）", "evidence": "本轮叙事原文片段"}],\n'
             '  "location_updates": [{"who": "角色名", "place": "该角色本轮结束时所在的具体地点"}],\n'
@@ -917,7 +945,7 @@ def reflect(sid, reply, directive=""):
             "规则：\n"
             "- secret_exposures 只填本轮叙事里**确实发生**了「某人得知了某秘密」的条目；仅凭角色起了疑心、或只是提到相关物品，都不算。\n"
             "- secret_exposures 的「得知」必须是**信息实际发生了跨角色传递**：亲眼看见、亲耳听见、被当面告知、亲手发现物证；除此之外一律不算暴露。\n"
-            "- via 填「自述/承认」专指**秘密归属者本人**当众说开，只用于本人真的说开的轮次："
+            "- via 填「自述」或「承认」专指**秘密归属者本人**当众说开，只用于本人真的说开的轮次："
             "by 逐条填听到的在场者（同一秘密可多条）。"
             "反例触发词：他人转述、第三方指控、归属者否认。\n"
             "- **内心活动不算得知**：心理描写、内心独白、回忆、猜透——即使明写了他「知道」也只是单方面心证，绝不填 secret_exposures，至多填 secret_suspicions。反例触发词：心想他早就知道、暗自看穿、早已心知肚明、在心里确认了。\n"
@@ -982,10 +1010,14 @@ def reflect(sid, reply, directive=""):
         # via 护栏（v0.17.3）：纪官必须声明「信息获取方式」且属实传类白名单。
         # 缺 via 或 via 不在白名单（如纪官填了「猜透/心知肚明」），说明该「得知」
         # 不是实际的信息传递，而是单方面心证——不能翻成暴露，降级为起疑。
-        via = (exp.get("via") or "").strip()
-        if via not in EXPOSURE_VIA_WHITELIST:
+        # 归一后再判（_normalize_via）：schema 的六类是斜杠串起来的，纪官照抄整串
+        # （"自述/承认"）曾被精确匹配判成非法、把本人当众承认逐条降级为起疑。
+        # warn 仍打原始串，便于与纪官上报内容对账。
+        via_raw = (exp.get("via") or "").strip()
+        via = _normalize_via(via_raw)
+        if not via:
             logger.warn("secret", "曝光 via 非法（%r），降级为起疑：%s 对 %s 的秘密"
-                        % (via, by, owner))
+                        % (via_raw, by, owner))
             for s in snap.get("secrets", []):
                 if s.get("owner") != owner:
                     continue
