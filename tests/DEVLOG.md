@@ -27,7 +27,21 @@
   留着就是「红线生效前的最后一包」。处置：GitHub Release v2.7.0 **撤下**（tag `v2.7.0` 保留，
   它是一段真实提交的标记），本地 zip 移入 `dist/_retired/`（按纪律保留可回溯，不删）。
   现行可下载包只有 `v2.8.0`。
-- **验证**见下一条记账提交（包哈希、条目清单、泄漏扫描与 Release 结果）。
+- **分发包**：`dist/personae-v2.8.0.zip`，25 条目 / 225,192 B / sha256 前 16 位 `4586bc82c5981309`，
+  命令 `python package.py --skip-sync-check`（跳过的原因＝作者源「深夜寄宿」尚未 install，属真实未铺开，
+  与包内容无关；不带 flag 时守卫报 6 处并中止，行为已验证）。
+- **包内校验**：相对 v2.7.0 消失 8 条（6 卡 + demo 世界书 + `data/examples/script-example.txt`）、
+  新增 1 条（`engine/static/script-example.txt`）；`engine/data/` 下只剩 `config.json`；
+  `VERSION` = v2.8.0；config 13 键全洗白（端点/密钥/模型名空、`providers: []`、无 `writer` 键）；
+  无 venv/tests/缓存/会话/`examples` 条目。
+- **泄漏扫描**（绝对路径 / 密钥 / 本地端点 / 模型真名四类）：命中 9 个文件全部与 v2.7.0 一致，
+  **无新增命中**，也无命中文件消失。
+- **外发**：推送 `a006a72..77664cc master` + `[new tag] v2.8.0`；Release id `445506854`，
+  asset `personae-v2.8.0.zip` 225,192 B（与本地一致）。
+- **v2.7.0 处置**：Release id `445499162` 已 DELETE（status 204，连带 asset `personae-v2.7.0.zip`），
+  tag `v2.7.0` 保留；本地包移入 `dist/_retired/personae-v2.7.0.zip`（保留可回溯）。
+  `scripts/gh_release.py` 新增 `--delete` 子模式固化此操作，避免下次临时拼 REST 调用。
+- **记账边界**：本段不在 tag `v2.8.0` 的树内（tag 指向 `77664cc`）。
 
 ---
 
