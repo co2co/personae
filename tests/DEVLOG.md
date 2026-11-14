@@ -37,7 +37,21 @@
 - **随包 demo 未变**：仍为「终局曙光」6 张卡 + 世界书一本，与 v2.6.0 包内一致。作者源 `dramas/` 现有新剧本
   「深夜寄宿」尚未 install（撰写中，本次不随发），故 `sync_drama.py check` 报 12 处差异、打包按 v2.6.0 同口径
   使用 `--skip-demo-check`，理由记于此。
-- **分发包**：随后补记（包哈希、推送与 Release 结果见下一条记账提交，不在本 tag 的树内）。
+- **分发包**：`dist/personae-v2.7.0.zip`（32 条目，239,828 字节 / 234.2 KB，sha256 前 16 位
+  `dc61ab7235450063`），命令 `python package.py --skip-demo-check` [实测]。
+  - 包内校验（读 zip，实测）：条目 32 项，与 v2.6.0 包**逐项一致**（无新增、无消失——`run.bat` 在仓库根与
+    `requirements-dev.txt` 均按设计不入包）；无 `data/characters|worlds|sessions` 运行时数据、无 `venv`/`tests`/
+    `__pycache__` 泄漏；`engine/data/config.json` 13 键、`base_url`/`api_key`/`model` 空、`providers: []`、
+    **无 `writer` 键**；随包 demo = 世界书 1 本 20 条（全部 `demo=false`）+ 角色卡 6 张；`engine/VERSION` = v2.7.0。
+  - 泄漏扫描（四类模式：绝对路径 / 密钥 / 本地端点 / 模型真名）：命中的 9 个文件与 v2.6.0 包**完全一致**，
+    **无新增命中**；命中项全部是文档与注释层面的本地端点、llama.cpp/Qwen 字样，属既有面。
+- **推送**：发版提交 `c210ec4`，本地轻量 tag `v2.7.0` 指向它；
+  `git push origin master v2.7.0` → `0dec658..c210ec4  master -> master` 与 `* [new tag] v2.7.0 -> v2.7.0`，退出码 0。
+- **GitHub Release** `v2.7.0` 已创建：id `445499162`，https://github.com/co2co/personae/releases/tag/v2.7.0 ，
+  notes 即本版改动清单与升级说明（含「勿整目录覆盖 config.json」提醒），asset `personae-v2.7.0.zip` 已挂，
+  239,828 字节（与本地包字节数一致），下载地址
+  https://github.com/co2co/personae/releases/download/v2.7.0/personae-v2.7.0.zip 。
+- 记账边界：本段外发记录随后续 docs 提交入库，**不在 tag `v2.7.0` 的树内**——tag 指向 `c210ec4`。
 
 ## 2026-11-15 秘密「发现物证」判界修复：漏记不在闸门，在纪官的归类（已随 v2.7.0 发版）
 
