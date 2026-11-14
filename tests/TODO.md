@@ -13,15 +13,14 @@
 
 ## 一、活跃待办
 
-### nsfw 线通用项移植：四项已落地，余下三项（两条待办 + 一条搁置）
+### nsfw 线通用项移植：五项已落地，余下两项（一条待办 + 一条搁置）
 
 **提出时间**：2026-11-15（对照 `personae-nsfw` 全仓 diff 筛拣；四项落地与验证见 DEVLOG 2026-11-15「移植 nsfw 线四项通用优化」）
 
-**状态**：待拍板，不阻塞发版。已落地：净身正则去词边界、打包洗白与 config 定型、整条拒答不落盘 + 自动重试、via 归一（提交 `fd34b0b` / `66d37b4` / `ffeac28` / `1a20d1f`）。
+**状态**：待拍板，不阻塞发版。已落地：净身正则去词边界、打包洗白与 config 定型、整条拒答不落盘 + 自动重试、via 归一（提交 `fd34b0b` / `66d37b4` / `ffeac28` / `1a20d1f`）、思考块兜底闸 + 逐轮生成插桩（手工重做，见「三、近期已清」）。
 
-1. **思考块兜底闸 + 逐轮生成插桩**（待办，优先级最高）：master 至今对「模型把思考吐进 content」零防线——nsfw 线的 `_ThinkGate` 在 `delta.content` 这一层拦，跨 SSE 分片、未闭合整段丢弃、块外孤立 `</think>` 只删标记，另有 `stats` 出参（tokens / `finish_reason` / 剥离计数）与 `stream_options.include_usage`（仅在要采时发，默认请求体逐字节不变）。那条线还证伪了请求侧关思考：`preserve_thinking` 顶层与 `chat_template_kwargs` 双写全部无效（六臂实测 334→334），正文防线只能是闸。补丁对 master 不能直接套（`git apply --check` 退出码 1），需手工重做。
-2. **短正文误判重试的复核**（待办）：`REFUSAL_MAX_CHARS=240` 是 nsfw 线标定的（其真实拒答 13~204 字、正常单轮中位 900+ 字）。master 应按自己的正文长度分布复核，必要时调阈值。
-3. **秘密两态化**（搁置，等对面结案）：四态降两态、删 `holders`/`public`/把柄层、起疑降为逐人 `suspicions` 标注、世界书 `suspects` 播种。方向认可（`personae-nsfw/docs/秘密系统两态化-迭代经验.md` 自带迁移清单与验收办法），但它改数据结构与玩法层，且该线未结案：`76b2c2b` 记 20 轮曝光恒为 0，取证确认纪官从未填 `secret_exposures`。等其结案再排期。
+1. **短正文误判重试的复核**（待办）：`REFUSAL_MAX_CHARS=240` 是 nsfw 线标定的（其真实拒答 13~204 字、正常单轮中位 900+ 字）。master 应按自己的正文长度分布复核，必要时调阈值。
+2. **秘密两态化**（搁置，等对面结案）：四态降两态、删 `holders`/`public`/把柄层、起疑降为逐人 `suspicions` 标注、世界书 `suspects` 播种。方向认可（`personae-nsfw/docs/秘密系统两态化-迭代经验.md` 自带迁移清单与验收办法），但它改数据结构与玩法层，且该线未结案：`76b2c2b` 记 20 轮曝光恒为 0，取证确认纪官从未填 `secret_exposures`。等其结案再排期。
 
 ### 界面语言后续项（方案 A 已落地，本条目记未收口的尾巴）
 
@@ -232,6 +231,7 @@
 
 ## 三、近期已清（备查，指向 DEVLOG）
 
+- **2026-11-15 思考块兜底闸 + 逐轮生成插桩落地**（nsfw 线移植项最后一条零防线，手工重做，见 DEVLOG 同日条目）：闸在 `llm._stream_once` 取 `delta.content` 那一层，流式逐片过 `_ThinkGate`；认 `<think>` / `<thinking>` 与对应闭标记，块内一律不外发，块外孤立闭标记只删标记本身（模板给 assistant 的前缀形状会被模型照抄后半截）。跨 SSE 分片靠两道扣字，未闭合块整段丢弃并置 `truncated`。非流式 `complete` 同样剥（reflect / 场景推演 / 总结都走它）。插桩走出参 `stats`（tokens / `finish_reason` / 剥离计数），`stream_options.include_usage` 只在要 stats 时发，并已登记 `_VENDOR_FIELDS` 可被严格网关降级剥除。**重做时修掉一处会带进来的 bug**：`events()` 原以 `if not raw: return` 把「空正文」当「流已异常」，闸把整轮吞掉时正文正是空串——那样会静默收场、一条回复都没有。故 `box` 改字典 `{"text", "failed"}`，只有真异常才终止，空正文继续走既有重试（原因新增第三分支「整轮内容都被思考闸吞掉」）。**刻意不发 `preserve_thinking`**：在现用后端被证伪，且闸已保证历史无思考文本，该字段无作用对象。验证：`test_llm_think_gate.py` 14 例 + `test_generate_stream.py` 2 例（HTTP 层跑真 `llm.stream`，只换 `requests.post`）；实机三段探针（8080）——正常叙事零误伤、stats 带回用量；强制让模型吐标记 → 输出只剩正文、`stripped=1`。全量 `pytest` 377 passed 1 skipped。遗留：已存盘历史若含思考块仍会被回灌，本机 10 份真实会话命中 0，故未做迁移清洗。
 - **2026-11-15 环境项收口（仓库根 `run.bat` 落地）**：新增 `run.bat`，纯 ASCII + CRLF（GBK 代码页下 UTF-8 的 bat 会解析错位）。`run.bat` = 自检后交棒 `engine\run.bat` 起服务；`run.bat check` = 只自检、不起服务、不占端口；尾部加 `nopause` 供脚本调用；`run.bat deps-dev` = 装 `engine/requirements-dev.txt`（pytest）后自检。测试依赖与运行时依赖分开：`requirements.txt` 仍只有 flask/requests，dev 依赖另立文件，`package.py` 的 `EXCLUDE_SUBPATHS` 已把 `requirements-dev.txt` 排除在分发外。venv 判据由「文件存在」改为「能启动 + flask/requests 可导入」，三态分流：可用则直落自检；能启动缺依赖则只补 pip；不能启动（`pyvenv.cfg` 指向已迁走的 Python）则原 venv 让位为 `venv.stale[随机后缀]` 后重建。修复动作前先探 5051：引擎在听就拒绝动 venv（运行中进程被搬走 venv，惰性导入会失败）。六端点冒烟全走 `app.test_client()`，无需服务器。`package.py` 只遍历 `engine/`，本文件属开发态工具不进包。实测三条路径（正常 / 缺依赖 / stale 自愈）均实跑通过，全量 `pytest` 361 passed 1 skipped。
 - **2026-11-15 复核转清**：原「仓库根 `run.bat` 与可用 venv」条目记录的两项环境障碍均已失效，只剩 `run.bat` 本身待补。① **venv 不可用**：`engine/venv`、`tests/venv` 现均可跑，`pyvenv.cfg` 的 `home` 已由迁走的 `D:\codes\my-st` 指回 `C:\Users\co2co\AppData\Local\Programs\Python\Python312`，两侧 `python.exe -c` 退出码 0（目录时间戳 Nov 9 18:05，应为当时重建）。② **ACL 阻塞**：项目根 `icacls` 仍输出 `Everyone:(CI)(DENY)(DC)`，但实测可 `mkdir` 子目录；`pytest tests/test_standard_entry.py -q` 裸跑（未加 `--basetemp`、未加 `-p no:cacheprovider`）4 passed in 5.53s。结论：既有「必须带两个 pytest 参数」的操作习惯不再必要；若日后 ACL 变更再次出现建目录失败，按本条记录重查。
 

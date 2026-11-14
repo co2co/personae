@@ -297,7 +297,9 @@ _EXT_FIELDS = ("repeat_penalty", "repeat_last_n", "min_p")
 # 厂商扩展（llama.cpp / Qwen 系）：默认发送（本地有用），但严格校验参数的
 # 云网关（如 DeepSeek）对 top_k / chat_template_kwargs / enable_thinking 等
 # 未知参数一律 400；惩罚字段降级仍 4xx 时剥离这些再试。
-_VENDOR_FIELDS = ("top_k", "chat_template_kwargs", "enable_thinking")
+# stream_options 同组：只在调用方要 stats 时才发（见 _stream_once），后端不认它时
+# 按同一条路剥掉重试——代价只是少一条用量日志，不影响正文。
+_VENDOR_FIELDS = ("top_k", "chat_template_kwargs", "enable_thinking", "stream_options")
 # OpenAI/DeepSeek 系思考开关。刻意与 _VENDOR_FIELDS 分组：DeepSeek 认它但不认
 # Qwen 组（400 后先剥 Qwen 组、保留它，思考才真关掉）；反向兼容不认它的后端时
 # 最后一级再剥（剥了思考行为退回后端缺省，但请求能通）。
@@ -339,9 +341,145 @@ def _raise_with_body(resp):
         ) from exc
 
 
+# ================= 思考块兜底闸 =================
+# 模型有时把思考过程写进 delta.content：要么后端把 reasoning 混进正文，要么模型照抄模板
+# 前缀（assistant 的模板前缀就是「<think>\n\n</think>\n\n」这个形状）。这类文本一旦当正文
+# 落进 chat.jsonl，下一轮它就成了 assistant 示范，泄漏会自我复制——此前整条回复 17 字全
+# 是标记、正文 0 字的情形就是这样污染历史的。
+#
+# 请求侧拦不住：preserve_thinking 在 strata 上顶层与 chat_template_kwargs 两种放法都被
+# 静默丢弃（prompt_tokens delta 恒 0），故正文防线只能收在「取 delta.content」这一层。
+_THINK_OPEN = ("<think>", "<thinking>")
+_THINK_CLOSE = ("</think>", "</thinking>")
+_THINK_ANY = _THINK_OPEN + _THINK_CLOSE
+
+
+def _find_marker(text, markers):
+    """最早命中的 (位置, 标记)；无命中返回 None。"""
+    best = None
+    for m in markers:
+        i = text.find(m)
+        if i >= 0 and (best is None or i < best[0]):
+            best = (i, m)
+    return best
+
+
+def _hold_len(text, markers):
+    """text 末尾若是某标记的真前缀，返回该前缀长度（这段扣住等下一片）；否则 0。"""
+    hold = 0
+    for m in markers:
+        for k in range(min(len(text), len(m) - 1), hold, -1):
+            if text.endswith(m[:k]):
+                hold = k
+                break
+    return hold
+
+
+class _ThinkGate:
+    """流式思考块过滤器：feed() 返回可安全外发的部分，flush() 收尾。
+
+    两道扣字：块外扣住「可能是标记前缀」的尾巴，块内扣住「可能是闭标记前缀」的尾巴。
+    块内一切内容一律不外发——那是思考文本，不是正文。块外的孤立闭标记（模板前缀的
+    后半截被模型照抄）只删标记本身，其前置文本照常外发，不做整段吞。
+
+    计数只为插桩：stripped 命中过几个标记（含孤立闭标记与未闭合块），
+    truncated 表示流结束时仍停在块内（被 max_tokens 切在思考里）。
+    """
+
+    def __init__(self):
+        self._buf = ""
+        self.in_think = False
+        self.stripped = 0
+        self.truncated = False
+
+    def feed(self, text):
+        self._buf += text or ""
+        return self._drain(final=False)
+
+    def flush(self):
+        return self._drain(final=True)
+
+    def _drain(self, final):
+        out = []
+        while True:
+            if self.in_think:
+                hit = _find_marker(self._buf, _THINK_CLOSE)
+                if hit:
+                    idx, marker = hit
+                    self._buf = self._buf[idx + len(marker):]
+                    self.in_think = False
+                    continue
+                if final:
+                    self._buf = ""   # 未闭合：整段丢弃，一个字都不外发
+                    self.truncated = True
+                    return "".join(out)
+                keep = _hold_len(self._buf, _THINK_CLOSE)
+                self._buf = self._buf[len(self._buf) - keep:] if keep else ""
+                return "".join(out)
+            hit = _find_marker(self._buf, _THINK_ANY)
+            if hit:
+                idx, marker = hit
+                out.append(self._buf[:idx])
+                self._buf = self._buf[idx + len(marker):]
+                self.stripped += 1
+                # 只有开标记才进块；孤立的闭标记就是残留，删掉标记然后继续
+                self.in_think = marker in _THINK_OPEN
+                continue
+            if final:
+                out.append(self._buf)
+                self._buf = ""
+                return "".join(out)
+            keep = _hold_len(self._buf, _THINK_ANY)
+            cut = len(self._buf) - keep
+            out.append(self._buf[:cut])
+            self._buf = self._buf[cut:]
+            return "".join(out)
+
+
+def strip_think(text):
+    """非流式路径用：一次性剥掉文本里的思考块，返回 (干净正文, 剥掉的块数)。"""
+    gate = _ThinkGate()
+    out = gate.feed(text) + gate.flush()
+    return out, gate.stripped
+
+
+def _note_usage(chunk, stats):
+    """把真实用量与结束原因写进调用方给的 stats（None 即不采）。
+
+    usage 只出现在带 stream_options.include_usage 的最后一帧，而那一帧的 choices
+    是空数组——所以必须按 choices 取正文之前调用。部分网关不回 usage.completion_tokens
+    但回 timings.predicted_n，两者同义；有了它，「模型自己收笔」与「被 max_tokens 切」
+    才分得开。
+    """
+    if stats is None:
+        return
+    usage = chunk.get("usage")
+    if isinstance(usage, dict):
+        for k in ("prompt_tokens", "completion_tokens", "total_tokens"):
+            if usage.get(k) is not None:
+                stats[k] = usage[k]
+        timings = usage.get("timings")
+        if isinstance(timings, dict):
+            if timings.get("predicted_n") is not None:
+                stats.setdefault("completion_tokens", timings["predicted_n"])
+            for k in ("predicted_per_second", "draft_n_accepted"):
+                if timings.get(k) is not None:
+                    stats.setdefault(k, timings[k])
+    for ch in (chunk.get("choices") or []):
+        fr = ch.get("finish_reason")
+        if fr:
+            stats["finish_reason"] = fr
+
+
 def _stream_once(messages, temperature, top_p, max_tokens, top_k, timeout, base_url, api_key, model,
-                 repeat_penalty=None, repeat_last_n=None, min_p=None):
-    """单次后端请求（流式）。产出前失败抛异常。"""
+                 repeat_penalty=None, repeat_last_n=None, min_p=None, stats=None):
+    """单次后端请求（流式）。产出前失败抛异常。
+
+    `stats` 是调用方给的普通字典（可省）：本函数把 finish_reason、prompt/completion
+    tokens 与思考块拦截计数写进去。用出参而不是改产出契约，是为了不动 app.py 与测试桩
+    已经依赖的「逐块吐文本」形状。它的用处是让「模型自己收笔」与「被 max_tokens 切在
+    思考里」在日志里可分——此前只能靠字数猜。
+    """
     url = base_url.rstrip("/") + "/chat/completions"
     if repeat_penalty is None:
         repeat_penalty = setting("repeat_penalty")
@@ -350,6 +488,10 @@ def _stream_once(messages, temperature, top_p, max_tokens, top_k, timeout, base_
     payload = _base_payload(messages, temperature, top_p, max_tokens, top_k, model,
                             repeat_penalty, repeat_last_n, min_p)
     payload["stream"] = True
+    # 只有调用方要 stats 才发：多一个字段就多一次被严格网关拒的可能（不认时按
+    # _VENDOR_FIELDS 剥掉重试，代价只是一条日志），默认请求体逐字节不变。
+    if stats is not None:
+        payload["stream_options"] = {"include_usage": True}
     headers = {"Content-Type": "application/json"}
     if api_key:
         headers["Authorization"] = f"Bearer {api_key}"
@@ -399,6 +541,7 @@ def _stream_once(messages, temperature, top_p, max_tokens, top_k, timeout, base_
         # 上游不返回 charset 时 requests 会按 latin-1 解码，中文直接变乱码
         if not resp.encoding or resp.encoding.lower() == "iso-8859-1":
             resp.encoding = "utf-8"
+        gate = _ThinkGate()
         for raw in resp.iter_lines(decode_unicode=True):
             if not raw or not raw.startswith("data:"):
                 continue
@@ -409,33 +552,47 @@ def _stream_once(messages, temperature, top_p, max_tokens, top_k, timeout, base_
                 chunk = json.loads(data)
             except json.JSONDecodeError:
                 continue
+            # usage 那一帧 choices 为空，故采计必须在按 choices 取正文之前跑一遍。
+            _note_usage(chunk, stats)
             choices = chunk.get("choices") or []
             if not choices:
                 continue
             delta = choices[0].get("delta") or {}
             text = delta.get("content")
-            if text:
-                yield text
+            if not text:
+                continue
+            piece = gate.feed(text)
+            if piece:
+                yield piece
+        piece = gate.flush()
+        if piece:
+            yield piece
+    if stats is not None:
+        stats["think_stripped"] = gate.stripped
+        stats["think_truncated"] = gate.truncated
 
 
 def stream(messages, temperature=None, top_p=None, max_tokens=None, top_k=None, timeout=180,
            base_url=None, api_key=None, model=None,
-           repeat_penalty=None, repeat_last_n=None, min_p=None):
+           repeat_penalty=None, repeat_last_n=None, min_p=None, stats=None):
     """逐块产出文本。上游返回 SSE，这里只取 delta.content。
 
     单后端直连：只使用主配置（显式传参时覆盖），失败直接抛出异常，不做降级回落。
+
+    产出的是**已过思考闸**的文本：模型吐进 content 的思考块不会到前端，也不会落进
+    chat.jsonl 当下一轮历史。`stats` 见 _stream_once。
     """
     bu = base_url or setting("base_url") or DEFAULTS["base_url"]
     key = api_key if api_key is not None else setting("api_key")
     mdl = model or setting("model")
     for text in _stream_once(messages, temperature, top_p, max_tokens, top_k, timeout,
-                             bu, key, mdl, repeat_penalty, repeat_last_n, min_p):
+                             bu, key, mdl, repeat_penalty, repeat_last_n, min_p, stats):
         yield text
 
 
 def _complete_once(messages, temperature, top_p, max_tokens, top_k, timeout, base_url, api_key, model,
-                   repeat_penalty=None, repeat_last_n=None, min_p=None):
-    """单次后端请求（非流式）。失败抛异常。"""
+                   repeat_penalty=None, repeat_last_n=None, min_p=None, stats=None):
+    """单次后端请求（非流式）。失败抛异常。`stats` 见 _stream_once。"""
     url = base_url.rstrip("/") + "/chat/completions"
     if repeat_penalty is None:
         repeat_penalty = setting("repeat_penalty")
@@ -472,12 +629,17 @@ def _complete_once(messages, temperature, top_p, max_tokens, top_k, timeout, bas
     _raise_with_body(resp)
     if not resp.encoding or resp.encoding.lower() == "iso-8859-1":
         resp.encoding = "utf-8"
-    return resp.json()["choices"][0]["message"].get("content", "")
+    # 非流式同样过思考闸：reflect / 场景推演 / 总结都走这条路，思考文本混进 JSON 正文
+    # 会让下游解析直接崩。这里一次性剥完，不保留 streaming 那套扣字逻辑。
+    text, stripped = strip_think(resp.json()["choices"][0]["message"].get("content", ""))
+    if stats is not None:
+        stats["think_stripped"] = stripped
+    return text
 
 
 def complete(messages, temperature=None, top_p=None, max_tokens=None, top_k=None, timeout=60,
              base_url=None, api_key=None, model=None,
-             repeat_penalty=None, repeat_last_n=None, min_p=None):
+             repeat_penalty=None, repeat_last_n=None, min_p=None, stats=None):
     """一次性返回完整文本（非流式）。用于场景切换等只需结果、不需逐字流的轻量判定。
 
     单后端直连：只使用主配置（显式传参时覆盖），失败直接抛出异常，不做降级回落。
@@ -486,4 +648,4 @@ def complete(messages, temperature=None, top_p=None, max_tokens=None, top_k=None
     key = api_key if api_key is not None else setting("api_key")
     mdl = model or setting("model")
     return _complete_once(messages, temperature, top_p, max_tokens, top_k, timeout,
-                          bu, key, mdl, repeat_penalty, repeat_last_n, min_p)
+                          bu, key, mdl, repeat_penalty, repeat_last_n, min_p, stats)

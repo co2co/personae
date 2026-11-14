@@ -48,6 +48,20 @@ WORLDBOOK_SCAN_WINDOW = 60  # 传给世界书扫描的历史窗口上限；depth
 REFUSAL_RETRY = 2
 
 
+def _usage_note(stats):
+    """把 llm 的生成插桩数据压成日志尾巴；没有数据时返回空串，既有日志逐字不变。
+
+    有它才能分清「模型自己收笔」与「被 max_tokens 切」：finish_reason=length 或
+    completion_tokens 撞上上限，都说明正文是被截断而非写完了。
+    """
+    bits = []
+    if stats.get("completion_tokens") is not None:
+        bits.append(str(stats["completion_tokens"]) + " tokens")
+    if stats.get("finish_reason"):
+        bits.append("finish_reason=" + str(stats["finish_reason"]))
+    return ("（" + " ｜ ".join(bits) + "）") if bits else ""
+
+
 def _scene_change_payload(changed, prop, snap):
     """把场景切换结果整理成前端可读的结构。changed 必为 True。"""
     prop = prop or {}
@@ -695,8 +709,12 @@ def act():
         model = llm.setting("model")
         logger.info("model", "远程模型开始生成（" + str(model) + "）…")
 
-        def _generate_once(cur_params, box, msgs):
-            """单次流式生成，逐块回传；全文累积进 box[0]。
+        def _generate_once(cur_params, box, msgs, stats):
+            """单次流式生成，逐块回传；全文累积进 box["text"]，插桩数据进 stats。
+
+            box 是普通字典而非字符串容器：除了正文，还要回报「这一轮是流断了还是
+            正文被闸清空」。两者若都表现成空串，调用方就分不清该终止还是该重试——
+            思考闸把整轮吞掉时正文正是空串，那种情况必须走重试，不是静默收场。
 
             `msgs` 必须由调用方显式传入，不许靠闭包读外层的 `messages`。
             教训（2026-11-11 实踩过的坑，事后已固化成护栏）：想在 events() 内换一份
@@ -709,7 +727,7 @@ def act():
             reply_text = []
             first = True
             try:
-                for chunk in llm.stream(msgs, **cur_params):
+                for chunk in llm.stream(msgs, stats=stats, **cur_params):
                     if first:
                         first = False
                         logger.success("model", "首 token 已到达，模型正在输出…")
@@ -719,9 +737,9 @@ def act():
             except Exception as exc:
                 logger.error("model", "模型流异常：" + repr(exc))
                 yield "data: " + json.dumps({"error": str(exc)}, ensure_ascii=False) + "\n\n"
-                box[0] = ""
+                box["failed"] = True
                 return
-            box[0] = "".join(reply_text)
+            box["text"] = "".join(reply_text)
 
         # 复读检测用的历史正文（不含本轮，因尚未落盘）
         history_texts = [m.get("content", "") for m in history if m.get("role") == "assistant"]
@@ -749,14 +767,21 @@ def act():
         attempt = 0
         full = ""
         while True:
-            box = [""]
-            for item in _generate_once(params, box, active):
+            box = {"text": "", "failed": False}
+            # 每轮新建：上一轮被拦下的统计若残留，日志会把「本轮干净」误报成「又拦了一次」。
+            gen_stats = {}
+            for item in _generate_once(params, box, active, gen_stats):
                 yield item
-            raw = box[0]
-            if not raw:
+            if box["failed"]:
                 # 流异常已 yield error，直接终止
                 return
-            logger.info("model", "模型输出完成，共 " + str(len(raw)) + " 字")
+            raw = box["text"]
+            logger.info("model", "模型输出完成，共 " + str(len(raw)) + " 字" + _usage_note(gen_stats))
+            # 思考闸拦截计数只在本轮真拦到东西时出声：模型正常写正文时一条日志都不多。
+            if gen_stats.get("think_stripped"):
+                logger.warn("model", "思考闸：拦下 " + str(gen_stats["think_stripped"])
+                            + " 个思考块" + ("，且流结束时仍停在块内（正文被切在思考里）"
+                                             if gen_stats.get("think_truncated") else ""))
             # 叙事净身：剥离模型倒进正文的元信息（安全前言 / 铁律复述 / 导演推演笔记 /
             # 后果清单 / 下回合预告），与 prompter 的「输出纪律」双保险。
             # 必须在 present 校验 / 背景自检 / reflect / 落盘之前，使下游都吃到干净正文。
@@ -767,7 +792,12 @@ def act():
                 full = cleaned
                 break
             attempt += 1
-            reason = "模型正文经净身后为空" if not cleaned else "模型整条拒绝应答"
+            if cleaned:
+                reason = "模型整条拒绝应答"
+            elif gen_stats.get("think_truncated"):
+                reason = "整轮内容都被思考闸吞掉（流结束时仍停在思考块内）"
+            else:
+                reason = "模型正文经净身后为空"
             if attempt > REFUSAL_RETRY:
                 logger.error("model", reason + "：连续 " + str(attempt)
                              + " 次未产出正文，本回合不落盘：" + re.sub(r"\s+", " ", raw)[:80])
@@ -782,10 +812,12 @@ def act():
                 {"status": "模型本轮未交付正文，正在重试（第 " + str(attempt) + " 次）…"},
                 ensure_ascii=False) + "\n\n"
             # 把上一版被拦下的原因回喂进下一次装配：带上模型自己写的那句话的开头，比只说
-            # 「重试一次」有效——它至少知道上一版是怎么死掉的。
+            # 「重试一次」有效——它至少知道上一版是怎么死掉的。正文被思考闸整轮吞掉时 raw
+            # 是空串，此时不能留一句「上一版的开头是：」再无下文。
+            head = re.sub(r"\s+", " ", raw)[:120]
             active = _assemble(
-                "上一版没有交付正文，原因：" + reason + "。上一版的开头是："
-                + re.sub(r"\s+", " ", raw)[:120] + "\n"
+                "上一版没有交付正文，原因：" + reason + "。"
+                + ("上一版的开头是：" + head + "\n" if head else "上一版没有可见正文。\n")
                 + "这一版直接写正文：不要前言，不要拒绝，不要解释你能写或不能写什么。")
 
         # 复读检测：只检测、只报告，不重写（2026-11-08 引擎瘦身）

@@ -10,6 +10,25 @@
 
 ---
 
+## 2026-11-15 思考块兜底闸 + 逐轮生成插桩（未发版）
+
+> 补上 master 唯一零防线的地方：模型把思考吐进 `content` 时，此前没有任何一层拦。脏文穿过净身落进 `chat.jsonl`，下一轮它就成了 assistant 示范，泄漏自我复制；极端形态是整条回复只剩标记、正文 0 字。源头是 nsfw 线 `87e102e`，补丁对 master 不可直接套（同批移植时 `git apply --check` 退出码 1），故按设计的**契约**重做，不按代码照抄。
+
+- **闸放在哪**：`llm._stream_once` 取 `delta.content` 那一层，流式逐片过 `_ThinkGate`。请求侧关不掉——`preserve_thinking` 在顶层与 `chat_template_kwargs` 两种放法都被后端静默丢弃（nsfw 线六臂实测 prompt_tokens delta 恒 0），故正文防线只能是闸。
+- **四种标记**：`<think>` / `<thinking>` 与对应闭标记。块内一切不外发；块外孤立闭标记只删标记本身（模板给 assistant 的前缀正是「`<think>\n\n</think>\n\n`」，模型照抄时可能只吐后半截）。跨 SSE 分片靠两道扣字：块外扣「可能是标记前缀」的尾巴，块内扣「可能是闭标记前缀」的尾巴。
+- **未闭合整段丢弃**并置 `truncated`：被 `max_tokens` 切在思考里时一个字都不外发。非流式路径（`complete`，供 reflect / 场景推演 / 总结）同样剥，且剥完才返回——思考文本夹进 JSON 正文会让下游解析直接崩。
+- **插桩**用出参 `stats` 而非改产出契约：`prompt_tokens` / `completion_tokens` / `finish_reason` / `think_stripped` / `think_truncated`。`stream_options.include_usage` 只在调用方要 stats 时才发（默认请求体逐字节不变），并已登记进 `_VENDOR_FIELDS`，严格网关 400 时可被降级链路剥掉重试。`finish_reason=length` 或 completion 撞上限，从此能把「模型自己收笔」与「被截断」分开——此前只能靠字数猜。
+- **一处必须修的口径**（重做时才发现，照抄会带进 bug）：`events()` 原本用 `if not raw: return` 把「空正文」一律当作「流已异常」。闸把整轮吞掉时正文正是空串，那样会静默收场、一条回复都没有。故 `box` 由字符串容器改成字典 `{"text", "failed"}`，只有真异常才终止；空正文继续走既有的拒答/空正文重试，重试原因新增第三分支「整轮内容都被思考闸吞掉」，且 raw 为空时提示词不再留一句「上一版的开头是：」再无下文。
+- **刻意不做的**：不发 `preserve_thinking`。它在 simon 现用后端上被证伪；且闸保证历史里不再有思考文本，模板没有 reasoning 可保留，这个字段对本站已无作用对象。少一个厂商字段就少一次被严格网关 400 的机会。
+- 验证：
+  - **[单元测试]** `tests/test_llm_think_gate.py` 14 例（零误伤、跨片、未闭合、孤立闭标记、模板前缀、stats 与请求体、非流式剥除）；`tests/test_generate_stream.py` +2 例从 HTTP 层跑**真** `llm.stream`（只换 `requests.post`），锁「整轮只有思考 → 重试 → 历史里只有正文」。全量 `pytest` 361 → **377 passed / 1 skipped / 1 deselected**，退出码 0 [实测]。
+  - **[实机]** 本地后端（8080，`qwen3.8-flash-next-iq3_s`）三段探针 [实测 来源:`tests/_probe_think_gate.py`]：A 正常叙事 66 字、零标记、`stripped=0`、stats 带回 45/44 token 与 `finish_reason=stop`（证明新增字段被后端接受）；B 历史里塞一条带模板前缀的 assistant 轮，模型未照抄（该模型不复现此路径）；C 要求模型原样吐 `<think>这是内部思考</think>雨停了，院里没有人。` → 输出恰为「雨停了，院里没有人。」，`stripped=1`，标记零残留。
+- 风险与遗留：
+  - 闸只管**新生成**。已存盘的历史若含思考块（此前版本落下的），每轮仍会作为 assistant 轮被回灌、继续示范。本机 10 份真实会话 grep `<think` 命中 0 [实测]，故未做历史清洗；换作他人旧档则需一次性 `strip_think` 迁移。
+  - nsfw 线原闸的文档声称「未闭合整段丢弃，由 app.py 的空正文重试接住」，实测其 `app.py` 同样是 `if not raw: return`，实际是静默收场。master 这版已把该口径修正，勿把两边当等价实现。
+
+---
+
 ## 2026-11-15 移植 nsfw 线四项通用优化（未发版）
 
 > 起因：simon 问「`personae-nsfw` 有没有 master 该借鉴的」。逐文件 diff + 提交对照后筛出**介质无关**的四项按序落地，另有一项（秘密两态化）判为需裁决、暂未动。两条线是 cherry-pick 关系而非 merge 关系：nsfw 线落后 master（无 149f27c 写手投递位、无 5f4211d 撤净引擎默认条目层），整线合并会把 master 已撤的机制搅回来，故只做按项拣。试拣实测：`git show 87e102e` 的补丁对 master 工作树 `git apply --check` 退出码 1 [实测]，思考闸那类改动无法直接套，需手工重做。

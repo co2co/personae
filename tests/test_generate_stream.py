@@ -241,3 +241,83 @@ def test_repeat_detection_sees_cleaned_body(sid, monkeypatch):
     _stub_stream(monkeypatch, [[_META_ONLY], [_GOOD]])
     _act(sid)
     assert seen == [_GOOD], "检测输入应为最终正文，实际收到 %r" % (seen,)
+
+
+# ============ 思考块兜底闸（llm 层拦截，app 层接住「空正文」）============
+# 闸收在 llm.stream 取 delta.content 那一层（见 tests/test_llm_think_gate.py）。本段从
+# HTTP 层验端到端：脏文不得流到前端，也不得落进 chat.jsonl 当下一轮的 assistant 示范。
+# 这里走**真** llm.stream，只把 requests.post 换成按轮次吐文本的桩。
+
+_THINK_ONLY = "<think>\n\n先想想这一幕怎么接，用户要的是一处扰动。\n</think>\n\n"
+_THINK_PREFIXED = "<think>\n\n</think>\n\n" + _GOOD
+
+
+class _SSEResp:
+    """按片吐 SSE 的响应桩，字段齐全以走通 _stream_once 的降级判断。"""
+
+    def __init__(self, pieces):
+        self.status_code = 200
+        self.encoding = "utf-8"
+        self._pieces = pieces
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *a):
+        return False
+
+    def close(self):
+        pass
+
+    def raise_for_status(self):
+        pass
+
+    def iter_lines(self, decode_unicode=True):
+        for c in self._pieces:
+            yield "data: " + json.dumps({"choices": [{"delta": {"content": c}}]})
+        yield "data: [DONE]"
+
+
+def _real_stream(monkeypatch, *rounds):
+    """装一条真 llm.stream：第 n 次请求吐 rounds[n] 的文本（超出则重复最后一轮）。"""
+    calls = []
+
+    def fake_post(url, json=None, headers=None, stream=False, timeout=None):
+        calls.append(json)
+        idx = min(len(calls) - 1, len(rounds) - 1)
+        return _SSEResp(list(rounds[idx]))
+
+    monkeypatch.setattr(llm.requests, "post", fake_post)
+    monkeypatch.setattr(llm, "_file_config",
+                        lambda: {"base_url": "http://127.0.0.1:1/v1", "api_key": "",
+                                 "model": "stub", "enable_thinking": False})
+    return calls
+
+
+def test_think_only_round_is_retried_and_never_persisted(sid, monkeypatch):
+    """整轮只有思考块 → 正文 0 字 → 必须走空正文重试，而不是静默收场。
+
+    这条同时守住一个易错点：闸把整轮吞掉时正文是空串，若与「流断了」共用同一个
+    空串判据，生成回路会直接 return，用户看到的是一条什么也没有的回复。
+    """
+    calls = _real_stream(monkeypatch, [_THINK_ONLY], [_GOOD])
+    events = _act(sid)
+
+    assert len(calls) == 2, "整轮被闸吞掉应触发重试"
+    deltas = [e["delta"] for e in events if e.get("delta")]
+    assert all("think" not in d.lower() for d in deltas), "思考块不得流到前端：" + repr(deltas)
+    assert not [e for e in events if "error" in e]
+    done = [e for e in events if e.get("done")]
+    assert done and done[0]["reply"] == _GOOD
+    assert _assistant_texts(sid) == [_GOOD], "脏文不得进历史：" + repr(_assistant_texts(sid))
+
+
+def test_template_prefix_does_not_reach_history(sid, monkeypatch):
+    """模板前缀形状「<think>\\n\\n</think>\\n\\n + 正文」：只有正文该留下。"""
+    _real_stream(monkeypatch, [_THINK_PREFIXED])
+    events = _act(sid)
+
+    assert _assistant_texts(sid) == [_GOOD]
+    deltas = "".join(e["delta"] for e in events if e.get("delta"))
+    assert "think" not in deltas.lower()
+    assert deltas.strip() == _GOOD
