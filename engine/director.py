@@ -942,14 +942,29 @@ def reflect(sid, reply, directive=""):
             '  "location_updates": [{"who": "角色名", "place": "该角色本轮结束时所在的具体地点"}],\n'
             '  "state_updates": [{"subject": "对象（如某道门、某件物品、某人的伤）", "value": "当前状态一句话"}]\n'
             "}\n"
+            # 秘密「发现物证」的判界（2026-11-15，物证漏记修复）。此前 exposures 条写
+            # 「只是提到相关物品，都不算」，suspicions 条又把「发现了与旧事相关的物品或痕迹」
+            # 收进起疑——两句合起来把白名单里的 via「发现物证」整条堵死。定向探针实测
+            # （两题材 × 六种形态，同批采样）：补丁前确凿文书类 0/10 报成曝光，连「箱底
+            # 翻出文书、帛上记着该秘密的旧事、印也清楚」这种也只填起疑；真实会话 47 条
+            # 秘密的分布是 暴露 1 / 起疑 19 / 潜伏 27，与「物证这条路到不了暴露」吻合。
+            # 注意漏记不发生在 _evidence_transfer——它根本没被触达，纪官压根没报成曝光。
+            # 改法只动判界、不动闸门：把「提到」收窄为「还需自己推断的痕迹」，并在
+            # suspicions 条点明「物证本身已把秘密摆明」归 exposures。同批探针复测：确凿
+            # 文书类 0/10 → 4/10（挂对人）；含糊物证三类 0/20 不变；心理独白负控制
+            # 0/10 误报不变。提升不大但方向明确：这条 via 从「不可达」变回「可达」。
+            # 已知残留（不修）：正文整段用「他/她」指认当事人时，能截到的连续片段里根本
+            # 没有名字，_evidence_transfer 仍判掉这类。试过两种提示词补丁（片段须含名字／
+            # 回溯到交代主语那句）都反而把报出率压回 0——模型宁可改填起疑。闸门二不能为此
+            # 放宽：它挡的是 v0.17.6 那类「心理独白误翻暴露」的真实事故。
             "规则：\n"
-            "- secret_exposures 只填本轮叙事里**确实发生**了「某人得知了某秘密」的条目；仅凭角色起了疑心、或只是提到相关物品，都不算。\n"
+            "- secret_exposures 只填本轮叙事里**确实发生**了「某人得知了某秘密」的条目；仅凭角色起了疑心、或只看到还需自己推断的痕迹，都不算。\n"
             "- secret_exposures 的「得知」必须是**信息实际发生了跨角色传递**：亲眼看见、亲耳听见、被当面告知、亲手发现物证；除此之外一律不算暴露。\n"
             "- via 填「自述」或「承认」专指**秘密归属者本人**当众说开，只用于本人真的说开的轮次："
             "by 逐条填听到的在场者（同一秘密可多条）。"
             "反例触发词：他人转述、第三方指控、归属者否认。\n"
             "- **内心活动不算得知**：心理描写、内心独白、回忆、猜透——即使明写了他「知道」也只是单方面心证，绝不填 secret_exposures，至多填 secret_suspicions。反例触发词：心想他早就知道、暗自看穿、早已心知肚明、在心里确认了。\n"
-            "- secret_suspicions 填**线索逼近但尚未坐实**的条目：某人察觉对方言行反常、追问只得到含糊其辞的回答、发现了与旧事相关的物品或痕迹、或对某人的说法明显不信。只有当事人已经确知真相才算 secret_exposures，不算起疑。\n"
+            "- secret_suspicions 填**线索逼近但尚未坐实**的条目：某人察觉对方言行反常、追问只得到含糊其辞的回答、发现了与旧事相关的痕迹但还不足以断定、或对某人的说法明显不信。**物证本身已把秘密摆明的（信的内容、伤、实物）属「发现物证」，填 secret_exposures，不填这里**。只有当事人已经确知真相才算 secret_exposures，不算起疑。\n"
             "- secret_suspicions 的 by 不能是秘密归属者本人，也不能是已确知该秘密的人；同一处细节不要同时填进 secret_exposures 与 secret_suspicions，拿不准就填起疑（较轻），宁可让秘密晚一点被揭开。\n"
             "- handle_releases 只填本轮叙事里**确实发生**了「把柄消失或转手」的条目：例如药物/证据/信件被丢弃、被夺走、交给第三方、或当众说开后不再构成胁迫。to 为空字符串表示彻底消失。\n"
             "- evidence 逐字照抄本轮叙事的一段连续原文，照抄不到就不要填（核验不过即丢弃）。"
@@ -1043,14 +1058,22 @@ def reflect(sid, reply, directive=""):
             # 不在场者），降级为起疑——宁可漏记，不可误记。
             # 本人自述/承认天然成立（施受双方就是 owner 与 by，且本人复述必是真实传递），
             # 不做语义护栏，直接采信（是否真「已公开」由 _secret_state 结合在场名单判）。
-            if not self_disc and not (_evidence_related(exp.get("evidence"), s)
-                                      and _evidence_transfer(exp.get("evidence"), by, owner)):
-                logger.warn("secret", "曝光语义未通过（锚点/施受方缺失），降级为起疑："
-                            "%s 对 %s 的秘密（via=%r）" % (by, owner, via))
-                if by not in (s.get("known_by") or []):
-                    _record_suspicion(s, by, exp.get("evidence"),
-                                      snap["scene"]["round"], present)
-                break
+            if not self_disc:
+                # 两道闸分开判、分开留痕（2026-11-15）：原先合成一条「锚点/施受方缺失」
+                # 的 warn，事后无法从日志分辨是哪一道拦下的——排查物证漏记时就卡在这里，
+                # 只能写探针把两道闸在本地各算一遍。判档行为与合成时完全一致。
+                miss = []
+                if not _evidence_related(exp.get("evidence"), s):
+                    miss.append("锚点未命中")
+                if not _evidence_transfer(exp.get("evidence"), by, owner):
+                    miss.append("片段内无施受方名字")
+                if miss:
+                    logger.warn("secret", "曝光语义未通过（%s），降级为起疑："
+                                "%s 对 %s 的秘密（via=%r）" % ("/".join(miss), by, owner, via))
+                    if by not in (s.get("known_by") or []):
+                        _record_suspicion(s, by, exp.get("evidence"),
+                                          snap["scene"]["round"], present)
+                    break
             _record_exposure(s, by, via, snap["scene"]["round"], present)
             _ledger_entry(snap, s, by, snap["scene"]["round"])
             break

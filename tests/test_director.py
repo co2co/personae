@@ -542,6 +542,30 @@ def test_exposure_rejects_evidence_off_topic(monkeypatch):
     assert any(x.get("by") == B for x in s.get("suspicions", []))
 
 
+def test_reflect_prompt_keeps_evidence_boundary(monkeypatch):
+    """判界 tripwire：物证类暴露的判界句一旦被压缩掉，「发现物证」这条路会重新堵死。
+
+    2026-11-15 定向探针（两题材 × 五种物证形态 × 各 3 次采样）：判界句缺失时，连
+    「箱底翻出文书、帛上记着该秘密的旧事、印也清楚」都只填起疑，0/8 报成曝光；
+    补上后确凿文书类 5/8 报出且两道语义闸全过。本用例只锁「句子还在」——判界的实际
+    效果靠探针验，语义判据类压缩的假阴性风险见 TODO「规则压缩验证」条。
+    """
+    snap = _snap_with_secret(A, "角色甲的秘密", ["父亲", "失联"])
+    seen = {}
+
+    def fake_complete(messages, **kw):
+        seen["text"] = "\n".join(m.get("content") or "" for m in messages)
+        return "{}"
+
+    monkeypatch.setattr(director.llm, "complete", fake_complete)
+    monkeypatch.setattr(director.memory, "load", lambda sid: snap)
+    monkeypatch.setattr(director.memory, "save", lambda sid, s: None)
+    director.reflect("sid", "任意正文")
+    text = seen["text"]
+    assert "物证本身已把秘密摆明" in text, "物证归 exposures 的判界句被删了，发现物证会重新堵死"
+    assert "只看到还需自己推断的痕迹" in text, "exposures 条里「提到相关物品」的旧措辞回来了"
+
+
 def test_exposure_rejects_inner_monologue(monkeypatch):
     """护栏二：证据是旁白心理独白、无施受方名字在场，不得翻暴露。
 
