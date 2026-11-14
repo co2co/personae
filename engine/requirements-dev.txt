@@ -1,0 +1,5 @@
+# 开发/测试依赖。运行时依赖在 requirements.txt，两者分开：
+#   engine/venv 只按 requirements.txt 建，减少分发侧多余包；
+#   需要跑 pytest 时执行仓库根 run.bat deps-dev（装本文件，再走自检）。
+-r requirements.txt
+pytest>=9.0

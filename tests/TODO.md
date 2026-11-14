@@ -13,7 +13,7 @@
 
 ## 一、活跃待办
 
-### nsfw 线通用项移植：四项已落地，余下三项待拍板
+### nsfw 线通用项移植：四项已落地，余下三项（两条待办 + 一条搁置）
 
 **提出时间**：2026-11-15（对照 `personae-nsfw` 全仓 diff 筛拣；四项落地与验证见 DEVLOG 2026-11-15「移植 nsfw 线四项通用优化」）
 
@@ -22,7 +22,6 @@
 1. **思考块兜底闸 + 逐轮生成插桩**（待办，优先级最高）：master 至今对「模型把思考吐进 content」零防线——nsfw 线的 `_ThinkGate` 在 `delta.content` 这一层拦，跨 SSE 分片、未闭合整段丢弃、块外孤立 `</think>` 只删标记，另有 `stats` 出参（tokens / `finish_reason` / 剥离计数）与 `stream_options.include_usage`（仅在要采时发，默认请求体逐字节不变）。那条线还证伪了请求侧关思考：`preserve_thinking` 顶层与 `chat_template_kwargs` 双写全部无效（六臂实测 334→334），正文防线只能是闸。补丁对 master 不能直接套（`git apply --check` 退出码 1），需手工重做。
 2. **短正文误判重试的复核**（待办）：`REFUSAL_MAX_CHARS=240` 是 nsfw 线标定的（其真实拒答 13~204 字、正常单轮中位 900+ 字）。master 应按自己的正文长度分布复核，必要时调阈值。
 3. **秘密两态化**（搁置，等对面结案）：四态降两态、删 `holders`/`public`/把柄层、起疑降为逐人 `suspicions` 标注、世界书 `suspects` 播种。方向认可（`personae-nsfw/docs/秘密系统两态化-迭代经验.md` 自带迁移清单与验收办法），但它改数据结构与玩法层，且该线未结案：`76b2c2b` 记 20 轮曝光恒为 0，取证确认纪官从未填 `secret_exposures`。等其结案再排期。
-4. **仓库根 `run.bat` 与可用 venv**（待办）：本机 master 的两个 venv 均不可用（`pyvenv.cfg` 的 home 指向已迁走的 `D:\codes\my-st`，实跑 `Unable to create process`），测试只能靠临时 venv。nsfw 线仓库根的 `run.bat` 带 venv 自动 bootstrap 与 `check` 自检面板（六个端点走 Flask test_client，不占端口），正对着这条。另记本机 ACL：`D:\codes\personae` 上有 `Everyone:(CI)(DENY)(DC)`，禁建子目录，pytest 需 `--basetemp` + `-p no:cacheprovider` 才跑得起来。
 
 ### 界面语言后续项（方案 A 已落地，本条目记未收口的尾巴）
 
@@ -216,6 +215,9 @@
 ---
 
 ## 三、近期已清（备查，指向 DEVLOG）
+
+- **2026-11-15 环境项收口（仓库根 `run.bat` 落地）**：新增 `run.bat`，纯 ASCII + CRLF（GBK 代码页下 UTF-8 的 bat 会解析错位）。`run.bat` = 自检后交棒 `engine\run.bat` 起服务；`run.bat check` = 只自检、不起服务、不占端口；尾部加 `nopause` 供脚本调用；`run.bat deps-dev` = 装 `engine/requirements-dev.txt`（pytest）后自检。测试依赖与运行时依赖分开：`requirements.txt` 仍只有 flask/requests，dev 依赖另立文件，`package.py` 的 `EXCLUDE_SUBPATHS` 已把 `requirements-dev.txt` 排除在分发外。venv 判据由「文件存在」改为「能启动 + flask/requests 可导入」，三态分流：可用则直落自检；能启动缺依赖则只补 pip；不能启动（`pyvenv.cfg` 指向已迁走的 Python）则原 venv 让位为 `venv.stale[随机后缀]` 后重建。修复动作前先探 5051：引擎在听就拒绝动 venv（运行中进程被搬走 venv，惰性导入会失败）。六端点冒烟全走 `app.test_client()`，无需服务器。`package.py` 只遍历 `engine/`，本文件属开发态工具不进包。实测三条路径（正常 / 缺依赖 / stale 自愈）均实跑通过，全量 `pytest` 361 passed 1 skipped。
+- **2026-11-15 复核转清**：原「仓库根 `run.bat` 与可用 venv」条目记录的两项环境障碍均已失效，只剩 `run.bat` 本身待补。① **venv 不可用**：`engine/venv`、`tests/venv` 现均可跑，`pyvenv.cfg` 的 `home` 已由迁走的 `D:\codes\my-st` 指回 `C:\Users\co2co\AppData\Local\Programs\Python\Python312`，两侧 `python.exe -c` 退出码 0（目录时间戳 Nov 9 18:05，应为当时重建）。② **ACL 阻塞**：项目根 `icacls` 仍输出 `Everyone:(CI)(DENY)(DC)`，但实测可 `mkdir` 子目录；`pytest tests/test_standard_entry.py -q` 裸跑（未加 `--basetemp`、未加 `-p no:cacheprovider`）4 passed in 5.53s。结论：既有「必须带两个 pytest 参数」的操作习惯不再必要；若日后 ACL 变更再次出现建目录失败，按本条记录重查。
 
 - **2026-10-20**：《客服战争》剧本退役（simon 拍板，本机删除、不随包）——原「现代职场·办公室政治群像」题材线随之关闭。退役原因：立项前提是「玩家卡主角轨 + 群像轨双轨」，v2.0.0 移除玩家角色介入层后前提消失，去玩家化改造虽已完成但形态已非原设计意图，不再投入迭代。全量归档 `backup/dramas_retired_20261020/客服战争/`（author_source / runtime / examples / scaffold + RETIRED.md 恢复说明）；三态副本、`scripts/build_kefu_war_world.py`、`tests/_probe_live_kefu.py` 及 10 回合实机产物一并撤离。详见 DEVLOG 2026-10-20 退役条目。
 - **v0.6.2（增补）**：T2 在场名单空间分隔触发修复——`scene.MOVE_KEYS`/`LEAVE_KEYS` 增补 `门内/门外/挤进/隔开/挡在门外/留守/留在` 等空间分隔词，`_PROMPT` 约束补「被挡在门外/与队伍分开视为离场」，R16 类指令现可触发 scene 判定并正确移除门外角色；附 `test_scene` 2 项回归。

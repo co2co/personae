@@ -72,6 +72,7 @@ EXCLUDE_SUBPATHS = {
     "data/characters",   # 角色卡：用户私创/个人 DEMO，不随分发（官方 demo 在 data/examples/characters/）
     "data/worlds",       # 世界书：同上（官方 demo 在 data/examples/worlds/）
     "player-cast",       # 用户剧本：玩家设定
+    "requirements-dev.txt",  # 开发/测试依赖（pytest）：运行时依赖在 requirements.txt，不随分发
     # 注：运行展示截图（screenshots/ 与 screenshots-excluded/）已于 2026-10-09 整体挪到
     # 项目根，不再位于 engine/ 下，本 os.walk(ENGINE) 天然不会触及，故无需在此排除。
 }
