@@ -27,7 +27,11 @@
   - 泄漏与残留扫描（实测）：包内 32 个文本条目对作者实验剧本的剧本名与四名角色名零命中；`git grep` 扫全 `engine/`，已删符号（`STANDARD_EXAMPLE` / `ORIGIN_ENGINE` / `restore_default_entries` / `FIRST_ROUND_DEMO` / `speaker_segment` / `opening_demo` / `restore-defaults`）只剩 `engine/store.py:213` 一处说明性注释，无任何可执行引用。
   - 旧包纪律：`dist/` 各包一律保留、未覆盖旧包；`dist/` 已 gitignore（`.gitignore:18`），分发包只在本机与 GitHub Release 上，不入库。
 - 本版一个提交：两块改动的文件交织在同一批路径里（`prompter.py` / `app.py` / `store.py` / `memory.py` 与各测试），拆成两个提交会互相引用未定义的符号，故不拆。
-- 外部动作：simon 已放行外发。改动提交在本地 master 并打 tag `v2.6.0`，推送 `origin`（master + 该 tag）与 GitHub Release（挂分发包）随本轮执行，命令与退出码记在下面的「外发执行」条目里。
+- 外部动作（simon 放行，实测）：
+  - 发版提交 `5f4211d`（一个提交，见上），本地 tag `v2.6.0` 指向它；`git push origin master v2.6.0` → `d22ce80..5f4211d  master -> master` 与 `* [new tag] v2.6.0 -> v2.6.0`，退出码 0。
+  - GitHub Release `v2.6.0` 已创建：id `445398228`，https://github.com/co2co/personae/releases/tag/v2.6.0 ，notes 即本版改动清单与归因。asset `personae-v2.6.0.zip` 已挂，230,923 字节（与本地包字节数一致），下载地址 https://github.com/co2co/personae/releases/download/v2.6.0/personae-v2.6.0.zip 。
+  - 建 Release 的路子：本机没有 `gh` CLI（实测 `Get-Command gh` 为空、两个常见安装路径均不存在），改用 GitHub REST API + `git credential fill` 取凭据助手里已缓存的 github.com 令牌；令牌只存在进程变量、不打印、不写盘、不入库。首轮 422 是把 notes 当对象送了出去（`Get-Content` 带进路径属性），改 `[IO.File]::ReadAllText` 后通过。
+  - 记账边界：本段外发记录随后续 docs 提交入库，**不在 tag `v2.6.0` 的树内**——tag 指向 `5f4211d`，那份树里的发版记账没有这段执行结果。
 - 作者源自带写手条目已裁决删除：`dramas/深夜寄宿/world.json` 里那条 `constant=true / position=after / priority=100` 的「写手」是 v2.4.0 之前写手寄在世界书的旧承载位（v2.5.0 起写手已进 `config.json` 的 writer 面板、恒定渲染在 system 头部），留着即双份写手人设——已删，条目 15 → 14，其余 14 条逐字段读回比对全等，改前备份 `world.json.bak2_20261114` [实测]。随包 demo「终局曙光」实测本就没有该条目，两边现在一致。
 
 ---
