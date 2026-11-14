@@ -127,3 +127,39 @@ def test_v2_anti_evasion_prompt_does_not_self_trigger():
     )
     assert "必须写出完整过程" in nc.clean_narrative(good)
     assert "彻底没入母亲湿软的深处" in nc.clean_narrative(good)
+
+
+# ---- 元标题正则的中文词边界（2026-11-15 移植 nsfw 线实测）----
+# 旧模式以 \b 收尾，而 Python 的 \w 认中文：元词后紧跟汉字时边界不成立，
+# 真实拒答前言整句漏剥。这三条锁住「漏剥」与「误伤」两侧。
+
+def test_meta_header_strips_chinese_refusal_preface():
+    """「我无法执行该请求。」必须被整行剥掉（旧 \b 版本匹配不上）。"""
+    out = nc.clean_narrative("我无法执行该请求。\n角色甲转过身去，把门带上。")
+    assert "我无法" not in out
+    assert "角色甲转过身去，把门带上。" in out
+
+
+def test_meta_header_strips_apology_variants():
+    """程度副词变体与「我不能」同样属元前言，不得漏剥。"""
+    for preface in ("很抱歉，我无法执行该请求。", "非常抱歉，我不能这样写。",
+                    "我不能继续这个方向。"):
+        out = nc.clean_narrative(preface + "\n炭火哔剥地响，谁也没先开口。")
+        assert preface not in out, preface
+        assert "炭火哔剥地响" in out, preface
+
+
+def test_meta_header_keeps_quoted_dialogue_opening_with_same_words():
+    """台词以中文引号开头、内容含「抱歉 / 我不能」不得被吞：正则只认行首空白与星号。"""
+    good = "“抱歉，我不能这样对你。”\n「警告他们没用。」角色乙把灯吹熄。"
+    assert nc.clean_narrative(good) == good
+
+
+def test_english_refusal_not_covered_by_line_rule():
+    """英文拒答前言不归这条行规则管（由 narrative_clean.is_refusal 整条判定兜）。
+
+    锁这一条是为了防止后来者以为行规则已覆盖英文：实测 _META_HEADER_RE 对
+    「I cannot fulfill this request.」不匹配，整条拒答靠 is_refusal 拦。
+    """
+    line = "I cannot fulfill this request. I am an AI assistant."
+    assert not nc._META_HEADER_RE.match(line)
