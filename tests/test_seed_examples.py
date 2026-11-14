@@ -2,8 +2,9 @@
 
 背景（2026-11-15 口径变更，simon 定）：**分发包不携带任何剧本数据**——`data/examples/`
 既不进版本库（`.gitignore`）、也不进分发包（`package.py` 排除 + 出包后硬校验）。
-`_seed_examples()` 因此只服务本机开发：作者用 `sync_drama.py install` 把剧本铺到
-`data/examples/` 后，本地跑引擎能自动播种出一套可玩的剧本。
+`_seed_examples()` 因此只服务本机开发：`sync_drama.py install` 已不再写 `data/examples/`
+（2026-11-15 同步收口），该目录没有生成源了——若本机要给 `_seed_examples` 喂料，需手工放置
+世界书与角色卡，或用旧版备份目录里的副本。
 
 本测试锁死三件事，防止三类静默回归：
   1. **播种契约**：空库才播种、按名去重、不覆盖用户已有文件、重复调用不重复。

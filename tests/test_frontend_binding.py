@@ -240,7 +240,8 @@ class TestFrontendMainFlowBound(unittest.TestCase):
 
         起因：旧版 collectWorldEntries 用 `100 - idx * 5` 按列表位置重算，
         于是只要在界面上点一次保存，作者手写的 priority 阶梯就被整体抹平——
-        「一个字没改」也会让 sync_drama 的三态守卫判世界书不一致，而条目内容
+        「一个字没改」也会让 sync_drama 的一致性守卫（当年是三态，2026-11-15 起两方）
+        判世界书不一致，而条目内容
         其实分毫未动。更隐蔽的是：界面上没有 priority 控件，作者根本看不出
         自己的注入次序被改写了。
 
