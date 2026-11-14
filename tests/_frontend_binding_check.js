@@ -129,7 +129,7 @@ globalThis.__stage2 = async () => {
   check('开始按钮已解锁', get('start').disabled === false);
   // 世界书隐藏字段回传：构造一张带 dataset 的条目卡，验证 collectWorldEntries 不丢字段。
   const entry = mkEl('entry0', 'div');
-  entry.dataset = {origin: 'engine', demo: '1', firstRound: '1'};
+  entry.dataset = {demo: '1', firstRound: '1'};
   const fields = {
     '.e-secret': {checked: true},
     '.e-enabled': {checked: true},
@@ -145,8 +145,11 @@ globalThis.__stage2 = async () => {
   entry.querySelector = (sel) => fields[sel] || mkEl('__stub', 'div');
   globalThis.__worldEntries = [entry];
   const collected = api.collectWorldEntries();
-  check('世界书隐藏字段原样回传', !!collected && collected[0] && collected[0].origin === 'engine'
-    && collected[0].demo === true && collected[0].first_round === true);
+  // origin 已随「引擎默认条目」层撤除（2026-11-14）：现在要求它不再出现，
+  // 一旦回传说明播种层被悄悄带回来了。
+  check('世界书隐藏字段原样回传', !!collected && collected[0]
+    && collected[0].demo === true && collected[0].first_round === true
+    && collected[0].origin === undefined);
   // 抽屉状态：打开日志/世界状态时遮罩与栏位状态必须同步。
   api.openLog();
   check('日志抽屉可打开', get('right-rail').classList.contains('collapsed') === false);

@@ -187,17 +187,18 @@ def load_world(name=""):
     return (data or {}).get("entries", [])
 
 
-# 条目来源标记：引擎默认供给 vs 作者自写。
+# 世界书只装作者设定：引擎不再向世界书播种任何条目（2026-11-14 撤净「引擎默认条目」层）。
 #
-# 为什么需要它：世界书同时承载「剧本设定」与「注入调度」（position/depth/priority/
-# constant/enabled 五维控制），而引擎默认条目（写法示范·常驻）由 save_world /
-# import_drama 播种进用户数据文件，在 UI 里与作者自写条目长得一模一样——
-# 用户无法判断「这条是系统的还是我写的」「删了会不会被补回来」。origin 让来源在数据层
-# 可见，前端据此分区、标注、提供恢复入口。
+# 撤掉的机制：save_world 首次创建 / import_drama 时插入引擎自带的「写法示范·常驻」条目，
+# 并以 origin="engine" 标来源，前端据此分区、加徽标、挂「恢复默认」端点。撤它的直接
+# 证据是装配实测：整份提示词里没有第二处在约束篇幅与节奏（字数/篇幅/长度 计数均为 0），
+# 这条示范是唯一的具体范例，又挂在 system 尾部并带「照着它的风格与节奏写」的命令，
+# 于是它示范的「一人一句 + 静止收束」就成了每轮正文的事实长度与事实节奏。出厂示范受
+# 普适性红线限制只能用「角色甲/角色乙」占位，示范得出形状、示范不出张力，改写正文救不回。
 #
-# 语义边界：origin 记的是**播种来源**，不是「内容是否原文」。作者改写默认条目内容后
-# 仍是 origin="engine"（可改可关），只有删除后由作者重写的同名条目才退回无标记。
-ORIGIN_ENGINE = "engine"
+# 不留标记字段：引擎读写都不看 origin，既有磁盘剧本里残留的 origin="engine" 无害，
+# 前端下次保存会自然抹掉。作者想给本剧一个写法锚点，正路是在本剧世界书自建一条 demo
+# 条目（few-shot 通道保留，分流见 world.py）。
 
 # 亲密/性内容的尺度**不由引擎出厂预设**（2026-10-21 首发下架，对齐 v0.29.0；
 # 2026-10-23 为引擎优化工作临时再下架，完成后重新上架）。
@@ -206,111 +207,25 @@ ORIGIN_ENGINE = "engine"
 # 不回填、不清理旧条目）；作者想给某剧本加亲密写法标准，正路是在本剧世界书里自建一条。
 
 
-# ---- 写法示范（few-shot，分开场示范 / 常驻示范两档）----
+# ---- 写法示范：引擎侧不再提供任何条目（实况）----
 #
-# 引擎内置两份中性示范，让任何剧本无需作者手写也能直接开局：
-#   1. FIRST_ROUND_DEMO（开局示范）：由 session_new 静默写入快照，首轮 act 注入一次。
-#   2. STANDARD_EXAMPLE_ENTRY（常驻示范）：作为世界书条目，在创建剧本与导入剧本时自动播种。
+# 两份示范档都已撤净：世界书常驻档（引擎播种的 demo 条目）与会话快照开局档
+# （session_new 写入 snap.opening_demo、首轮 act 注入一次）都在 2026-11-14 撤除。
+# 撤除理由与「出厂示范受普适性红线限制只能用占位角色，示范得出形状、示范不出张力」
+# 这条限制，见上方「引擎不再向世界书播种任何条目」注释。正文形式改用小说体散文，
+# 引擎不再给一份「照着写」的样本。
 #
-# 两份示范措辞全中性、不含任何剧本专名与题材词（普适性红线），用「角色甲/角色乙」
-# 这类占位，任何剧本都可直接用；作者想换成贴合本剧风格的示范，可整条改写或删除。
-
-FIRST_ROUND_DEMO_NAME = "写法示范·开局"
-_FIRST_ROUND_DEMO = (
-    "本剧开局的写法（多说话人叙事，可用「角色名：」标注说话人，动作与叙事穿插推进）：\n"
-    "角色甲抬起头，灯影在脸上晃了晃，才慢慢看向来人。\n"
-    "角色甲：这么晚了，还赶路？\n"
-    "角色乙把肩上的雪抖落，往炭火边挪了半步。\n"
-    "角色乙：赶不赶，都得找个地方落脚。\n"
-    "堂里安静了一瞬，只有炭火哔剥地响。两人各怀各的心事，谁也没先挑破那半句没出口的话。"
-
-)
-
-STANDARD_EXAMPLE_NAME = "写法示范·常驻"
-_STANDARD_EXAMPLE_CONTENT = (
-    "写法常驻示范（多说话人叙事，角色台词以「角色名：」起段，动作与旁白穿插）：\n"
-    "角色甲把手里那卷纸往桌上一搁，没抬头。\n"
-    "角色甲：这事，还有谁知道？\n"
-    "角色乙端茶的手停了一下。\n"
-    "角色乙：该知道的，都知道了。\n"
-    "屋里静了一瞬，谁也没接谁的话，只有茶盏落桌那一声，脆得像是敲在鼓面上。"
-
-)
-
-
-def _standard_example_entry():
-    """常驻写法示范条目：demo 标志 + 非 first_round，每轮注入。"""
-    return {
-        "name": STANDARD_EXAMPLE_NAME,
-        "keys": [],
-        "content": _STANDARD_EXAMPLE_CONTENT,
-        "priority": 60,
-        "enabled": True,
-        "constant": False,
-        "position": "before",
-        "depth": None,
-        "secret": False,
-        "demo": True,
-        "first_round": False,
-        "origin": ORIGIN_ENGINE,
-    }
-
-
-def _has_standard_example(entries):
-    return any((e or {}).get("name") == STANDARD_EXAMPLE_NAME for e in (entries or []))
-
-
-def restore_default_entries(name):
-    """补回被删除的引擎默认条目（只补缺失，不覆盖已存在的同名条目）。
-
-    2026-10-21 下架亲密尺度后，引擎出厂条目只剩「写法示范·常驻」一条
-    （「亲密描写标准」不再由引擎播种，见上方注释）。
-
-    为什么只补不覆盖：用户可能把「写法示范·常驻」换成本剧角色（曾有剧本就是这么用
-    的）。一键重置为出厂内容等于静默销毁作者的修改，与「可改可关」的设计相悖。
-    需要重置某条时，先删除它再点恢复，路径显式可控。
-
-    返回 {"added": [...], "present": [...]}；剧本不存在返回 None。
-    """
-    name = (name or "").strip()
-    if not name:
-        raise ValueError("剧本名不能为空")
-    p = DATA_DIR / "worlds" / f"{name}.json"
-    raw = load_world_raw(name)
-    if raw is None:
-        return None
-
-    entries = list(raw.get("entries") or [])
-    added, present = [], []
-
-    if _has_standard_example(entries):
-        present.append(STANDARD_EXAMPLE_NAME)
-    else:
-        # 插入位置只决定它在世界书列表里的初始位置；注入先后由 priority 决定
-        # （本条目 priority=60，见 _standard_example_entry）。
-        # 2026-10-23 起前端保存不再按列表序重算 priority，故这里插到首位不会
-        # 把它顶成最高优先级——两者已解耦。
-        entries.insert(0, _standard_example_entry())
-        added.append(STANDARD_EXAMPLE_NAME)
-
-    if added:
-        out = dict(raw)
-        out["entries"] = entries
-        p.write_text(json.dumps(out, ensure_ascii=False, indent=2), encoding="utf-8")
-        _invalidate(p)
-
-    return {"added": added, "present": present}
+# 作者想给本剧一个写法锚点，正路是在本剧世界书自建一条 demo 条目——那时它是剧本
+# 资产，不是引擎副本。demo / first_round 分流通道保留（分流见 world.py），
+# first_round 条目仍只在首轮注入。
 
 
 def save_world(name, entries):
-    """整份保存世界书（覆盖式）。entries 为条目数组。
+    """整份保存世界书（覆盖式）。entries 为条目数组，引擎原样覆盖写入、不插入任何条目。
 
-    新建世界时（该世界此前不存在）自动播种一条默认条目：
-      - _standard_example_entry「写法示范·常驻」：中性 few-shot 示范，让「玩家不写
-        示范也能每轮有范例可循」。只对首次创建播种，删除后不强制回填。
-
-    亲密/性内容的尺度**不由引擎播种**（2026-10-21 下架，对齐 v0.29.0）：此前随新世界
-    播种的「亲密描写标准」条目已移除，尺度完全交回各剧本的世界书与剧情推进决定。
+    引擎不播种条目：2026-11-14 撤净「引擎默认条目」层（写法示范·常驻不再自动播种），
+    亲密尺度自 2026-10-21 起同样不播种（对齐 v0.29.0）。新建与覆盖写都是纯覆盖，
+    作者给什么存什么；既有磁盘剧本里的旧条目原样保留，不清理、不回填。
     """
     name = (name or "").strip()
     if not name:
@@ -319,12 +234,6 @@ def save_world(name, entries):
     folder.mkdir(parents=True, exist_ok=True)
     p = folder / f"{name}.json"
     entries = list(entries or [])
-    first_create = not p.exists()
-    if first_create:
-        # 插入位置只决定初始列表位置；priority 由条目自带（60），不受位置影响。
-        # demo 条目不占 max_entries 配额。前端保存已不改写 priority（2026-10-23）。
-        if not _has_standard_example(entries):
-            entries.insert(0, _standard_example_entry())
     data = {"name": name, "entries": entries}
     p.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
     _invalidate(p)
@@ -443,7 +352,7 @@ def import_drama(name, template):
     行为：
       - 模板里 world 的 name 与 characters 里每张卡的 world 一律以 `name` 为准，
         强制对齐目标剧本名，杜绝 world 错位（与 /api/character 的世界存在性校验同向）。
-      - 世界书整份覆盖写（走 save_world，会自动为新世界播种标准条目）。
+      - 世界书整份覆盖写（走 save_world）：引擎不补种任何条目，模板里有什么就存什么。
       - 角色卡按模板里的名单整份重建：模板内有的按模板写、world 对齐 name；
         模板里没列、但当前已归属 name 的多余角色卡会被删除（恢复=精确还原，不留残卡）。
         其它剧本的角色一律不碰。
@@ -465,11 +374,6 @@ def import_drama(name, template):
 
     # 1) 世界书：整份覆盖写，name 对齐目标剧本名（save_world 内部会把 name 落进文件）。
     store_entries = list(world_entries)
-    # 导入时补种引擎默认条目（若模板未自带）：写法示范·常驻是每轮范例。
-    # save_world 只在「首次创建」时播种，导入覆盖写已存在的剧本不会触发，故在此显式补。
-    # 亲密尺度不由引擎播种（2026-10-21 下架，对齐 v0.29.0），故不再补「亲密描写标准」。
-    if not _has_standard_example(store_entries):
-        store_entries.insert(0, _standard_example_entry())
     save_world(name, store_entries)
 
     # 2) 角色卡：模板内名单整份重建，world 强制对齐 name。

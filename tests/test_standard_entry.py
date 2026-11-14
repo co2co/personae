@@ -1,8 +1,9 @@
 """亲密尺度「不播种」回归测试（2026-10-21 下架，对齐 v0.29.0，不碰磁盘真实 data/）。
 
 契约（下架后，simon 裁决）：
-  1. 新建世界**不再播种**「亲密描写标准」——save_world([]) → 只剩「写法示范·常驻」。
-  2. 传入用户条目时，**不前置**亲密条；「写法示范·常驻」置于首位，用户条目保持原顺序。
+  1. 新建世界**不再播种**「亲密描写标准」——save_world([]) 存出来就是空列表
+     （2026-11-14 撤净「引擎默认条目」层后，引擎对世界书不再播种任何条目）。
+  2. 传入用户条目时，**不前置**任何条目；用户条目保持原顺序。
   3. 既有磁盘世界（旧版引擎播种过）的「亲密描写标准」条**原样保留**——save/load
      只做覆盖式读写，不主动清理、不重复（引擎改动只影响今后的播种，不回填旧条）。
   4. 引擎不预设亲密尺度：store 不再暴露 _standard_entry / _has_standard_entry /
@@ -42,15 +43,15 @@ def _isolated_store(tmp_path, monkeypatch):
 
 
 def test_new_world_does_not_seed_standard_entry():
-    """新建世界 save_world("W", []) → 不再含「亲密描写标准」，只剩写法示范。"""
+    """新建世界 save_world("W", []) → 空列表原样落盘，引擎不塞任何条目。"""
     store.save_world("新世界", [])
     names = [e["name"] for e in store.load_world("新世界")]
     assert STD_NAME not in names, "下架后引擎不得再播种「亲密描写标准」"
-    assert "写法示范·常驻" in names
+    assert names == [], "引擎不再向世界书播种条目"
 
 
 def test_user_entries_not_prepended_by_standard():
-    """传入用户条目时不前置亲密条；写法示范首位，用户条目保持原顺序。"""
+    """传入用户条目时不前置任何条目：顺序原样、内容原样。"""
     entries = [
         {"name": "自定义", "keys": ["x"], "content": "内容A"},
         {"name": "其它", "keys": ["y"], "content": "内容B"},
@@ -58,9 +59,7 @@ def test_user_entries_not_prepended_by_standard():
     store.save_world("新世界", entries)
     names = [e["name"] for e in store.load_world("新世界")]
     assert STD_NAME not in names
-    assert names[0] == "写法示范·常驻"
-    assert names[1] == "自定义"
-    assert names[2] == "其它"
+    assert names == ["自定义", "其它"]
 
 
 def test_existing_world_legacy_entry_preserved():

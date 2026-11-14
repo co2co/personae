@@ -129,8 +129,7 @@ def test_session_new_returns_player_view(monkeypatch):
     monkeypatch.setattr(app_module.store, "list_characters", lambda: [A, B])
     monkeypatch.setattr(app_module.store, "load_card", lambda n: cards[n])
     monkeypatch.setattr(app_module.memory, "new",
-                        lambda cast, scene_place="", world_name="", scene_time="",
-                        opening_demo="": "sid-test")
+                        lambda cast, scene_place="", world_name="", scene_time="": "sid-test")
     snap = _snap()
     monkeypatch.setattr(app_module.memory, "load", lambda sid: snap)
     monkeypatch.setattr(app_module.memory, "save", lambda sid, s: None)

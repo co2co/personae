@@ -43,19 +43,11 @@ MAIN_FLOW_PROBES = [
     # v0.28.5 删除剧本走剧本级端点（世界书 + 全部角色卡一并删除），不再走旧的 /api/world DELETE
     ("getElementById('w-del').onclick = async", "「删除剧本」按钮绑定"),
     ("'/api/drama/'+encodeURIComponent(name)+'/delete'", "删除剧本调用剧本级删除端点"),
-    # 引擎默认条目来源可见化：分组展示 + 恢复入口 + 折叠开关 + 渲染携带来源标记
-    ("class=\"wb-group engine\"", "世界书页「引擎默认条目」独立分组"),
-    ("id=\"w-entries-engine\"", "引擎条目独立容器（与剧本条目物理隔离）"),
-    ("id=\"w-entries-author\"", "剧本条目独立容器"),
-    ("engineCollapsed = true", "引擎组默认折叠"),
-    ("getElementById('w-engine-restore').onclick = async", "「恢复默认条目」按钮绑定"),
-    ("'/restore-defaults'", "恢复按钮调用恢复端点"),
-    # 恢复默认条目后原地刷新 + 提示框（用户原需退出重进才能看到恢复效果，易误判系统无响应）
+    # 世界书页只剩一组条目（作者自写）：引擎不再向世界书播种条目，故没有引擎分组、
+    # 没有「恢复默认」入口。2026-11-14 撤净，反向断言见 test_worldbook_has_no_engine_default_ui。
+    ("id=\"w-entries-author\"", "世界书条目容器（唯一一组）"),
     ("function showToast", "轻量提示框工具函数"),
-    ("showToast('恢复成功'", "恢复成功弹出提示框"),
-    ("await loadWorld(name)", "恢复后原地刷新世界书，无需退出重进"),
-    ("getElementById('w-engine-toggle').onclick", "引擎默认条目收起/展开绑定"),
-    ("data-origin=", "世界书条目渲染携带来源标记"),
+    ("await loadWorld(DRAFT_WORLD)", "选中剧本后加载其世界书"),
     # 分组后的两条排序约束：跨组拖拽无效、常量段恒定置顶（否则保存重载后位置弹回）
     ("dragSrc.parentElement !== box", "拖拽禁止跨组"),
     ("Math.min(k, constCount) : Math.max(k, constCount)", "常量段恒定置顶：拖拽插入点钳制"),
@@ -204,12 +196,13 @@ class TestFrontendMainFlowBound(unittest.TestCase):
             )
 
     def test_world_entry_ui_preserves_hidden_flags(self):
-        """世界书条目卡片必须回传 origin / demo / first_round。
+        """世界书条目卡片必须回传 demo / first_round。
 
         起因：旧版 entryCard 不渲染、collectWorldEntries 也不回传 demo 与
         first_round，任何一次「保存整份」都会把 demo=true 静默抹掉——条目从
         few-shot 通道退回普通设定注入，无报错、无提示，只能靠对比提示词才发现。
-        这三个字段在界面上没有输入控件，因此必须靠 dataset 原样往返。
+        这两个字段在界面上没有输入控件，因此必须靠 dataset 原样往返。
+        （origin 曾一并往返，随 2026-11-14 撤净「引擎默认条目」层退出保存链路。）
         """
         html = _read_index()
         m = re.search(r"function collectWorldEntries\(\)\s*\{(.*?)\n\}", html, re.S)
@@ -218,12 +211,29 @@ class TestFrontendMainFlowBound(unittest.TestCase):
         for probe, desc in (
             ("el.dataset.demo", "demo 示范标志"),
             ("el.dataset.firstRound", "first_round 首轮标志"),
-            ("el.dataset.origin", "origin 来源标记"),
         ):
             self.assertIn(
                 probe, body,
                 "世界书保存链路丢失%s——界面上没有对应控件，一旦不回传就被永久抹掉" % desc,
             )
+
+    def test_worldbook_has_no_engine_default_ui(self):
+        """反向断言：世界书界面里不再有「引擎默认条目」这一层。
+
+        世界书为剧本服务，不为引擎服务：引擎不往剧本的数据文件里塞自己的条目，
+        也就不需要「哪条是系统给的」「删了会不会补回来」这类界面概念。
+        一旦这些标识重新出现，说明播种层或恢复入口被悄悄带回来了。
+        """
+        html = _read_index()
+        for absent, desc in (
+            ("w-entries-engine", "引擎条目容器"),
+            ("w-engine-restore", "「恢复默认」按钮"),
+            ("w-engine-toggle", "引擎组折叠开关"),
+            ("badge-engine", "「引擎默认」徽标"),
+            ("restore-defaults", "恢复端点调用"),
+            ("data-origin", "条目来源标记渲染"),
+        ):
+            self.assertNotIn(absent, html, "世界书界面重新出现了%s" % desc)
 
     def test_world_entry_priority_preserved_on_save(self):
         """保存世界书不得无条件重算 priority（2026-10-23 修）。
@@ -234,7 +244,7 @@ class TestFrontendMainFlowBound(unittest.TestCase):
         其实分毫未动。更隐蔽的是：界面上没有 priority 控件，作者根本看不出
         自己的注入次序被改写了。
 
-        修法与 demo / first_round / origin 一致：priority 也走 dataset 原样往返；
+        修法与 demo / first_round 一致：priority 也走 dataset 原样往返；
         顺序真变了（拖拽落位、勾选常量导致移段）由 renumberGroup 在改动现场
         就地重排。本测试锁住四条链路，任何一环断掉都会让「无条件重排」复活。
         """

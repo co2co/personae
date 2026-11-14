@@ -74,8 +74,8 @@ def test_export_shape_and_membership(data):
     assert [c["name"] for c in tpl["characters"]] == ["甲角", "甲角2"]
     # 扩展字段随卡原样保留
     assert next(c for c in tpl["characters"] if c["name"] == "甲角2")["extensions"] == {"avatar": "a.png"}
-    # 2026-10-21 下架亲密尺度（对齐 v0.29.0）：save_world 不再播种「亲密描写标准」，
-    # 故新建剧本导出的 world 条目不含该条（写法示范·常驻仍播种，见 test_standard_entries）。
+    # 2026-10-21 下架亲密尺度（对齐 v0.29.0）：save_world 不再播种「亲密描写标准」；
+    # 2026-11-14 起引擎对世界书不再播种任何条目（见 test_no_engine_default_entries.py）。
     assert "亲密描写标准" not in [e.get("name") for e in tpl["world"]["entries"]]
 
 

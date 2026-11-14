@@ -53,9 +53,8 @@ def client(monkeypatch):
     # memory.new / director 的 LLM 路径全部短路
     made = {}
 
-    def fake_new(cast, scene_place="", world_name="", scene_time="", opening_demo=""):
+    def fake_new(cast, scene_place="", world_name="", scene_time=""):
         made["cast"], made["world"] = list(cast), world_name
-        made["opening_demo"] = opening_demo
         return "sid_test"
 
     monkeypatch.setattr(engine_app.memory, "new", fake_new)
@@ -125,14 +124,18 @@ def test_session_new_uses_explicit_world(client):
     assert made["cast"] == ["甲", "乙"]
 
 
-def test_session_new_opening_demo_always_system_default(client):
-    """v1.2.3：写法示范不再让玩家自定义，恒用引擎中性默认（即便请求体传了也忽略）。"""
+def test_session_new_takes_no_opening_demo(client):
+    """2026-11-14 开局示范随「引擎默认条目」层撤净：请求体里的 opening_demo 无处可去。
+
+    fake_new 的签名已不含 opening_demo 形参——若 app.py 还在往下传，这里就是 TypeError
+    （500），所以「200 + 没记到 opening_demo」本身就是守卫。
+    """
     c, made = client
     r = c.post("/api/session/new", json={
         "cast": ["甲", "乙"], "scene": "客厅", "world": "世界一",
         "opening_demo": "*我恐惧地张望*"})
     assert r.status_code == 200, r.get_json()
-    assert made["opening_demo"] == store._FIRST_ROUND_DEMO
+    assert "opening_demo" not in made
 
 
 def test_session_new_rejects_cross_world_cast(client):

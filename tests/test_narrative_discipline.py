@@ -99,7 +99,8 @@ def test_example_drama_carries_lens_discipline():
     """下沉的落地检查：随包范例世界书确实带着镜头轮换纪律条。
 
     引擎删掉一段措辞时最坏的情况是「引擎不再说、也没人接」——本用例锁住接盘方。
-    该条归作者（origin 不是 engine），所以不会被 restore-defaults 强行补回。
+    该条归作者：2026-11-14 撤净「引擎默认条目」层后，引擎既不播种也不补任何条目，
+    这条只能由剧本自己带着——所以「没人接」的风险全在世界书里，不在引擎里。
     """
     worlds = ENGINE / "data" / "examples" / "worlds"
     files = sorted(worlds.glob("*.json"))

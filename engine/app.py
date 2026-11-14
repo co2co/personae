@@ -45,26 +45,6 @@ RECENT_FOR_SCAN = 4  # 世界书条目未设 depth 时的默认回看窗口（�
 WORLDBOOK_SCAN_WINDOW = 60  # 传给世界书扫描的历史窗口上限；depth 在 1..60 内真实可调，>60 等同 60
 
 
-def speaker_segment(text, name, others):
-    """从多说话人回复里提取 name 的台词段落。
-
-    格式约定为「角色名：台词」（见 prompter.build_session）。遇到其他角色的
-    「X：」开头行即停止收集。找不到则返回空串，调用方应回退到整段回复。
-    """
-    head = name + "："
-    stops = [o + "：" for o in others]
-    out, active = [], False
-    for ln in text.split("\n"):
-        if ln.startswith(head):
-            active = True
-            out.append(ln[len(head):].lstrip())
-        elif active:
-            if any(ln.startswith(p) for p in stops):
-                break
-            out.append(ln)
-    return "\n".join(out).strip()
-
-
 def _scene_change_payload(changed, prop, snap):
     """把场景切换结果整理成前端可读的结构。changed 必为 True。"""
     prop = prop or {}
@@ -285,23 +265,6 @@ def save_world_route(name):
     except Exception as exc:
         return jsonify({"error": str(exc)}), 400
     return jsonify({"ok": True, "name": name})
-
-
-@app.post("/api/world/<name>/restore-defaults")
-def restore_world_defaults(name):
-    """补回被删除的引擎默认条目（写法示范·常驻）。
-
-    亲密尺度不由引擎播种（2026-10-21 下架，对齐 v0.29.0），故此处不再补「亲密描写
-    标准」。只补缺失、不覆盖已有：作者改过的默认条目内容不动，需要重置某条时先删
-    再恢复。返回 {"added": [...], "present": [...]}，前端据 added 提示恢复了哪几条。
-    """
-    try:
-        result = store.restore_default_entries(name)
-    except Exception as exc:
-        return jsonify({"error": str(exc)}), 400
-    if result is None:
-        return jsonify({"error": f"世界不存在: {name}"}), 404
-    return jsonify({"ok": True, "name": name, **result})
 
 
 @app.post("/api/import/from-script")
@@ -547,11 +510,9 @@ def session_new():
     # 旧实现整体塞进 place、time 恒空，时间锚丢失后正文只能靠世界书反向脑补时间
     # （一次真实事故）。拆分后前端「场景：{place}（{time}）」展示保持不变。
     scene_place, scene_time = scene.parse_initial_scene(scene_raw)
-    # 开局写法示范由引擎静默使用中性默认：它是「怎么写」的格式范例，不作为使用者输入。
-    opening_demo = store._FIRST_ROUND_DEMO
     try:
         sid = memory.new(cast, scene_place=scene_place, world_name=world_name,
-                         scene_time=scene_time, opening_demo=opening_demo)
+                         scene_time=scene_time)
     except Exception as exc:
         logger.error("session", "创建会话失败：" + repr(exc))
         return jsonify({"error": str(exc)}), 500
@@ -670,11 +631,6 @@ def act():
                                  include_secret=True, round=brief["round"])
         # 写法示范条目（demo）单独拆出：它们是「怎么写」的 few-shot 范例，不混入世界设定
         demo_hits = [e for e in hits_all if e.get("demo")]
-        # 开场示范（first_round 条目）：首轮（round==1）时从快照注入，置于常驻示范之前；
-        # 之后轮次不再出现（开场示范只注入一次）。
-        if brief["round"] <= 1 and (snap.get("opening_demo") or "").strip():
-            demo_hits = [{"name": store.FIRST_ROUND_DEMO_NAME, "content": snap["opening_demo"],
-                          "demo": True, "first_round": True}] + demo_hits
         world_hits = [e for e in hits_all if not e.get("secret") and not e.get("demo")]
         before_hits = [e for e in world_hits if e.get("position", "before") == "before"]
         after_hits = [e for e in world_hits if e.get("position", "before") == "after"]

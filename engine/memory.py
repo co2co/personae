@@ -21,7 +21,7 @@ def _new_id():
     return uuid.uuid4().hex[:8]
 
 
-def new(cast, scene_place="", world_name="", scene_time="", opening_demo=""):
+def new(cast, scene_place="", world_name="", scene_time=""):
     """开启一个沙盘世界。cast 为在场的 NPC 角色卡列表。
 
     环境推手（导演）不登场、不说话，只通过本轮指令扰动世界，因此不进入 present。
@@ -72,8 +72,6 @@ def new(cast, scene_place="", world_name="", scene_time="", opening_demo=""):
         # same_scene 已删（2026-11-08）：它只为旧版「停够三轮就强制推进时间」服务，
         # 那条强制规则已撤——引擎不再伪造时间流逝。
         "scene": {"place": scene_place, "time": scene_time, "weather": "", "round": 0},
-        # 开局写法示范：由引擎静默注入的中性格式范例。首轮 act 时注入一次，之后不再出现。
-        "opening_demo": (opening_demo or "").strip(),
         "relations": relations,
         "secrets": secrets,
         "ledger": [],

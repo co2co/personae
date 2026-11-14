@@ -40,7 +40,7 @@ GUARD_FILES = {"test_universality.py"}
 # 其余文件亦持有黑名单（校验出厂标准条 / 出厂写手不含具体名与题材词），属正当引用
 # 前缀「_」为一次性工具脚本（压测探针等），跑完即删、不入库，绑定真实卡组是它们的用途本身
 ALLOW_FILES = GUARD_FILES | {"test_intimacy_scale.py", "test_standard_entry.py",
-                             "test_standard_example.py", "test_writer_persona.py"}
+                             "test_writer_persona.py"}
 
 # ── 引擎非 .py 分发面扫描（与 package.py 排除口径对齐）──
 # 引擎源码 .py 已由上面的 test_engine_source_has_no_hardcoded_character_names 覆盖；

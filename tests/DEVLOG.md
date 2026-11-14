@@ -10,6 +10,75 @@
 
 ---
 
+## 2026-11-14 版本 v2.6.0（发版记账）：撤净「引擎默认条目」层，正文定形小说体散文
+
+> 版本号取 MINOR。判据：撤下去的是用户可见能力面（世界书「引擎默认条目」分组、「恢复默认」端点、开局写法示范的自动注入），且叙事正文的形式口径从「角色名：」分行体改成小说体散文——两头都是使用者能感知的变化；而角色卡 / 世界书 / 会话 JSON 只减字段不增字段（世界书条目不再读写 `origin`，新会话快照不再有 `opening_demo` 键），旧会话照旧可读，故不用 MAJOR 也不用 PATCH。
+
+- 本版两块改动：「同日第二轮：撤净写法示范·开局 + 正文定形小说体散文」与「撤净『引擎默认条目』层」，开发过程各见其下条目。
+- VERSION：`engine/VERSION` `v2.5.0` → `v2.6.0`。
+- 测试：`tests\venv\Scripts\python.exe -m pytest -q -p no:cacheprovider` → **320 passed / 1 skipped / 1 deselected**，退出码 0 [实测]；前端绑定沙箱 `node tests\_frontend_binding_check.js` → **>>> ALL PASS**，退出码 0 [实测]。
+  - 本轮内两步对比：撤「引擎默认条目」层后 316 passed → 第二轮（开局示范 + 小说体）后 320 passed。净 +4 = `test_no_engine_default_entries.py` 三条开局示范反向守卫与一条 `first_round` 通道用例（同时撤掉 `test_first_round_demo_still_available`，净 +3）+ `test_director.py` 一条小说体惰性守卫 [实测 来源:两次 pytest 计数行]。
+  - 改前同口径基线仍未取（[未测]），可参照 v2.5.0 发版记账的 325 passed。
+- 数据兼容（不迁移、不回填）：`engine/data/sessions/` 下 10 份旧 `snapshot.json` 仍带 `opening_demo` 键，引擎已不读该键，旧会话继续可读 [实测 来源:全仓 rg 命中清单]。
+- 私有数据备份（gitignore 目录，git 回滚不到，故单独列）：`engine/data/worlds/终局曙光.json.bak_engine_defaults_20261114`、`dramas/深夜寄宿/world.json.bak_20261114`、`dramas/深夜寄宿/README.md.bak_20261114`。
+- 分发包：`dist/personae-v2.6.0.zip`（32 条目，230,923 字节 / 225.5 KB，sha256 前 16 位 `446815574ced4a31`），命令 `python package.py --skip-demo-check` [实测]。
+  - 为什么仍跳守卫：本机 `dramas/` 作者源与随包 demo 不是同一份剧本，`scripts/sync_drama.py check` 会拿那份剧本比对报差异、`install` 更会把不相干数据写进入库 demo，故不 install、只跳守卫，改用包内校验代替（口径沿用 v2.5.0）。
+  - 包内校验（读 zip，实测）：条目 32 项；无 `data/characters|worlds|sessions` 运行时数据、无 `venv`/`tests`/`__pycache__` 泄漏；`engine/data/config.json` 已洗白（`base_url`/`model` 空、`providers: []`、采样参数出厂值、**无 `writer` 键**——缺该字段时 `writer_cfg()` 自动回退出厂写手）；随包 demo = 世界书 1 本 **20 条**（全部 `demo=false`、priority 阶梯从 95 起、无一处 `origin` 字段）+ 角色卡 6 张；`engine/data/examples/script-example.txt` 已无【常量-写法示范】行；`engine/VERSION` = v2.6.0。
+  - 泄漏与残留扫描（实测）：包内 32 个文本条目对作者实验剧本的剧本名与四名角色名零命中；`git grep` 扫全 `engine/`，已删符号（`STANDARD_EXAMPLE` / `ORIGIN_ENGINE` / `restore_default_entries` / `FIRST_ROUND_DEMO` / `speaker_segment` / `opening_demo` / `restore-defaults`）只剩 `engine/store.py:213` 一处说明性注释，无任何可执行引用。
+  - 旧包纪律：`dist/` 各包一律保留、未覆盖旧包；`dist/` 已 gitignore（`.gitignore:18`），分发包只在本机与 GitHub Release 上，不入库。
+- 本版一个提交：两块改动的文件交织在同一批路径里（`prompter.py` / `app.py` / `store.py` / `memory.py` 与各测试），拆成两个提交会互相引用未定义的符号，故不拆。
+- 外部动作：simon 已放行外发。改动提交在本地 master 并打 tag `v2.6.0`，推送 `origin`（master + 该 tag）与 GitHub Release（挂分发包）随本轮执行，命令与退出码记在下面的「外发执行」条目里。
+- 作者源自带写手条目已裁决删除：`dramas/深夜寄宿/world.json` 里那条 `constant=true / position=after / priority=100` 的「写手」是 v2.4.0 之前写手寄在世界书的旧承载位（v2.5.0 起写手已进 `config.json` 的 writer 面板、恒定渲染在 system 头部），留着即双份写手人设——已删，条目 15 → 14，其余 14 条逐字段读回比对全等，改前备份 `world.json.bak2_20261114` [实测]。随包 demo「终局曙光」实测本就没有该条目，两边现在一致。
+
+---
+
+## 2026-11-14 同日第二轮：撤净「写法示范·开局」，正文定形小说体散文（已随 v2.6.0 发版）
+
+> 触发：simon 裁决——「引擎默认条目」实质已清空，位置本身没必要留；连走会话快照通道的开局示范一起撤，以后正文一律用小说体散文推演。这条与上一轮同源：世界书为剧本服务，不为引擎服务，引擎也不该在会话快照里塞自己的文本。
+
+- **开局示范是引擎侧最后一份自带文本，本轮撤净**：
+  - `engine/store.py`：删 `FIRST_ROUND_DEMO_NAME` / `_FIRST_ROUND_DEMO`；原注释改写为实况（两份示范档均已撤，撤除理由与普适性红线上指播种注释，`demo` / `first_round` 分流通道保留，分流见 `world.py`）。
+  - `engine/memory.py`：`new()` 去掉 `opening_demo` 形参与快照字段，新会话快照不再有该键。
+  - `engine/app.py`：`session_new` 不再取/传 `opening_demo`；`act()` 删首轮把开局示范 prepend 进 `demo_hits` 的整块，`demo_hits` 现在只来自 `world.scan` 命中的作者自建 demo 条目；顺带删零调用点的死函数 `speaker_segment`（全仓实测：只有 DEVLOG 一处历史提及，无调用点）。
+- **`[输出格式]` 整段替换为小说体散文**：以第三人称叙述为主体，人物说的话融在叙述里（用引号或「」标出，前后接动作、神态与场景），明确禁止「角色名：」起段的剧本分行体与逐行列台词；`present_clause`（名册约束 + 不写环境推手台词）原位保留；`WRITER_GUARD`、分场措辞（「不给整段来回交锋的对白」）、`[输出纪律]` 末句、「分层」注释同步改口径。
+- **这条形式口径是第二次来回，本轮定形并留证**：`tests/test_prompter.py:162` 记着 v0.16.1 为修 5 处机制加过 `[分段格式]`，simon 亲测正文观感明显下降 → v0.17.0 撤；v2.0.0 又把「角色名：」带回。两个方向都实测过代价：分行体能修机制但把正文压成「一人一句 + 静止收束」的流水账；锚点松掉又退化成散文式对白（v2.1.0 首版丢掉「台词」二字时 r03/r05/r06 实测退化）。小说体散文是第三次定形，`test_roster.py` 现断言 `用小说体散文写这一轮` 与 `不要写成「角色名：」起段的剧本分行体` 两条锚点，防再来回。
+- **降级守卫在小说体下必须惰性**：`director.validate_present` 靠行首 `^(名字)\s*[:：]` 认说话人，小说体正文没有这个锚点，因此不该剥一个字。docstring 已按实况改写（它只在模型漂移回分行体时兜底剥幽灵角色 / 串剧本台词），`test_director.py` 新增 `test_validate_present_prose_has_no_anchor_passthrough`：喂一句含未入册名字的小说体正文，断言 `violated is False` 且逐字原样返回。
+- **测试**：`test_no_engine_default_entries.py` 把 `test_first_round_demo_still_available` 换成三条反向守卫（store 不再暴露开局示范符号、`inspect.signature(memory.new)` 无该形参、新建快照无该键），另加 `test_author_first_round_demo_only_on_round_one` 守作者自建 `first_round` 条目（round=1 纳入、round=2/7 不纳入）；`test_setup_world_picker.py` 的 `test_session_new_opening_demo_always_system_default` 改为反向守卫 `test_session_new_takes_no_opening_demo`（fixture `fake_new` 已无该形参，app 若还往下传就是 500，200 本身就是守卫）；`test_player_view.py` 的 mock 去掉多余形参；`test_prompter.py` docstring 补实况。
+  - 新增用例首轮被自家红线拦下：`test_universality.py` 的普适性红线报 `test_director.py 含「老周」「陈默」`，因为那句小说体样例正文借了禁用剧本角色名。已换成中性占位名复跑通过——红线生效，属预期拦截，不是红线误伤 [实测]。
+- **作者侧数据（本机，不入库）**：`dramas/深夜寄宿/world.json` 删「写法示范·常驻」并剥净全部 `origin`（3 处，其中 1 处随该条一起消失）→ 条目 16 → 15；其余 15 条按 content 长度 / priority / position / constant / enabled / secret / character / keys 逐字段读回比对，全部 SAME [实测]。`README.md` 里「engine 播种、剧本内回填带 origin」那句改成实况。改前各落 `.bak_20261114`。
+  - 同日追加裁决：又删该剧本里残留的「写手」世界书条目（旧承载位，与 system 头部写手人设重复）→ 条目 15 → 14，其余 14 条同口径逐字段比对仍全部 SAME、全文 `origin` 命中 0 [实测]；改前另落 `world.json.bak2_20261114`。
+- **退役脚本**：`tests/_resync_engine_defaults.py`、`tests/_probe_exec_std.py`、`tests/_probe_restore_toast.js`、`tests/_diag_writer_sync.py`、`tests/_probe_prompt_ab4.py` 五份先备份后删（全部未入库，实测各自引用已删符号：`STANDARD_EXAMPLE*` / `ORIGIN_ENGINE` / `/restore-defaults` / `WRITER_ENTRY`），删后实测 0 残留；本轮自己新建的一次性清理脚本同批删除。备份目录 `%TEMP%\personae-scratch-retired-20261114\`。
+
+---
+
+## 2026-11-14 撤净「引擎默认条目」层：引擎不再向世界书播种任何条目（已随 v2.6.0 发版）
+
+> 触发：simon 实测——把世界书里的「写法示范·常驻」删掉后，推演出来的叙事正文故事性明显更强。裁决理由不是「这条写得不好」，而是归属错位：世界书为剧本服务，不为引擎服务，引擎不该在剧本的数据文件里留自己的东西，界面也不该再问「这条是系统的还是我写的、删了会不会补回来」。
+
+- **先把证据立住（探针件不入库，跑完即删）**：装配实测走 `store.load_world` → `world.scan` → 与 `app.py` 同款拆分 → `prompter.build_session`（随包 demo「终局曙光」21 条、R6 形态、无历史）：
+  - 带这条时 `[写法示范]` 块落在 system 块 **85.4%** 处（`[输出格式]` 之后、`[输出纪律]` 之前的倒数第二块），178 字；撤掉后 scan 命中 7 → 6，整份提示词 3440 → 3260 字 [实测]。
+  - 撤掉后整份提示词里 `字数`/`篇幅`/`长度` 计数**均为 0**——这条示范是全 prompt 里唯一的具体范例，也就是每轮正文的事实长度与事实节奏；`prompter.py` 还挂着一句「照着它的风格与节奏写」的近因命令 [实测]。
+  - 它示范的节奏恰好是故事性最差的那种：出厂正文是「一人一句 + 静止收束」（`store._STANDARD_EXAMPLE_CONTENT` 五句），零决定、零转折、零后果留痕。普适性红线（`test_universality.py`）要求出厂示范不得含剧本专名与题材词、只能用「角色甲/角色乙」占位，于是它示范得出形状、示范不出张力，改写正文救不回来——这是撤它而不是改它的根因。
+- **撤除范围**：
+
+| 位置 | 改动 |
+| --- | --- |
+| `engine/store.py` | 删 `ORIGIN_ENGINE` / `STANDARD_EXAMPLE_NAME` / `_STANDARD_EXAMPLE_CONTENT` / `_standard_example_entry()` / `_has_standard_example()` / `restore_default_entries()`；`save_world` 去掉首建播种（改为纯覆盖写），`import_drama` 去掉补种 |
+| `engine/app.py` | 删端点 `POST /api/world/<name>/restore-defaults` |
+| `engine/static/index.html` | 删「引擎默认条目」分组（`w-entries-engine` / `w-engine-toggle` / `w-engine-restore` / `w-engine-count` / `w-engine-note`）、`.entry.engine` 与 `.badge-engine` 样式与徽标、`entryCard` 的 `isEngine`/`data-origin`、`collectWorldEntries` 的 `origin` 回传、`engineCollapsed` 与两组拖拽列表；i18n 清 12 个死键 + 2 个 `I18N_BLOCKS` 对 + 1 条 `I18N_PATTERNS`（`/^引擎默认$/`） |
+| 数据 | `engine/data/examples/worlds/终局曙光.json` 与运行态 `engine/data/worlds/终局曙光.json` 各删该条目：21 → 20 条（写后读回复核 20）。examples 里该条原占 priority 100，撤后阶梯从 95 起，空位不影响注入语义 |
+| 随包文档 | `engine/data/examples/script-example.txt` 删【常量-写法示范】整行（55 → 54 行；该行原称「引擎内置…随会话自动注入」，现已不成立） |
+| 注释改正 | `engine/prompter.py` 两处注释对这条的字段记载是错的（旧写 `constant + position=before + priority 100`、并称镜头纪律已并入其正文；实际 `constant=false / priority=60`，正文不含镜头措辞），本轮按实况改写并留一句认错 |
+
+- **有意保留（其中①已于同日第二轮撤除，见上条）**：① 「写法示范·开局」走会话快照通道（`session_new` 写 `snap.opening_demo`，首轮 act 注入一次），它不是世界书条目、只在历史为空那一刻起作用——**同日第二轮裁决连它一起撤**，理由是「引擎默认条目」实质已清空，快照通道同样是为引擎服务的自留地；② `demo` / `first_round` 分流通道与 `[写法示范]` 渲染块保留（至今保留），作者想给本剧一个写法锚点，正路是在本剧世界书自建一条 demo 条目——那时它是剧本资产，不是引擎副本；③ 前端仍原样往返 `demo` / `first_round`（界面上无控件的字段一旦不回传就会被静默抹掉，这条教训不变）。
+- **数据兼容边界沿用**：引擎读写都不看 `origin`，既有磁盘剧本里残留的 `origin="engine"` 与旧条目原样保留，不回填、不清理；前端下次保存会自然抹掉该字段。私有运行态改动前已备份：`engine/data/worlds/终局曙光.json.bak_engine_defaults_20261114`（该目录 gitignore，git 回滚不到）。
+- **测试**：删 `test_standard_example.py`（7 用例）与 `test_standard_entries.py`（13 用例，含 HTTP 恢复端点）；新增 `test_no_engine_default_entries.py`（10 用例：播种符号全撤、`save_world`/`import_drama` 纯覆盖、旧条目原样保留、作者自建 demo 条目往返且走独立通道不占配额、恢复端点 404）；改 `test_standard_entry.py`（不再断言「只剩写法示范」）、`test_writer_persona.py`（去掉 `restore_default_entries` 调用，改断言该入口不存在）、`test_frontend_binding.py`（删引擎分组探针，新增反向断言 `test_worldbook_has_no_engine_default_ui`）、`test_universality.py`（`ALLOW_FILES` 去掉失效文件名）、`test_drama_io.py` 与 `test_narrative_discipline.py`（两处说法收尾）、`tests/_frontend_binding_check.js`（改为断言 `origin` 不再回传）。
+  - 全量 `tests\venv\Scripts\python.exe -m pytest -q` → **316 passed / 1 skipped / 1 deselected**，退出码 0 [实测]；前端绑定沙箱 `node tests\_frontend_binding_check.js` → **>>> ALL PASS**，退出码 0 [实测]（含新增的「origin 不再回传」断言）。
+  - 本轮**未取改前同口径基线**（改前基线 [未测]，可参照 v2.5.0 发版记账的 325 passed；本轮用例净增减为 -7 -13 +10 +1，另有若干断言就地改写，数量不变）。
+- **当时的四条待裁（同日第二轮已全部裁决，处置见「版本 v2.6.0」与「同日第二轮」两条）**：① 版本号——已升 MINOR `v2.6.0`，判据与发版记账见上；② 本机作者源 `dramas/深夜寄宿/world.json` 仍带「写法示范·常驻」与 `origin=engine`（该目录不入库，日后 `scripts/sync_drama.py install` 会把这条重新铺进运行态与随包 demo）——已清：删该条（条目 16 → 15）并剥净 `origin`，改前备份 `world.json.bak_20261114`；③ 未入库一次性脚本（`.gitignore: tests/_probe*` 等，pytest 不收集）仍引用已删符号、跑即报 AttributeError——已退役 5 份：`tests/_resync_engine_defaults.py`（`STANDARD_EXAMPLE_NAME` / `_STANDARD_EXAMPLE_CONTENT` / `ORIGIN_ENGINE`）、`tests/_probe_exec_std.py`（两处 `origin: store.ORIGIN_ENGINE`）、`tests/_probe_restore_toast.js`（整份以 `/restore-defaults` 为断言对象）、`tests/_diag_writer_sync.py`、`tests/_probe_prompt_ab4.py`（后两份引用更早已撤的写手条目符号，同一失效模式）；先备份到 `%TEMP%\personae-scratch-retired-20261114\` 再删；④ 随包官方 demo 现在全部条目 `demo=false`——few-shot 通道在出厂剧本里没有任何示范条目，这是本次裁决的预期结果，作为事实记录保留。
+
+---
+
 ## 2026-11-12 版本 v2.5.0（发版记账：执笔写手落地）
 
 > 版本号取 MINOR。判据：新增用户可见能力面（系统设置「执笔写手」面板 + `config.json` 新增 `writer` 字段 + 新端点 `GET /api/writer`），数据文件形状未变（角色卡 / 世界书 / 会话 JSON 照旧，旧会话可继续读），作者侧只多了一个可选面板，故不用 MAJOR 也不用 PATCH。

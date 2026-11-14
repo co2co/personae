@@ -195,8 +195,9 @@ def test_api_writer_route(no_config_writer):
 def test_worldbook_does_not_seed_writer(tmp_path, monkeypatch):
     """写手不进世界书：master 从未播种过，也不许未来「补种」回来。
 
-    世界书里的引擎默认条目是每本剧本各存一份的引擎政策副本，撤掉分流后还会退回
-    末尾【世界设定·当前环境】。写手走 config，不进这一层。
+    写手走 config，世界书这一层只装作者设定。2026-11-14 起「引擎默认条目」层已整体
+    撤除（store 既无播种也无恢复入口），所以这里守的是反向：世界书里就是作者给的那些条目，
+    引擎不留任何往剧本数据里补条目的通道。
     """
     d = tmp_path / "data"
     (d / "worlds").mkdir(parents=True)
@@ -204,9 +205,8 @@ def test_worldbook_does_not_seed_writer(tmp_path, monkeypatch):
     store._cache.clear()
     store.save_world("甲剧本", [{"name": "自定设定", "content": "x"}])
     names = [e.get("name") for e in store.load_world("甲剧本")]
-    assert "写手" not in names
-    store.restore_default_entries("甲剧本")
-    assert "写手" not in [e.get("name") for e in store.load_world("甲剧本")]
+    assert names == ["自定设定"], "引擎不得向世界书插入任何条目"
+    assert not hasattr(store, "restore_default_entries"), "引擎不得再有向世界书补条目的入口"
     store._cache.clear()
 
 
