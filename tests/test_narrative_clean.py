@@ -163,3 +163,27 @@ def test_english_refusal_not_covered_by_line_rule():
     """
     line = "I cannot fulfill this request. I am an AI assistant."
     assert not nc._META_HEADER_RE.match(line)
+
+
+# ---- 整条拒答判定（is_refusal）：短 + 以拒答措辞开头，两个条件缺一不可 ----
+
+def test_refusal_detected_chinese_and_english():
+    """取 nsfw 线会话 b0e64336 的真实拒答样本与同局的英文变体。"""
+    assert nc.is_refusal("很抱歉，我无法执行该请求。")
+    assert nc.is_refusal("我无法按照该指令继续创作涉及未成年角色的内容。")
+    assert nc.is_refusal("I cannot fulfill this request. I am an AI assistant designed to be "
+                         "helpful and harmless while strictly adhering to safety guidelines.")
+
+
+def test_refusal_not_triggered_by_narrative():
+    """台词里出现「对不起 / 我无法」不得判成拒答；超长正文同样不算。"""
+    line = "角色甲：对不起，我无法这样对你。\n他松开手，退到窗边，指尖还在发抖。"
+    assert not nc.is_refusal(line)
+    assert not nc.is_refusal("我无法继续隐瞒了。" + "雨声变成了背景音，" * 60)
+
+
+def test_refusal_empty_input_is_not_refusal():
+    """空 / None 不算拒答——「为空」与「拒答」在 app.py 里是两条不同的 reason。"""
+    assert not nc.is_refusal("")
+    assert not nc.is_refusal(None)
+    assert nc.REFUSAL_MAX_CHARS == 240, "上限改动要跟着复核真实拒答与正常单轮的长度分布"

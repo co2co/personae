@@ -45,6 +45,34 @@ _TRAILING_CUTOFF_RE = re.compile(
     r"^\s*(?:【?\*?\*?)?(?:后果留痕|下一回合预览|下一轮预览|关系改写|注意[：:])\b"
 )
 
+# 整条拒答判定用：正文里夹一句「抱歉，你别这样」是正常台词，绝不能当拒答；
+# 真正的拒答特征是整条很短、且以拒答措辞开头。中英都要覆盖——实测同一模型
+# 同一局里既吐「很抱歉，我无法执行该请求。」，也吐
+# 「I cannot fulfill this request. I am an AI assistant designed to be…」，
+# 只配中文正则会把后者整条放行落盘。
+_REFUSAL_HEAD_RE = re.compile(
+    r"^\s*(?:【?\*?\*?)?(?:"
+    r"(?:很|非常|实在|真|十分)?抱歉|对不起|我无法|我不能|我无法完成|恕(?:我|难)|"
+    r"作为\s*(?:一个)?\s*(?:AI|人工智能|语言模型)|"
+    r"i\s*(?:cannot|can’t|can't|am\s+unable|’m\s+unable|’m\s+not\s+able)|"
+    r"as\s+an?\s+ai\b|this\s+request\s+violates"
+    r")",
+    re.IGNORECASE,
+)
+
+# 整条拒答的长度上限：超过它就认定「模型确实写了正文」，开头的拒答句交给
+# _META_HEADER_RE 逐行剥离，不做整条判废。取值 240 字：nsfw 线实测真实拒答 13～204 字，
+# 正常叙事单轮中位 900+ 字，两者之间留得出安全间隙。
+REFUSAL_MAX_CHARS = 240
+
+
+def is_refusal(text):
+    """整条回复是否为模型拒答。正文里出现「抱歉」不算，必须短且以拒答措辞开头。"""
+    s = (text or "").strip()
+    if not s or len(s) > REFUSAL_MAX_CHARS:
+        return False
+    return bool(_REFUSAL_HEAD_RE.match(s))
+
 
 # 模型以「导演引擎」自居并自我说明的整句。只锁这一个老措辞：它出现在正文里必然是元信息
 # （对白不会自称「关系推演沙盘的导演引擎」），零误伤；而「我将 / 鉴于」式整句删除会连

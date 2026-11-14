@@ -142,3 +142,102 @@ def test_generate_once_requires_explicit_messages():
     params = [p.strip() for p in m.group(1).split(",")]
     assert len(params) >= 3, "_generate_once 应显式接收提示词列表，实际参数 %s" % params
     assert "llm.stream(messages" not in src, "llm.stream 不得再闭包读 messages"
+
+
+# ================= 拒答 / 空正文回路（移植 nsfw 线 c4537c4）=================
+# 整条拒答一旦落进正式历史，就作为 assistant 轮常驻上下文，变成后续轮次的拒答范例；
+# 实测一次拒绝往往演变成连锁拒绝。所以「生成 → 净身 → 有没有正文 → 重试」必须连成一体的
+# 回路，且重试要带上上一版被拦下的原因（同一请求原样重打等于没重试）。
+
+_REFUSAL_ZH = "很抱歉，我无法执行该请求。"
+_REFUSAL_EN = ("I cannot fulfill this request. I am an AI assistant designed to be "
+               "helpful and harmless while strictly adhering to safety guidelines.")
+_META_ONLY = "**警告：根据系统安全准则，我不能生成该内容。**"
+
+
+def _assistant_texts(sid):
+    return [m.get("content", "") for m in memory.load_chat(sid) if m.get("role") == "assistant"]
+
+
+def test_chinese_refusal_is_retried_and_never_persisted(sid, monkeypatch):
+    """中文整条拒答：不落盘、自动重试一次，第二轮正文照常交付。"""
+    calls = _stub_stream(monkeypatch, [[_REFUSAL_ZH], [_GOOD]])
+    events = _act(sid)
+
+    assert len(calls) == 2, "首轮是拒答，应当重试一次"
+    assert not [e for e in events if "error" in e]
+    done = [e for e in events if e.get("done")]
+    assert done and done[0]["reply"] == _GOOD
+    texts = _assistant_texts(sid)
+    assert texts == [_GOOD], "拒答句不得进历史：" + repr(texts)
+    assert any(e.get("status", "").startswith("模型本轮未交付正文") for e in events), \
+        "重试要在前端给一条状态提示，否则用户只看到一段拒绝后又换成正文"
+
+
+def test_english_refusal_is_retried(sid, monkeypatch):
+    """英文整条拒答同样要拦：只配中文正则会把它整条放行落盘。"""
+    calls = _stub_stream(monkeypatch, [[_REFUSAL_EN], [_GOOD]])
+    events = _act(sid)
+    assert len(calls) == 2
+    assert _assistant_texts(sid) == [_GOOD]
+
+
+def test_body_stripped_to_empty_is_retried(sid, monkeypatch):
+    """只剩元标题、被净身剥成空串同样要重试——放行会在历史里留一条空 assistant 轮。"""
+    calls = _stub_stream(monkeypatch, [[_META_ONLY], [_GOOD]])
+    _act(sid)
+    assert len(calls) == 2
+    assert _assistant_texts(sid) == [_GOOD]
+
+
+def test_retry_prompt_carries_previous_reason(sid, monkeypatch):
+    """重试必须给模型新信息：提示词里带上上一版未通过的原因与那句拒绝的开头。"""
+    calls = _stub_stream(monkeypatch, [[_REFUSAL_ZH], [_GOOD]])
+    _act(sid)
+    first, second = _blob(calls[0]), _blob(calls[1])
+    assert "上次未通过的原因" not in first
+    assert "上次未通过的原因" in second
+    assert _REFUSAL_ZH in second, "要把模型自己写的那句话回喂，比只说「重试一次」有效"
+    assert _DIRECTIVE in second, "重试只换提示词，本轮导演指令不得丢"
+
+
+@pytest.mark.parametrize("refusal, want_reason", [
+    # 单句中文拒答先被净身的行规则剥空 → 走「净身后为空」；
+    # 英文拒答不在行规则里、整句留下 → 走 is_refusal 的「整条拒绝应答」。
+    # 两条都拦下重试，但日志与回喂文案不同，故分开锁。
+    (_META_ONLY, "经净身后为空"),
+    (_REFUSAL_EN, "模型整条拒绝应答"),
+])
+def test_both_empty_body_reasons_are_reported(sid, monkeypatch, refusal, want_reason):
+    """两条 reason 都要走通，且归类正确、正文不落盘。"""
+    calls = _stub_stream(monkeypatch, [[refusal], [_GOOD]])
+    _act(sid)
+    assert len(calls) == 2
+    assert want_reason in _blob(calls[1]), "%r 未进重试提示词" % want_reason
+    assert _assistant_texts(sid) == [_GOOD]
+
+
+def test_persistent_refusal_reports_error_and_writes_nothing(sid, monkeypatch):
+    """连拒 REFUSAL_RETRY+1 次：报错误事件、不落盘、不写正文。"""
+    calls = _stub_stream(monkeypatch, [[_REFUSAL_ZH]] * (app_module.REFUSAL_RETRY + 1))
+    events = _act(sid)
+
+    assert len(calls) == app_module.REFUSAL_RETRY + 1
+    errs = [e["error"] for e in events if "error" in e]
+    assert len(errs) == 1 and "已重试" in errs[0], errs
+    assert not [e for e in events if e.get("done")]
+    assert _assistant_texts(sid) == [], "本回合不得写入任何正文"
+
+
+def test_repeat_detection_sees_cleaned_body(sid, monkeypatch):
+    """复读检测的输入必须是净身后、即将落盘的正文（与历史同源），不是原始输出。"""
+    seen = []
+
+    def _capture(text, _hist):
+        seen.append(text)
+        return False, 0.0, ""
+
+    monkeypatch.setattr(director, "detect_narrative_repeat", _capture)
+    _stub_stream(monkeypatch, [[_META_ONLY], [_GOOD]])
+    _act(sid)
+    assert seen == [_GOOD], "检测输入应为最终正文，实际收到 %r" % (seen,)

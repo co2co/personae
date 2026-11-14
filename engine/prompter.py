@@ -408,7 +408,7 @@ def writer_view():
 
 def build_session(cards_present, directive, world_hits, snap,
                   history=None, after_hits=None,
-                  active_consequences=None, demo_hits=None):
+                  active_consequences=None, demo_hits=None, retry_hint=None):
     """多角色沙盘模式（环境推手作为外部导演，不登场）：返回 messages 列表。
 
     cards_present: {名字: 角色卡}（全部为 NPC；环境推手不在场）
@@ -417,6 +417,9 @@ def build_session(cards_present, directive, world_hits, snap,
     snap:          当前快照（来自 memory.load）
     active_consequences: 本轮被触发词激活的旧账文案列表（导演简报 A2 产出，可为空）。
     demo_hits:     写法示范条目，由 app.py 从世界书命中里拆出，渲染为[写法示范]块。
+    retry_hint:    上一版正文被拦下的原因（整条拒答 / 净身后为空）。非空时作为
+                   【上次未通过的原因】注入末尾 user 轮——同一请求原样重打两遍等于
+                   没重试（移植 nsfw 线 c4537c4 的实测结论）。
     """
     # 写手恒定占据 system 第一块（投递位红线，见上方「执笔写手」注释）：它先于世界设定、
     # 角色名册与导演指令——模型在读到任何剧情材料之前，先确定「用谁的手在写」。
@@ -665,20 +668,21 @@ def build_session(cards_present, directive, world_hits, snap,
     # （生成点之前的最后一瞥），以获得 transformer 近因权重——让「当前环境细节」真正起到
     # 「临门一脚、催角色当下行动」的作用，而非被埋在系统块里稀释。before 段（world_hits）
     # 仍留系统块顶部当背景框架。after 命中出现在末尾 user 消息的「【世界设定·当前环境】」块。
+    # 顺序：环境 → 上次未通过的原因 → 导演指令。整条 prompt 的最后一个 token 区域
+    # 必须是「本轮要写什么」，而不是「背景长什么样」——after 命中里会压着上千字的技法
+    # 标准（当前剧本的技法条目就有 1128 字），把【导演指令】推到倒数第二位与本段自己
+    # 声明的「导演指令优先」自相矛盾（2026-10-21 提示词审计）。重试提示排在指令之前：
+    # 它是对上一版的交代，不该顶掉本轮任务的位置。
+    tail = []
     if after_hits:
-        env_block = "【世界设定·当前环境】\n" + "\n".join(
-            "- " + e["content"] for e in after_hits)
-        # 顺序：环境在前、指令在后。整条 prompt 的最后一个 token 区域必须是「本轮要写什么」，
-        # 而不是「背景长什么样」——after 命中里会压着上千字的技法标准（当前剧本的技法条目
-        # 就有 1128 字），旧顺序把【导演指令】推到倒数第二位，与本段自己声明的
-        # 「导演指令优先」自相矛盾（2026-10-21 提示词审计）。
-        if directive:
-            messages.append({"role": "user",
-                             "content": env_block + "\n\n【导演指令】" + directive})
-        else:
-            messages.append({"role": "user", "content": env_block})
-    elif directive:
-        messages.append({"role": "user", "content": "【导演指令】" + directive})
+        tail.append("【世界设定·当前环境】\n" + "\n".join(
+            "- " + e["content"] for e in after_hits))
+    if retry_hint:
+        tail.append("【上次未通过的原因，本次必须修正】\n" + retry_hint)
+    if directive:
+        tail.append("【导演指令】" + directive)
+    if tail:
+        messages.append({"role": "user", "content": "\n\n".join(tail)})
     return messages
 
 
