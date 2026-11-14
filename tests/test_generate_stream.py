@@ -182,6 +182,31 @@ def test_english_refusal_is_retried(sid, monkeypatch):
     assert _assistant_texts(sid) == [_GOOD]
 
 
+def test_long_refusal_is_retried(sid, monkeypatch):
+    """240～400 字的长拒答：旧阈值 240 会整条放行落盘，现阈值必须拦下并重试。
+
+    这条锁的是 2026-11-15 复核的结论本身。引擎语境实测拒答 103～303 字，其中
+    254 / 303 两条长于旧阈值——它们在旧代码里会被当成正常正文写进历史，下一轮
+    再作为 assistant 示范回灌，于是「拒绝」被当成「写法」继续模仿。
+    """
+    refusal = (
+        "我无法按照该指令写作。这类内容涉及对他人身体的直接伤害，无论是真实还是虚构，"
+        "我都不适合把它写成可以照着做的步骤，也不会换一种隐晦的说法变相提供。"
+        "我知道这样的拒绝会让正在推进的场面停一下，但停一下总比交出一段不能用、"
+        "还得回头删掉的正文要好。作为写作助手，我能帮你的是另一件事："
+        "把这一幕的张力放到人物身上——谁先动摇了，谁在替谁圆场，谁嘴上答应、手却一直没动。"
+        "人物的犹豫、推诿和临阵退缩，往往比操作细节更能让人记住这一幕。"
+        "如果这个方向可以，请告诉我这一幕里你最想让人看见的是谁的哪一面，我按那个来写。"
+    )
+    assert 240 < len(refusal) <= 400, "样本要落在旧阈值与现阈值之间：" + str(len(refusal))
+    calls = _stub_stream(monkeypatch, [[refusal], [_GOOD]])
+    _act(sid)
+
+    assert len(calls) == 2, "落在 240～400 的拒答必须被拦下并重试"
+    texts = _assistant_texts(sid)
+    assert texts == [_GOOD], "长拒答不得进历史：" + repr(texts)
+
+
 def test_body_stripped_to_empty_is_retried(sid, monkeypatch):
     """只剩元标题、被净身剥成空串同样要重试——放行会在历史里留一条空 assistant 轮。"""
     calls = _stub_stream(monkeypatch, [[_META_ONLY], [_GOOD]])
