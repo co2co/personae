@@ -617,7 +617,8 @@ def init_relations(cards_present):
         # 额度口径用 cards_present 的人数：本函数没有 present 这个局部名，早先写错成
         # len(present) 会抛 NameError，被外层 except 吞掉——缺口推断因此从未真正调用过模型。
         raw = llm.complete(prompt, max_tokens=max(700, 180 * max(len(cards_present), 4)),
-                           temperature=0.4, timeout=60)
+                           temperature=0.4, timeout=60,
+                           frequency_penalty=0.0, presence_penalty=0.0)
         data = _extract_json(raw)
         if data and isinstance(data.get("relations"), dict):
             llm_rel = {k: v for k, v in data["relations"].items() if v}
@@ -814,7 +815,8 @@ def init_address(snap):
     try:
         # 双向称呼条目数随人数平方增长，给窄了会在半途截断（现已有 _salvage_json 兜底）。
         raw = llm.complete(prompt, max_tokens=max(600, 120 * max(len(present), 4)),
-                           temperature=0.4, timeout=60)
+                           temperature=0.4, timeout=60,
+                           frequency_penalty=0.0, presence_penalty=0.0)
     except Exception:
         return {}
     data = _extract_json(raw)
@@ -984,7 +986,7 @@ def reflect(sid, reply, directive=""):
     ]
     try:
         raw = llm.complete(prompt, max_tokens=REFLECT_MAX_TOKENS, temperature=0.3,
-                           timeout=120)
+                           timeout=120, frequency_penalty=0.0, presence_penalty=0.0)
     except Exception:
         logger.warn("director", "纪官调用失败，本轮状态未回写")
         _log_reflect_failure(sid, (snap.get("scene") or {}).get("round", 0), "call_failed")

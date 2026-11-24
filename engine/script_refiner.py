@@ -220,6 +220,8 @@ def refine_script(script: str, world_name: str | None = None,
         temperature=temperature if temperature is not None else _REFINE_TEMPERATURE,
         max_tokens=max_tokens if max_tokens is not None else _REFINE_MAX_TOKENS,
         timeout=timeout if timeout is not None else _REFINE_TIMEOUT,
+        frequency_penalty=0.0,
+        presence_penalty=0.0,
     )
     raw = extract_json(text)
     return sanitize_refiner(raw)

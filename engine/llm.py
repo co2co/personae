@@ -224,11 +224,15 @@ def _num(value, key, cast):
         return DEFAULTS[key]
 
 
-def _penalty_params(repeat_penalty, repeat_last_n, min_p=None):
+def _penalty_params(repeat_penalty, repeat_last_n, min_p=None,
+                    frequency_penalty=None, presence_penalty=None):
     """重复惩罚（OpenAI 标准字段优先）+ min_p。
 
     ★ 泛用性（v0.22.x）：默认发 frequency_penalty / presence_penalty（OpenAI 官方
     标准字段，所有 OpenAI 兼容后端都支持），repeat_penalty 降为 llama.cpp 特化后备。
+
+    调用方显式传入 frequency_penalty / presence_penalty（如结构化 JSON 通道传 0.0）时
+    优先生效，不读用户全局配置——避免正文防复读的重复惩罚损伤 JSON 重复键名。
 
     只在**偏离中性值**时才发：中性值与各后端缺省行为一致，发过去没有增益，
     却可能被严格校验的网关判为未知参数而 400。
@@ -239,10 +243,12 @@ def _penalty_params(repeat_penalty, repeat_last_n, min_p=None):
     """
     out = {}
     # 标准字段优先：frequency/presence 是所有 OpenAI 兼容后端的共同语言。
-    fp = _num(setting("frequency_penalty"), "frequency_penalty", float)
+    fp_raw = setting("frequency_penalty") if frequency_penalty is None else frequency_penalty
+    fp = _num(fp_raw, "frequency_penalty", float)
     if fp != 0.0:
         out["frequency_penalty"] = fp
-    pp = _num(setting("presence_penalty"), "presence_penalty", float)
+    pp_raw = setting("presence_penalty") if presence_penalty is None else presence_penalty
+    pp = _num(pp_raw, "presence_penalty", float)
     if pp != 0.0:
         out["presence_penalty"] = pp
     # min_p 走独立分支：默认 0.02 非中性，故正常会发送；显式填 0 才不发。
@@ -268,7 +274,8 @@ def _repeat_fallback_params(repeat_penalty, repeat_last_n):
 
 
 def _base_payload(messages, temperature, top_p, max_tokens, top_k, base_model,
-                  repeat_penalty, repeat_last_n, min_p=None):
+                  repeat_penalty, repeat_last_n, min_p=None,
+                  frequency_penalty=None, presence_penalty=None):
     """流式/非流式共用的请求体（采样参数 + 重复惩罚 + 思考开关）。"""
     payload = {
         "model": base_model,
@@ -278,7 +285,8 @@ def _base_payload(messages, temperature, top_p, max_tokens, top_k, base_model,
         "max_tokens": int(max_tokens if max_tokens is not None else setting("max_tokens")),
         "top_k": int(top_k if top_k is not None else setting("top_k")),
     }
-    payload.update(_penalty_params(repeat_penalty, repeat_last_n, min_p))
+    payload.update(_penalty_params(repeat_penalty, repeat_last_n, min_p,
+                                   frequency_penalty, presence_penalty))
     # Qwen3 一类带思考的模型默认会把预算耗在 reasoning 上，content 全是空
     if not setting("enable_thinking"):
         payload["chat_template_kwargs"] = {"enable_thinking": False}
@@ -591,7 +599,8 @@ def stream(messages, temperature=None, top_p=None, max_tokens=None, top_k=None, 
 
 
 def _complete_once(messages, temperature, top_p, max_tokens, top_k, timeout, base_url, api_key, model,
-                   repeat_penalty=None, repeat_last_n=None, min_p=None, stats=None):
+                   repeat_penalty=None, repeat_last_n=None, min_p=None, stats=None,
+                   frequency_penalty=None, presence_penalty=None):
     """单次后端请求（非流式）。失败抛异常。`stats` 见 _stream_once。"""
     url = base_url.rstrip("/") + "/chat/completions"
     if repeat_penalty is None:
@@ -599,7 +608,8 @@ def _complete_once(messages, temperature, top_p, max_tokens, top_k, timeout, bas
     if repeat_last_n is None:
         repeat_last_n = setting("repeat_last_n")
     payload = _base_payload(messages, temperature, top_p, max_tokens, top_k, model,
-                            repeat_penalty, repeat_last_n, min_p)
+                            repeat_penalty, repeat_last_n, min_p,
+                            frequency_penalty, presence_penalty)
     payload["stream"] = False
     headers = {"Content-Type": "application/json"}
     if api_key:
@@ -639,7 +649,8 @@ def _complete_once(messages, temperature, top_p, max_tokens, top_k, timeout, bas
 
 def complete(messages, temperature=None, top_p=None, max_tokens=None, top_k=None, timeout=60,
              base_url=None, api_key=None, model=None,
-             repeat_penalty=None, repeat_last_n=None, min_p=None, stats=None):
+             repeat_penalty=None, repeat_last_n=None, min_p=None, stats=None,
+             frequency_penalty=None, presence_penalty=None):
     """一次性返回完整文本（非流式）。用于场景切换等只需结果、不需逐字流的轻量判定。
 
     单后端直连：只使用主配置（显式传参时覆盖），失败直接抛出异常，不做降级回落。
@@ -648,4 +659,5 @@ def complete(messages, temperature=None, top_p=None, max_tokens=None, top_k=None
     key = api_key if api_key is not None else setting("api_key")
     mdl = model or setting("model")
     return _complete_once(messages, temperature, top_p, max_tokens, top_k, timeout,
-                          bu, key, mdl, repeat_penalty, repeat_last_n, min_p, stats)
+                          bu, key, mdl, repeat_penalty, repeat_last_n, min_p, stats,
+                          frequency_penalty, presence_penalty)

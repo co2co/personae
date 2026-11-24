@@ -62,29 +62,38 @@ def _resolve_recursive(entries, matched, character):
     return matched + ref_plain, ref_secret
 
 
-def scan(entries, history, directive="", default_depth=4, character=None, max_entries=8,
-         include_secret=True, round=0):
-    """返回命中条目，按 priority 从高到低，最多 max_entries 条。
+def _find_unreachable(entries):
+    """找出「已启用、非恒定、非示范、非秘密、空 keys、且未被任何启用条目 #name# 引用」的条目。
 
-    history: 聊天记录文本列表（调用方通常传最近若干条）。
-    directive: 环境推手本轮扰动指令（也参与关键词匹配）。
-    default_depth: 条目未指定 depth 时回看的最近聊天条数。
-    character: 过滤带 character 字段的条目（与在场角色无关的世界书不剧透）；
-               None 表示不过滤（沙盘多角色模式 / 编辑预览均用此值）。
+    这类条目在运行期永远不会命中，但不会报错（静默失效），供预览面板显式提醒使用者。
+    """
+    referenced = set()
+    for e in entries:
+        if not e.get("enabled", True):
+            continue
+        for ref in _NAME_REF.findall(e.get("content", "") or ""):
+            referenced.add(ref.strip())
+    out = []
+    for e in entries:
+        if not e.get("enabled", True):
+            continue
+        if e.get("constant") or e.get("demo") or e.get("secret"):
+            continue
+        keys = [k for k in (e.get("keys") or []) if str(k).strip()]
+        if keys:
+            continue
+        nm = (e.get("name") or "").strip()
+        if nm and nm in referenced:
+            continue
+        out.append(e)
+    return out
 
-    include_secret: 秘密条目（secret）是否参与 max_entries 配额。秘密**不进 prompt**，
-    调用方（app.py）会在 scan 之后把秘密剔除，所以它们默认**不占配额**——否则秘密挤掉
-    真正要注入的设定（实测 8 条里秘密占 3，把「逼近的尸潮」静默挤掉）。
-    命中预览（编辑器）需要看到秘密，故传 True。
 
-    round: 当前回合数（R1 起）。供 first_round 示范条目判断是否仅首轮注入。
+def scan_detail(entries, history, directive="", default_depth=4, character=None, max_entries=8,
+                include_secret=True, round=0):
+    """返回完整扫描明细：hits（命中）、dropped（被配额整条截断）、unreachable（永不命中）、stats（字数统计）。
 
-    写法示范条目（demo，分「开场示范 / 常驻示范」两档）：
-    - demo + first_round：仅首轮（round <= 1）注入，之后不再出现——开场示范。
-    - demo（无 first_round）：持续注入，作为常驻 few-shot 示范——常驻示范。
-    示范条目是「怎么写」的范例，不是「世界是什么」的设定，故用 demo 标志与普通世界
-    设定区分；调用方（app.py）据此把它们从 world_hits 拆出、单独走示范注入通道，
-    放在靠近输出格式段的近因位置，而非混在[世界设定]里稀释。
+    与 scan() 同源：scan() 直接取本函数的 hits，保证预览面板与实际注入逐条一致。
     """
     history = list(history or [])
     matched = []
@@ -121,7 +130,9 @@ def scan(entries, history, directive="", default_depth=4, character=None, max_en
     # 常量条目「无条件纳入」，不受 max_entries 上限约束；上限只作用于关键词命中的非常量条目。
     # （此前把常量与关键词命中混在一个 matched 里再截断，常量条目偏多时会把低优先级常量挤掉。）
     const_out = [e for e in matched if e.get("constant")]
-    kw_out = [e for e in matched if not e.get("constant")][:max_entries]
+    kw_all = [e for e in matched if not e.get("constant")]
+    kw_out = kw_all[:max_entries]
+    kw_dropped = kw_all[max_entries:]
     out = const_out + kw_out
     if include_secret:
         # 预览模式：秘密一并返回（命中到的在前，被引用到的在后），但仍不挤掉设定。
@@ -130,7 +141,31 @@ def scan(entries, history, directive="", default_depth=4, character=None, max_en
     # 由调用方按 demo 字段拆出走示范注入通道。first_round 的轮次过滤已在上面循环处理。
     if demo_out:
         out = out + demo_out
-    return out
+
+    const_chars = sum(len(e.get("content") or "") for e in const_out)
+    dynamic_chars = sum(len(e.get("content") or "") for e in kw_out)
+    return {
+        "hits": out,
+        "dropped": kw_dropped,
+        "unreachable": _find_unreachable(entries),
+        "stats": {
+            "const_chars": const_chars,
+            "dynamic_chars": dynamic_chars,
+            "total_chars": const_chars + dynamic_chars,
+            "max_entries": max_entries,
+            "const_count": len(const_out),
+            "dynamic_count": len(kw_out),
+            "dropped_count": len(kw_dropped),
+        },
+    }
+
+
+def scan(entries, history, directive="", default_depth=4, character=None, max_entries=8,
+         include_secret=True, round=0):
+    """返回命中条目，按 priority 从高到低，最多 max_entries 条（详见 scan_detail）。"""
+    return scan_detail(entries, history, directive=directive, default_depth=default_depth,
+                       character=character, max_entries=max_entries,
+                       include_secret=include_secret, round=round)["hits"]
 
 
 def render(hits):

@@ -408,6 +408,8 @@
   .hit-row .tag{ font-size:11px; font-weight:600; border-radius:6px; padding:1px 6px; margin-right:6px; }
   .hit-row .tag.lore{ color:#1f6f54; background:#e3f3ec; }
   .hit-row .tag.sec{ color:#fff; background:#d6453e; }
+  .hit-row .tag.drop{ color:#9a3412; background:#ffedd5; border:1px solid #fdba74; }
+  .hit-row .tag.warn{ color:#854d0e; background:#fef9c3; border:1px solid #fde047; }
   .hit-empty{ font-size:12.5px; color:var(--muted); }
 
   /* ---------- 运行时日志（右栏常驻，可收起；容器由 #right-rail 提供） ---------- */
@@ -2895,12 +2897,39 @@ document.getElementById('w-test-btn').onclick = async () => {
   const entries = collectWorldEntries();
   const r = await fetch('/api/world/'+encodeURIComponent(name)+'/test', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({entries, history:[text]})}).then(r=>r.json());
   const box = document.getElementById('w-hits');
-  if (!r.hits || !r.hits.length) { box.innerHTML='<div class="hit-empty">无命中（当前文本未触发任何条目）</div>'; return; }
-  box.innerHTML = r.hits.map(h => {
-    const tag = h.secret ? '<span class="tag sec">秘密</span>' : '<span class="tag lore">设定</span>';
-    const who = h.character ? `（${escHtml(h.character)}）` : '';
-    return `<div class="hit-row">${tag}${escHtml((h.keys||[]).join('、'))}${who}<br>${escHtml(h.content)}</div>`;
-  }).join('') + `<div class="hit-empty">共 ${r.hits.length}/${r.total} 条命中（秘密条目命中也不注入 prompt，仅作提醒）</div>`;
+  const hits = r.hits || [];
+  const dropped = r.dropped || [];
+  const unreachable = r.unreachable || [];
+  const st = r.stats || {};
+  const parts = [];
+  if (hits.length) {
+    parts.push(hits.map(h => {
+      const tag = h.secret ? '<span class="tag sec">秘密</span>' : '<span class="tag lore">设定</span>';
+      const who = h.character ? `（${escHtml(h.character)}）` : '';
+      return `<div class="hit-row">${tag}${escHtml((h.keys||[]).join('、') || (h.constant ? '常量' : h.name || ''))}${who}<br>${escHtml(h.content)}</div>`;
+    }).join(''));
+  } else {
+    parts.push('<div class="hit-empty">无命中（当前文本未触发任何条目）</div>');
+  }
+  if (dropped.length) {
+    parts.push(dropped.map(h => {
+      return `<div class="hit-row"><span class="tag drop">配额截断</span>${escHtml((h.keys||[]).join('、') || h.name || '')}<br>${escHtml(h.content)}</div>`;
+    }).join(''));
+  }
+  if (unreachable.length) {
+    parts.push(unreachable.map(h => {
+      const preview = (h.content || '').slice(0, 80);
+      return `<div class="hit-row"><span class="tag warn">永不命中</span>${escHtml(h.name || '未命名条目')}（无触发词且非常量、未被 #name# 引用）<br>${escHtml(preview)}</div>`;
+    }).join(''));
+  }
+  const totalChars = st.total_chars || 0;
+  const estTok = Math.ceil(totalChars / 1.5);
+  const statLine = `共 ${hits.length}/${r.total} 条命中｜注入约 ${totalChars} 字（常量 ${st.const_chars || 0} + 动态 ${st.dynamic_chars || 0}，约 ${estTok} tok）`
+    + (dropped.length ? `｜截断 ${dropped.length} 条（超动态上限 ${st.max_entries || 8}）` : '')
+    + (unreachable.length ? `｜永不命中 ${unreachable.length} 条` : '')
+    + '（秘密条目命中也不注入 prompt，仅作提醒）';
+  parts.push(`<div class="hit-empty">${statLine}</div>`);
+  box.innerHTML = parts.join('');
 };
 
 // ---- 会话管理（剧本管理入口：列出 / 继续 / 放弃） ----

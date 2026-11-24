@@ -74,11 +74,11 @@ def _scene_change_payload(changed, prop, snap):
     }
 
 
-def _worldbook_meta(entries, before_hits, after_hits, secret_hits):
-    """整理世界书命中明细，供日志窗结构化展示（常量 / before / after / 排除秘密）。
+def _worldbook_meta(entries, before_hits, after_hits, secret_hits, dropped=None, stats=None):
+    """整理世界书命中明细，供日志窗结构化展示（常量 / before / after / 排除秘密 / 截断）。
 
     让高级用户直观核对：每条设定是否被正确安放到了预期位置（常量每轮必注入、
-    before 进系统层、after 进历史之后、秘密条目被排除不进 prompt）。
+    before 进系统层、after 进历史之后、秘密条目被排除不进 prompt、超配额条目进入 dropped）。
     """
 
     def _summ(e):
@@ -89,13 +89,17 @@ def _worldbook_meta(entries, before_hits, after_hits, secret_hits):
         }
 
     constants = [e for e in entries if e.get("enabled", True) and e.get("constant")]
-    return {
+    out = {
         "total": len(entries),
         "constants": [_summ(e) for e in constants],
         "before": [_summ(e) for e in before_hits],
         "after": [_summ(e) for e in after_hits],
         "secret_excluded": [_summ(e) for e in secret_hits],
+        "dropped": [_summ(e) for e in (dropped or [])],
     }
+    if stats is not None:
+        out["stats"] = stats
+    return out
 
 
 # ----------------------------------------------------------------------------
@@ -305,9 +309,9 @@ def import_from_script():
 
 @app.post("/api/world/<name>/test")
 def test_world(name):
-    """命中预览：用 world.scan 对给定历史返回会注入的条目（含秘密标记）。
+    """命中预览：用 world.scan_detail 对给定历史返回会注入的条目、被截断条目与永不命中提醒。
 
-    服务两件事：① 编辑器里实时看触发词 / 常量是否 fire；② 调引擎时核对世界书覆盖。
+    服务两件事：① 编辑器里实时看触发词 / 常量是否 fire、是否被配额截断；② 调引擎时核对世界书覆盖。
     history 为文本列表（最近若干条聊天）；也兼容旧式单串 text。
     """
     body = request.get_json(force=True)
@@ -318,9 +322,15 @@ def test_world(name):
     if history is None:
         history = [body.get("text", "")]
     directive = body.get("directive", "")
-    hits = world_mod.scan(entries, history, directive=directive, character=None,
-                          include_secret=True)
-    return jsonify({"hits": hits, "total": len(entries)})
+    detail = world_mod.scan_detail(entries, history, directive=directive, character=None,
+                                   include_secret=True)
+    return jsonify({
+        "hits": detail["hits"],
+        "dropped": detail["dropped"],
+        "unreachable": detail["unreachable"],
+        "stats": detail["stats"],
+        "total": len(entries),
+    })
 
 
 @app.delete("/api/world/<name>")
@@ -643,9 +653,11 @@ def act():
         history = [m.get("content", "") for m in memory.load_chat(sid)[-WORLDBOOK_SCAN_WINDOW:]]
         # include_secret=True：秘密命中仍要返回（供 wb_meta 的「排除秘密」清单与编辑器
         # 预览可见），但 scan 已让它们不占 max_entries 配额，不会挤掉真正注入的设定。
-        hits_all = world_mod.scan(entries, history, directive=directive,
-                                 default_depth=RECENT_FOR_SCAN, character=None,
-                                 include_secret=True, round=brief["round"])
+        scan_res = world_mod.scan_detail(entries, history, directive=directive,
+                                         default_depth=RECENT_FOR_SCAN, character=None,
+                                         include_secret=True, round=brief["round"])
+        hits_all = scan_res["hits"]
+        dropped_hits = scan_res["dropped"]
         # 写法示范条目（demo）单独拆出：它们是「怎么写」的 few-shot 范例，不混入世界设定
         demo_hits = [e for e in hits_all if e.get("demo")]
         world_hits = [e for e in hits_all if not e.get("secret") and not e.get("demo")]
@@ -653,13 +665,16 @@ def act():
         after_hits = [e for e in world_hits if e.get("position", "before") == "after"]
         secret_hits = [e for e in hits_all if e.get("secret")]
 
-        wb_meta = _worldbook_meta(entries, before_hits, after_hits, secret_hits)
+        wb_meta = _worldbook_meta(entries, before_hits, after_hits, secret_hits,
+                                  dropped=dropped_hits, stats=scan_res["stats"])
+        drop_clause = (" ｜ 截断 " + str(len(dropped_hits)) + " 条") if dropped_hits else ""
         logger.info("worldbook",
                     "世界书「" + world_name + "」扫描 " + str(wb_meta["total"]) + " 条："
                     "常量 " + str(len(wb_meta["constants"]))
                     + " ｜ before 命中 " + str(len(wb_meta["before"]))
                     + " ｜ after 命中 " + str(len(wb_meta["after"]))
-                    + " ｜ 排除秘密 " + str(len(wb_meta["secret_excluded"])) + "（不注入 prompt）",
+                    + " ｜ 排除秘密 " + str(len(wb_meta["secret_excluded"])) + "（不注入 prompt）"
+                    + drop_clause,
                     meta=wb_meta)
 
         history = memory.load_chat(sid)
